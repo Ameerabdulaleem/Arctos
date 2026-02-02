@@ -1,0 +1,354 @@
+import { ArrowRight, Zap, Brain, TrendingUp, Bell, BarChart3, Shield, Twitter, Github, Send } from 'lucide-react';
+import arctosLogo from '@/assets/images/arctos-logo.png';
+import { useState } from 'react';
+import { WalletConnectionModal } from './WalletConnectionModal';
+import { EmailAuthModal } from './EmailAuthModal';
+
+interface HomepageProps {
+  onGetStarted: () => void;
+  theme: 'dark' | 'light';
+}
+
+export function Homepage({ onGetStarted, theme }: HomepageProps) {
+  const isDark = theme === 'dark';
+  const [walletModalOpen, setWalletModalOpen] = useState(false);
+  const [emailAuthModalOpen, setEmailAuthModalOpen] = useState(false);
+
+  const features = [
+    {
+      icon: Brain,
+      title: 'AI-Powered Analysis',
+      description: 'Get real-time market insights powered by advanced AI algorithms that analyze trends and patterns.',
+      gradient: 'from-blue-500 to-cyan-500'
+    },
+    {
+      icon: Zap,
+      title: 'Sniper Trading',
+      description: 'Execute lightning-fast trades with our automated sniper bot. Never miss a profitable opportunity.',
+      gradient: 'from-purple-500 to-pink-500'
+    },
+    {
+      icon: TrendingUp,
+      title: 'Whale Tracking',
+      description: 'Monitor large transactions in real-time and follow the smart money with whale alert notifications.',
+      gradient: 'from-green-500 to-emerald-500'
+    },
+    {
+      icon: BarChart3,
+      title: 'Advanced Terminal',
+      description: 'Professional trading interface with real-time charts, order books, and one-click execution.',
+      gradient: 'from-orange-500 to-red-500'
+    },
+    {
+      icon: Bell,
+      title: 'Smart Alerts',
+      description: 'Stay informed with customizable alerts for price movements, whale activities, and market events.',
+      gradient: 'from-yellow-500 to-amber-500'
+    },
+    {
+      icon: Shield,
+      title: 'Secure & Private',
+      description: 'Your data and trades are protected with enterprise-grade security and encryption protocols.',
+      gradient: 'from-indigo-500 to-blue-500'
+    }
+  ];
+
+  const stats = [
+    { value: '$2.5B+', label: 'Trading Volume' },
+    { value: '50K+', label: 'Active Users' },
+    { value: '99.9%', label: 'Uptime' },
+    { value: '<100ms', label: 'Avg Execution' }
+  ];
+
+  return (
+    <div className={`min-h-screen ${isDark ? 'bg-black' : 'bg-white'} relative overflow-hidden`}>
+      {/* Abstract Background Design */}
+      {isDark && (
+        <div className="absolute inset-0 overflow-hidden pointer-events-none">
+          {/* Gradient Orbs */}
+          <div className="absolute top-0 left-1/4 w-96 h-96 bg-blue-500/10 rounded-full blur-3xl"></div>
+          <div className="absolute top-1/4 right-1/4 w-96 h-96 bg-purple-500/10 rounded-full blur-3xl"></div>
+          <div className="absolute bottom-1/4 left-1/3 w-96 h-96 bg-cyan-500/10 rounded-full blur-3xl"></div>
+          
+          {/* Grid Pattern */}
+          <div 
+            className="absolute inset-0 opacity-[0.02]"
+            style={{
+              backgroundImage: `
+                linear-gradient(to right, rgba(255,255,255,0.1) 1px, transparent 1px),
+                linear-gradient(to bottom, rgba(255,255,255,0.1) 1px, transparent 1px)
+              `,
+              backgroundSize: '50px 50px'
+            }}
+          ></div>
+
+          {/* Diagonal Lines */}
+          <svg className="absolute inset-0 w-full h-full opacity-[0.03]" xmlns="http://www.w3.org/2000/svg">
+            <defs>
+              <pattern id="diagonal-lines" width="50" height="50" patternUnits="userSpaceOnUse">
+                <line x1="0" y1="50" x2="50" y2="0" stroke="rgba(255,255,255,0.3)" strokeWidth="1"/>
+              </pattern>
+            </defs>
+            <rect width="100%" height="100%" fill="url(#diagonal-lines)" />
+          </svg>
+
+          {/* Glowing Dots */}
+          <div className="absolute top-1/3 left-1/4 w-2 h-2 bg-blue-400 rounded-full blur-sm opacity-30"></div>
+          <div className="absolute top-2/3 right-1/3 w-2 h-2 bg-purple-400 rounded-full blur-sm opacity-30"></div>
+          <div className="absolute bottom-1/3 left-2/3 w-2 h-2 bg-cyan-400 rounded-full blur-sm opacity-30"></div>
+        </div>
+      )}
+
+      {/* Navigation */}
+      <nav className={`fixed top-0 left-0 right-0 z-50 ${isDark ? 'bg-black/80 border-zinc-800' : 'bg-white/80 border-gray-200'} backdrop-blur-lg border-b`}>
+        <div className="max-w-7xl mx-auto px-6 py-4 flex items-center justify-between">
+          <div className="flex items-center gap-3">
+            <img src={arctosLogo} alt="Arctos" className="w-12 h-12 object-contain" />
+            <span className={`text-2xl font-bold ${isDark ? 'text-white' : 'text-gray-900'}`}>Arctos</span>
+          </div>
+          
+          <div className="hidden md:flex items-center gap-8">
+            <a href="#features" className={`${isDark ? 'text-zinc-400 hover:text-white' : 'text-gray-600 hover:text-gray-900'} transition-colors`}>
+              Features
+            </a>
+            <a href="#about" className={`${isDark ? 'text-zinc-400 hover:text-white' : 'text-gray-600 hover:text-gray-900'} transition-colors`}>
+              About
+            </a>
+            <a href="#contact" className={`${isDark ? 'text-zinc-400 hover:text-white' : 'text-gray-600 hover:text-gray-900'} transition-colors`}>
+              Contact
+            </a>
+            <button
+              onClick={() => setEmailAuthModalOpen(true)}
+              className="px-6 py-2 bg-zinc-800 text-white rounded-lg hover:bg-zinc-700 transition-colors font-medium border border-zinc-700"
+            >
+              Sign In
+            </button>
+            <button
+              onClick={() => setWalletModalOpen(true)}
+              className="px-6 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors font-medium"
+            >
+              Connect Wallet
+            </button>
+            <button
+              onClick={onGetStarted}
+              className="px-6 py-2 bg-gradient-to-r from-blue-600 to-purple-600 text-white rounded-lg hover:from-blue-700 hover:to-purple-700 transition-colors font-medium"
+            >
+              Launch App
+            </button>
+          </div>
+        </div>
+      </nav>
+
+      {/* Hero Section */}
+      <section className="pt-32 pb-20 px-6">
+        <div className="max-w-7xl mx-auto">
+          <div className="text-center max-w-4xl mx-auto">
+            {/* Logo */}
+            <div className="mb-8 flex justify-center">
+              <div className={`p-6 rounded-3xl ${isDark ? 'bg-zinc-900' : 'bg-gray-100'}`}>
+                <img src={arctosLogo} alt="Arctos" className="w-32 h-32 object-contain" />
+              </div>
+            </div>
+
+            {/* Main Headline */}
+            <h1 className={`text-5xl md:text-7xl font-bold mb-6 ${isDark ? 'text-white' : 'text-gray-900'}`}>
+              Dex Trading Evolved:{' '}
+              <span className="bg-gradient-to-r from-blue-500 to-purple-600 bg-clip-text text-transparent">
+                Where AI Meets Blockchain
+              </span>
+            </h1>
+
+            {/* Sub-headline */}
+            <p className={`text-xl md:text-2xl mb-10 ${isDark ? 'text-zinc-400' : 'text-gray-600'}`}>
+              Arctos makes trading faster, smarter, and more accessible. Track whales, execute instantly, win consistently.
+            </p>
+
+            {/* CTA Button */}
+            <button
+              onClick={onGetStarted}
+              className="group px-8 py-4 bg-gradient-to-r from-blue-600 to-purple-600 text-white rounded-xl hover:from-blue-700 hover:to-purple-700 transition-all font-bold text-lg flex items-center gap-3 mx-auto shadow-lg shadow-blue-500/50"
+            >
+              Get Started
+              <ArrowRight className="w-5 h-5 group-hover:translate-x-1 transition-transform" />
+            </button>
+
+            {/* Stats */}
+            <div className="grid grid-cols-2 md:grid-cols-4 gap-8 mt-20">
+              {stats.map((stat, index) => (
+                <div key={index} className={`p-6 rounded-2xl ${isDark ? 'bg-zinc-900 border border-zinc-800' : 'bg-gray-50 border border-gray-200'}`}>
+                  <div className={`text-3xl font-bold mb-2 ${isDark ? 'text-white' : 'text-gray-900'}`}>{stat.value}</div>
+                  <div className={`${isDark ? 'text-zinc-400' : 'text-gray-600'}`}>{stat.label}</div>
+                </div>
+              ))}
+            </div>
+          </div>
+        </div>
+      </section>
+
+      {/* Features Section */}
+      <section id="features" className={`py-20 px-6 ${isDark ? 'bg-zinc-950' : 'bg-gray-50'}`}>
+        <div className="max-w-7xl mx-auto">
+          <div className="text-center mb-16">
+            <h2 className={`text-4xl md:text-5xl font-bold mb-4 ${isDark ? 'text-white' : 'text-gray-900'}`}>
+              Powerful Features
+            </h2>
+            <p className={`text-xl ${isDark ? 'text-zinc-400' : 'text-gray-600'}`}>
+              Everything you need to dominate the crypto market
+            </p>
+          </div>
+
+          <div className="grid md:grid-cols-2 lg:grid-cols-3 gap-8">
+            {features.map((feature, index) => {
+              const Icon = feature.icon;
+              return (
+                <div
+                  key={index}
+                  className={`p-8 rounded-2xl ${isDark ? 'bg-zinc-900 border border-zinc-800 hover:border-zinc-700' : 'bg-white border border-gray-200 hover:border-gray-300'} transition-all hover:shadow-xl group`}
+                >
+                  <div className={`w-14 h-14 rounded-xl bg-gradient-to-br ${feature.gradient} flex items-center justify-center mb-6 group-hover:scale-110 transition-transform`}>
+                    <Icon className="w-7 h-7 text-white" />
+                  </div>
+                  <h3 className={`text-xl font-bold mb-3 ${isDark ? 'text-white' : 'text-gray-900'}`}>
+                    {feature.title}
+                  </h3>
+                  <p className={`${isDark ? 'text-zinc-400' : 'text-gray-600'} leading-relaxed`}>
+                    {feature.description}
+                  </p>
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      </section>
+
+      {/* About Section */}
+      <section id="about" className="py-20 px-6">
+        <div className="max-w-7xl mx-auto">
+          <div className="grid md:grid-cols-2 gap-12 items-center">
+            <div>
+              <h2 className={`text-4xl md:text-5xl font-bold mb-6 ${isDark ? 'text-white' : 'text-gray-900'}`}>
+                Built for Professional Traders
+              </h2>
+              <p className={`text-lg mb-6 ${isDark ? 'text-zinc-400' : 'text-gray-600'}`}>
+                Arctos combines cutting-edge artificial intelligence with blockchain technology to deliver the ultimate trading experience. Our platform is designed for traders who demand speed, accuracy, and reliability.
+              </p>
+              <p className={`text-lg mb-6 ${isDark ? 'text-zinc-400' : 'text-gray-600'}`}>
+                Whether you're a seasoned pro or just starting out, Arctos provides the tools and insights you need to make informed trading decisions and maximize your profits.
+              </p>
+              <button
+                onClick={onGetStarted}
+                className="px-8 py-3 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors font-medium"
+              >
+                Start Trading Now
+              </button>
+            </div>
+            <div className={`p-8 rounded-2xl ${isDark ? 'bg-zinc-900' : 'bg-gray-100'}`}>
+              <img src={arctosLogo} alt="Arctos Platform" className="w-full h-auto object-contain" />
+            </div>
+          </div>
+        </div>
+      </section>
+
+      {/* CTA Section */}
+      <section className={`py-20 px-6 ${isDark ? 'bg-zinc-950' : 'bg-gray-50'}`}>
+        <div className="max-w-4xl mx-auto text-center">
+          <h2 className={`text-4xl md:text-5xl font-bold mb-6 ${isDark ? 'text-white' : 'text-gray-900'}`}>
+            Ready to Start Trading?
+          </h2>
+          <p className={`text-xl mb-10 ${isDark ? 'text-zinc-400' : 'text-gray-600'}`}>
+            Join thousands of traders who are already winning with Arctos
+          </p>
+          <button
+            onClick={onGetStarted}
+            className="group px-10 py-5 bg-gradient-to-r from-blue-600 to-purple-600 text-white rounded-xl hover:from-blue-700 hover:to-purple-700 transition-all font-bold text-xl flex items-center gap-3 mx-auto shadow-lg shadow-blue-500/50"
+          >
+            Get Started Free
+            <ArrowRight className="w-6 h-6 group-hover:translate-x-1 transition-transform" />
+          </button>
+        </div>
+      </section>
+
+      {/* Footer */}
+      <footer id="contact" className={`py-12 px-6 ${isDark ? 'bg-black border-t border-zinc-800' : 'bg-white border-t border-gray-200'}`}>
+        <div className="max-w-7xl mx-auto">
+          <div className="grid md:grid-cols-4 gap-12 mb-12">
+            {/* Brand */}
+            <div className="md:col-span-2">
+              <div className="flex items-center gap-3 mb-4">
+                <img src={arctosLogo} alt="Arctos" className="w-12 h-12 object-contain" />
+                <span className={`text-2xl font-bold ${isDark ? 'text-white' : 'text-gray-900'}`}>Arctos</span>
+              </div>
+              <p className={`mb-6 ${isDark ? 'text-zinc-400' : 'text-gray-600'}`}>
+                The next generation DEX trading platform powered by AI and blockchain technology.
+              </p>
+              <div className="flex gap-4">
+                <a
+                  href="https://twitter.com/arctos"
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className={`w-10 h-10 rounded-lg ${isDark ? 'bg-zinc-900 hover:bg-zinc-800' : 'bg-gray-100 hover:bg-gray-200'} flex items-center justify-center transition-colors`}
+                >
+                  <Twitter className={`w-5 h-5 ${isDark ? 'text-zinc-400' : 'text-gray-600'}`} />
+                </a>
+                <a
+                  href="https://github.com/arctos"
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className={`w-10 h-10 rounded-lg ${isDark ? 'bg-zinc-900 hover:bg-zinc-800' : 'bg-gray-100 hover:bg-gray-200'} flex items-center justify-center transition-colors`}
+                >
+                  <Github className={`w-5 h-5 ${isDark ? 'text-zinc-400' : 'text-gray-600'}`} />
+                </a>
+                <a
+                  href="https://t.me/arctos"
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className={`w-10 h-10 rounded-lg ${isDark ? 'bg-zinc-900 hover:bg-zinc-800' : 'bg-gray-100 hover:bg-gray-200'} flex items-center justify-center transition-colors`}
+                >
+                  <Send className={`w-5 h-5 ${isDark ? 'text-zinc-400' : 'text-gray-600'}`} />
+                </a>
+              </div>
+            </div>
+
+            {/* Links */}
+            <div>
+              <h3 className={`font-bold mb-4 ${isDark ? 'text-white' : 'text-gray-900'}`}>Product</h3>
+              <ul className="space-y-2">
+                <li><a href="#features" className={`${isDark ? 'text-zinc-400 hover:text-white' : 'text-gray-600 hover:text-gray-900'} transition-colors`}>Features</a></li>
+                <li><a href="#" className={`${isDark ? 'text-zinc-400 hover:text-white' : 'text-gray-600 hover:text-gray-900'} transition-colors`}>Pricing</a></li>
+                <li><a href="#" className={`${isDark ? 'text-zinc-400 hover:text-white' : 'text-gray-600 hover:text-gray-900'} transition-colors`}>Roadmap</a></li>
+                <li><a href="#" className={`${isDark ? 'text-zinc-400 hover:text-white' : 'text-gray-600 hover:text-gray-900'} transition-colors`}>Documentation</a></li>
+              </ul>
+            </div>
+
+            {/* Company */}
+            <div>
+              <h3 className={`font-bold mb-4 ${isDark ? 'text-white' : 'text-gray-900'}`}>Company</h3>
+              <ul className="space-y-2">
+                <li><a href="#about" className={`${isDark ? 'text-zinc-400 hover:text-white' : 'text-gray-600 hover:text-gray-900'} transition-colors`}>About</a></li>
+                <li><a href="#" className={`${isDark ? 'text-zinc-400 hover:text-white' : 'text-gray-600 hover:text-gray-900'} transition-colors`}>Blog</a></li>
+                <li><a href="#" className={`${isDark ? 'text-zinc-400 hover:text-white' : 'text-gray-600 hover:text-gray-900'} transition-colors`}>Careers</a></li>
+                <li><a href="#contact" className={`${isDark ? 'text-zinc-400 hover:text-white' : 'text-gray-600 hover:text-gray-900'} transition-colors`}>Contact</a></li>
+              </ul>
+            </div>
+          </div>
+
+          {/* Bottom Bar */}
+          <div className={`pt-8 border-t ${isDark ? 'border-zinc-800' : 'border-gray-200'} flex flex-col md:flex-row justify-between items-center gap-4`}>
+            <p className={`${isDark ? 'text-zinc-400' : 'text-gray-600'}`}>
+              © 2026 Arctos. All rights reserved.
+            </p>
+            <div className="flex gap-6">
+              <a href="#" className={`${isDark ? 'text-zinc-400 hover:text-white' : 'text-gray-600 hover:text-gray-900'} transition-colors`}>Privacy Policy</a>
+              <a href="#" className={`${isDark ? 'text-zinc-400 hover:text-white' : 'text-gray-600 hover:text-gray-900'} transition-colors`}>Terms of Service</a>
+              <a href="#" className={`${isDark ? 'text-zinc-400 hover:text-white' : 'text-gray-600 hover:text-gray-900'} transition-colors`}>Cookie Policy</a>
+            </div>
+          </div>
+        </div>
+      </footer>
+
+      {/* Auth Modals */}
+      <WalletConnectionModal open={walletModalOpen} onOpenChange={setWalletModalOpen} />
+      <EmailAuthModal open={emailAuthModalOpen} onOpenChange={setEmailAuthModalOpen} />
+    </div>
+  );
+}
