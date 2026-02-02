@@ -1,35 +1,78 @@
-import { useState } from 'react'
-import reactLogo from './assets/react.svg'
-import viteLogo from '/vite.svg'
-import './App.css'
+import { useState, useEffect } from 'react';
+import { Sidebar } from './components/Sidebar';
+import { DashboardView } from './components/DashboardView';
+import { TradingTerminal } from './components/TradingTerminal';
+import { SniperPanel } from './components/SniperPanel';
+import { WhaleAlert } from './components/WhaleAlert';
+import { AIChat } from './components/AIChat';
+import { Settings } from './components/Settings';
+import { Homepage } from './components/Homepage';
+import { TradeBook } from './components/TradeBook';
+import { FundamentalNews } from './components/FundamentalNews';
+import { AuthProvider } from './contexts/AuthContext';
+import { Toaster } from './components/ui/sonner';
 
-function App() {
-  const [count, setCount] = useState(0)
+export default function App() {
+  const [showHomepage, setShowHomepage] = useState(true);
+  const [activeView, setActiveView] = useState('dashboard');
+  const [theme, setTheme] = useState<'dark' | 'light'>('dark');
+  const [language, setLanguage] = useState('en');
+
+  // Apply theme to document
+  useEffect(() => {
+    if (theme === 'light') {
+      document.documentElement.classList.add('light-mode');
+    } else {
+      document.documentElement.classList.remove('light-mode');
+    }
+  }, [theme]);
+
+  const handleGetStarted = () => {
+    setShowHomepage(false);
+  };
+
+  // Show homepage first
+  if (showHomepage) {
+    return (
+      <AuthProvider>
+        <Homepage onGetStarted={handleGetStarted} theme={theme} />
+        <Toaster theme={theme === 'dark' ? 'dark' : 'light'} />
+      </AuthProvider>
+    );
+  }
+
+  const renderView = () => {
+    switch (activeView) {
+      case 'dashboard':
+        return <DashboardView />;
+      case 'trading':
+        return <TradingTerminal />;
+      case 'sniper':
+        return <SniperPanel />;
+      case 'whale':
+        return <WhaleAlert />;
+      case 'chat':
+        return <AIChat />;
+      case 'tradebook':
+        return <TradeBook />;
+      case 'news':
+        return <FundamentalNews />;
+      case 'settings':
+        return <Settings theme={theme} setTheme={setTheme} language={language} setLanguage={setLanguage} />;
+      default:
+        return <DashboardView />;
+    }
+  };
 
   return (
-    <>
-      <div>
-        <a href="https://vite.dev" target="_blank">
-          <img src={viteLogo} className="logo" alt="Vite logo" />
-        </a>
-        <a href="https://react.dev" target="_blank">
-          <img src={reactLogo} className="logo react" alt="React logo" />
-        </a>
+    <AuthProvider>
+      <div className={`size-full flex ${theme === 'dark' ? 'bg-black' : 'bg-white'}`}>
+        <Sidebar activeView={activeView} setActiveView={setActiveView} theme={theme} />
+        <main className="flex-1 overflow-auto">
+          {renderView()}
+        </main>
       </div>
-      <h1>Vite + React</h1>
-      <div className="card">
-        <button onClick={() => setCount((count) => count + 1)}>
-          count is {count}
-        </button>
-        <p>
-          Edit <code>src/App.tsx</code> and save to test HMR
-        </p>
-      </div>
-      <p className="read-the-docs">
-        Click on the Vite and React logos to learn more
-      </p>
-    </>
-  )
+      <Toaster theme={theme === 'dark' ? 'dark' : 'light'} />
+    </AuthProvider>
+  );
 }
-
-export default App
