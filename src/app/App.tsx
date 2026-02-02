@@ -6,7 +6,7 @@ import { SniperPanel } from './components/SniperPanel';
 import { WhaleAlert } from './components/WhaleAlert';
 import { AIChat } from './components/AIChat';
 import { Settings } from './components/Settings';
-import { Homepage } from './components/Homepage';
+import { Homepage } from '../components/Homepage';
 import { TradeBook } from './components/TradeBook';
 import { FundamentalNews } from './components/FundamentalNews';
 import { AuthProvider } from './contexts/AuthContext';
