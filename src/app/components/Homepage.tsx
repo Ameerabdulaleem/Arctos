@@ -1,8 +1,7 @@
-import { ArrowRight, Zap, Brain, TrendingUp, Bell, BarChart3, Shield, Twitter, Github, Send } from 'lucide-react';
-const arctosLogo = "https://placehold.co/600x400/1e40af/ffffff?text=ARCTOS+LOGO";
+import { ArrowRight, Zap, Brain, TrendingUp, Bell, BarChart3, Shield, Twitter, Github, Send, CheckCircle, Sparkles, Rocket, Eye, AlertTriangle, Lock, Gauge } from 'lucide-react';
 import { useState } from 'react';
-import { WalletConnectionModal } from './WalletConnectionModal';
-import { EmailAuthModal } from './EmailAuthModal';
+import { WaitlistModal } from './WaitlistModal';
+import arctosLogo from '../../assets/images/arctos-logo.png.png';
 
 interface HomepageProps {
   onGetStarted: () => void;
@@ -11,42 +10,78 @@ interface HomepageProps {
 
 export function Homepage({ onGetStarted, theme }: HomepageProps) {
   const isDark = theme === 'dark';
-  const [walletModalOpen, setWalletModalOpen] = useState(false);
-  const [emailAuthModalOpen, setEmailAuthModalOpen] = useState(false);
+  const [waitlistModalOpen, setWaitlistModalOpen] = useState(false);
+  const [hasJoinedWaitlist, setHasJoinedWaitlist] = useState(false);
+  const [inlineEmail, setInlineEmail] = useState('');
+  const [inlineSubmitting, setInlineSubmitting] = useState(false);
+  const [inlineSuccess, setInlineSuccess] = useState(false);
+
+  // Check if user has already joined the waitlist
+  useState(() => {
+    const waitlist = JSON.parse(localStorage.getItem('arctos-waitlist') || '[]');
+    setHasJoinedWaitlist(waitlist.length > 0);
+  });
+
+  const handleInlineSubmit = (e: React.FormEvent) => {
+    e.preventDefault();
+    
+    if (!inlineEmail || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(inlineEmail)) {
+      return;
+    }
+
+    setInlineSubmitting(true);
+
+    // Simulate API call
+    setTimeout(() => {
+      const waitlist = JSON.parse(localStorage.getItem('arctos-waitlist') || '[]');
+      waitlist.push({
+        email: inlineEmail,
+        timestamp: new Date().toISOString(),
+        position: waitlist.length + 1
+      });
+      localStorage.setItem('arctos-waitlist', JSON.stringify(waitlist));
+      
+      setInlineSubmitting(false);
+      setInlineSuccess(true);
+      setInlineEmail('');
+      
+      setTimeout(() => setInlineSuccess(false), 5000);
+    }, 1000);
+  };
 
   const features = [
     {
-      icon: Brain,
+      icon: Sparkles,
       title: 'AI-Powered Analysis',
       description: 'Get real-time market insights powered by advanced AI algorithms that analyze trends and patterns.',
       gradient: 'from-blue-500 to-cyan-500'
     },
     {
-      icon: Zap,
+      icon: Rocket,
       title: 'Sniper Trading',
       description: 'Execute lightning-fast trades with our automated sniper bot. Never miss a profitable opportunity.',
       gradient: 'from-purple-500 to-pink-500'
     },
     {
-      icon: TrendingUp,
+      icon: Eye,
       title: 'Whale Tracking',
       description: 'Monitor large transactions in real-time and follow the smart money with whale alert notifications.',
       gradient: 'from-green-500 to-emerald-500'
     },
     {
-      icon: BarChart3,
+      icon: Gauge,
       title: 'Advanced Terminal',
       description: 'Professional trading interface with real-time charts, order books, and one-click execution.',
       gradient: 'from-orange-500 to-red-500'
     },
     {
-      icon: Bell,
+      icon: AlertTriangle,
       title: 'Smart Alerts',
       description: 'Stay informed with customizable alerts for price movements, whale activities, and market events.',
       gradient: 'from-yellow-500 to-amber-500'
     },
     {
-      icon: Shield,
+      icon: Lock,
       title: 'Secure & Private',
       description: 'Your data and trades are protected with enterprise-grade security and encryption protocols.',
       gradient: 'from-indigo-500 to-blue-500'
@@ -103,7 +138,7 @@ export function Homepage({ onGetStarted, theme }: HomepageProps) {
       <nav className={`fixed top-0 left-0 right-0 z-50 ${isDark ? 'bg-black/80 border-zinc-800' : 'bg-white/80 border-gray-200'} backdrop-blur-lg border-b`}>
         <div className="max-w-7xl mx-auto px-6 py-4 flex items-center justify-between">
           <div className="flex items-center gap-3">
-            <img src={arctosLogo} alt="Arctos" className="w-12 h-12 object-contain" />
+            <img src={arctosLogo} alt="Arctos" className="w-12 h-12 object-contain drop-shadow-lg" />
             <span className={`text-2xl font-bold ${isDark ? 'text-white' : 'text-gray-900'}`}>Arctos</span>
           </div>
           
@@ -118,16 +153,10 @@ export function Homepage({ onGetStarted, theme }: HomepageProps) {
               Contact
             </a>
             <button
-              onClick={() => setEmailAuthModalOpen(true)}
+              onClick={() => setWaitlistModalOpen(true)}
               className="px-6 py-2 bg-zinc-800 text-white rounded-lg hover:bg-zinc-700 transition-colors font-medium border border-zinc-700"
             >
               Sign In
-            </button>
-            <button
-              onClick={() => setWalletModalOpen(true)}
-              className="px-6 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors font-medium"
-            >
-              Connect Wallet
             </button>
             <button
               onClick={onGetStarted}
@@ -143,11 +172,18 @@ export function Homepage({ onGetStarted, theme }: HomepageProps) {
       <section className="pt-32 pb-20 px-6">
         <div className="max-w-7xl mx-auto">
           <div className="text-center max-w-4xl mx-auto">
+            {/* Coming Soon Badge */}
+            <div className="mb-6 flex justify-center">
+              <div className="px-6 py-2 rounded-full bg-gradient-to-r from-blue-600/20 to-purple-600/20 border border-blue-500/30">
+                <span className="text-sm font-semibold bg-gradient-to-r from-blue-400 to-purple-400 bg-clip-text text-transparent">
+                  🚀 Coming Soon
+                </span>
+              </div>
+            </div>
+
             {/* Logo */}
             <div className="mb-8 flex justify-center">
-              <div className={`p-6 rounded-3xl ${isDark ? 'bg-zinc-900' : 'bg-gray-100'}`}>
-                <img src={arctosLogo} alt="Arctos" className="w-32 h-32 object-contain" />
-              </div>
+              <img src={arctosLogo} alt="Arctos" className="w-40 h-40 object-contain drop-shadow-2xl" />
             </div>
 
             {/* Main Headline */}
@@ -172,6 +208,41 @@ export function Homepage({ onGetStarted, theme }: HomepageProps) {
               <ArrowRight className="w-5 h-5 group-hover:translate-x-1 transition-transform" />
             </button>
 
+            {/* Inline Email Form for Early Access */}
+            <div className="mt-8">
+              <p className={`text-sm mb-4 ${isDark ? 'text-zinc-500' : 'text-gray-500'}`}>
+                Or join our waitlist for early access
+              </p>
+              {inlineSuccess ? (
+                <div className="flex items-center justify-center gap-2 text-green-500">
+                  <CheckCircle className="w-5 h-5" />
+                  <span className="font-medium">You're on the waitlist! Check your email.</span>
+                </div>
+              ) : (
+                <form onSubmit={handleInlineSubmit} className="flex flex-col sm:flex-row gap-3 max-w-md mx-auto">
+                  <input
+                    type="email"
+                    value={inlineEmail}
+                    onChange={(e) => setInlineEmail(e.target.value)}
+                    placeholder="Enter your email"
+                    className={`flex-1 px-6 py-3 rounded-lg border ${
+                      isDark 
+                        ? 'bg-zinc-900 border-zinc-800 text-white placeholder-zinc-500 focus:border-blue-500' 
+                        : 'bg-white border-gray-300 text-gray-900 placeholder-gray-400 focus:border-blue-500'
+                    } focus:outline-none focus:ring-2 focus:ring-blue-500/20 transition-colors`}
+                    disabled={inlineSubmitting}
+                  />
+                  <button
+                    type="submit"
+                    disabled={inlineSubmitting}
+                    className="px-6 py-3 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors font-medium disabled:opacity-50 disabled:cursor-not-allowed whitespace-nowrap"
+                  >
+                    {inlineSubmitting ? 'Joining...' : 'Join Waitlist'}
+                  </button>
+                </form>
+              )}
+            </div>
+
             {/* Stats */}
             <div className="grid grid-cols-2 md:grid-cols-4 gap-8 mt-20">
               {stats.map((stat, index) => (
@@ -186,8 +257,15 @@ export function Homepage({ onGetStarted, theme }: HomepageProps) {
       </section>
 
       {/* Features Section */}
-      <section id="features" className={`py-20 px-6 ${isDark ? 'bg-zinc-950' : 'bg-gray-50'}`}>
-        <div className="max-w-7xl mx-auto">
+      <section id="features" className={`py-20 px-6 ${isDark ? 'bg-zinc-950' : 'bg-gray-50'} relative overflow-hidden`}>
+        {/* Animated Background */}
+        <div className="absolute inset-0 opacity-40">
+          <div className="absolute top-20 left-10 w-72 h-72 bg-blue-500 rounded-full mix-blend-multiply filter blur-3xl animate-blob opacity-20"></div>
+          <div className="absolute top-40 right-10 w-72 h-72 bg-purple-500 rounded-full mix-blend-multiply filter blur-3xl animate-blob opacity-20 animation-delay-2000"></div>
+          <div className="absolute -bottom-8 left-1/2 w-72 h-72 bg-pink-500 rounded-full mix-blend-multiply filter blur-3xl animate-blob opacity-20 animation-delay-4000"></div>
+        </div>
+
+        <div className="max-w-7xl mx-auto relative z-10">
           <div className="text-center mb-16">
             <h2 className={`text-4xl md:text-5xl font-bold mb-4 ${isDark ? 'text-white' : 'text-gray-900'}`}>
               Powerful Features
@@ -203,17 +281,35 @@ export function Homepage({ onGetStarted, theme }: HomepageProps) {
               return (
                 <div
                   key={index}
-                  className={`p-8 rounded-2xl ${isDark ? 'bg-zinc-900 border border-zinc-800 hover:border-zinc-700' : 'bg-white border border-gray-200 hover:border-gray-300'} transition-all hover:shadow-xl group`}
+                  className={`relative group p-8 rounded-2xl ${isDark ? 'bg-zinc-900/80 border border-zinc-800' : 'bg-white/80 border border-gray-200'} backdrop-blur-sm transition-all duration-500 hover:shadow-2xl hover:border-transparent`}
+                  style={{
+                    animation: `slideUp 0.6s ease-out ${index * 0.1}s both`
+                  }}
                 >
-                  <div className={`w-14 h-14 rounded-xl bg-gradient-to-br ${feature.gradient} flex items-center justify-center mb-6 group-hover:scale-110 transition-transform`}>
-                    <Icon className="w-7 h-7 text-white" />
+                  {/* Gradient Border Effect */}
+                  <div className={`absolute inset-0 rounded-2xl opacity-0 group-hover:opacity-100 transition-all duration-500 bg-gradient-to-r ${feature.gradient} -z-10 blur-xl`}></div>
+                  
+                  {/* Background Glow */}
+                  <div className={`absolute inset-0 rounded-2xl ${isDark ? 'bg-zinc-900/80' : 'bg-white/80'} backdrop-blur-sm -z-10`}></div>
+
+                  {/* Icon Container with Animation */}
+                  <div className={`w-16 h-16 rounded-2xl bg-gradient-to-br ${feature.gradient} flex items-center justify-center mb-6 group-hover:scale-125 group-hover:rotate-12 transition-all duration-500 shadow-lg`}>
+                    <Icon className="w-8 h-8 text-white animate-pulse group-hover:animate-none" />
                   </div>
-                  <h3 className={`text-xl font-bold mb-3 ${isDark ? 'text-white' : 'text-gray-900'}`}>
+
+                  {/* Content */}
+                  <h3 className={`text-xl font-bold mb-3 ${isDark ? 'text-white' : 'text-gray-900'} group-hover:text-transparent group-hover:bg-clip-text group-hover:bg-gradient-to-r ${feature.gradient} transition-all duration-300`}>
                     {feature.title}
                   </h3>
-                  <p className={`${isDark ? 'text-zinc-400' : 'text-gray-600'} leading-relaxed`}>
+                  <p className={`${isDark ? 'text-zinc-400' : 'text-gray-600'} leading-relaxed group-hover:${isDark ? 'text-zinc-300' : 'text-gray-700'} transition-colors`}>
                     {feature.description}
                   </p>
+
+                  {/* Hover Indicator */}
+                  <div className={`mt-6 flex items-center gap-2 ${isDark ? 'text-cyan-400' : 'text-blue-600'} opacity-0 group-hover:opacity-100 transition-all duration-500 transform group-hover:translate-x-2`}>
+                    <span className="text-sm font-semibold">Learn more</span>
+                    <ArrowRight size={16} className="group-hover:animate-bounce" />
+                  </div>
                 </div>
               );
             })}
@@ -275,7 +371,7 @@ export function Homepage({ onGetStarted, theme }: HomepageProps) {
             {/* Brand */}
             <div className="md:col-span-2">
               <div className="flex items-center gap-3 mb-4">
-                <img src={arctosLogo} alt="Arctos" className="w-12 h-12 object-contain" />
+                <div className="w-12 h-12 bg-blue-600 rounded-lg flex items-center justify-center text-white font-bold">A</div>
                 <span className={`text-2xl font-bold ${isDark ? 'text-white' : 'text-gray-900'}`}>Arctos</span>
               </div>
               <p className={`mb-6 ${isDark ? 'text-zinc-400' : 'text-gray-600'}`}>
@@ -347,8 +443,7 @@ export function Homepage({ onGetStarted, theme }: HomepageProps) {
       </footer>
 
       {/* Auth Modals */}
-      <WalletConnectionModal open={walletModalOpen} onOpenChange={setWalletModalOpen} />
-      <EmailAuthModal open={emailAuthModalOpen} onOpenChange={setEmailAuthModalOpen} />
+      <WaitlistModal isOpen={waitlistModalOpen} onClose={() => setWaitlistModalOpen(false)} theme={theme} />
     </div>
   );
 }

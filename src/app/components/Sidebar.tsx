@@ -47,7 +47,7 @@ export function Sidebar({ activeView, setActiveView, theme }: SidebarProps) {
           <img 
             src="https://placehold.co/600x400/1e40af/ffffff?text=ARCTOS+LOGO" 
             alt="Arctos" 
-            className="w-14 h-14 object-contain rounded-lg" 
+            className="w-14 h-14 object-contain drop-shadow-lg" 
           />
           Arctos
         </h1>

@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-// Keep ALL imports - we'll create stub components for the ones we haven't built yet
+import { ArrowLeft } from 'lucide-react';
 import { Sidebar } from './components/Sidebar';
 import { DashboardView } from './components/DashboardView';
 import { TradingTerminal } from './components/TradingTerminal';
@@ -12,15 +12,15 @@ import { TradeBook } from './components/TradeBook';
 import { FundamentalNews } from './components/FundamentalNews';
 import { AuthProvider } from './contexts/AuthContext';
 import { Toaster } from './components/ui/sonner';
-
-// Development flag - set to true to show only homepage
-const DEV_MODE = true; // Change to false when all components are ready
+import { WaitlistModal } from './components/WaitlistModal';
+import { toast } from 'sonner';
 
 export default function App() {
   const [showHomepage, setShowHomepage] = useState(true);
   const [activeView, setActiveView] = useState('dashboard');
   const [theme, setTheme] = useState<'dark' | 'light'>('dark');
   const [language, setLanguage] = useState('en');
+  const [waitlistModalOpen, setWaitlistModalOpen] = useState(false);
 
   // Apply theme to document
   useEffect(() => {
@@ -31,16 +31,43 @@ export default function App() {
     }
   }, [theme]);
 
+  // Developer bypass: Hold Shift and press D three times to bypass waitlist
+  useEffect(() => {
+    let shiftDCount = 0;
+    let timeout: NodeJS.Timeout;
+
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.shiftKey && e.key === 'D') {
+        shiftDCount++;
+        clearTimeout(timeout);
+        
+        if (shiftDCount === 3) {
+          setShowHomepage(false);
+          toast.success('Developer mode activated! 🚀');
+          shiftDCount = 0;
+        }
+        
+        timeout = setTimeout(() => {
+          shiftDCount = 0;
+        }, 1000);
+      }
+    };
+
+    window.addEventListener('keydown', handleKeyDown);
+    return () => {
+      window.removeEventListener('keydown', handleKeyDown);
+      clearTimeout(timeout);
+    };
+  }, []);
+
   const handleGetStarted = () => {
-    if (DEV_MODE) {
-      alert("🚀 Dashboard coming soon! Follow my LinkedIn for updates.");
-      return;
-    }
-    setShowHomepage(false);
+    // Instead of allowing access, show waitlist modal
+    setWaitlistModalOpen(true);
+    toast.info('Arctos is launching soon! Join our waitlist to get early access.');
   };
 
-  // Show homepage first (or always in DEV_MODE)
-  if (showHomepage || DEV_MODE) {
+  // Show homepage first
+  if (showHomepage) {
     return (
       <AuthProvider>
         <Homepage onGetStarted={handleGetStarted} theme={theme} />
@@ -74,13 +101,31 @@ export default function App() {
 
   return (
     <AuthProvider>
-      <div className={`size-full flex ${theme === 'dark' ? 'bg-black' : 'bg-white'}`}>
-        <Sidebar activeView={activeView} setActiveView={setActiveView} theme={theme} />
-        <main className="flex-1 overflow-auto">
-          {renderView()}
-        </main>
+      <div className={`size-full flex flex-col ${theme === 'dark' ? 'bg-black' : 'bg-white'}`}>
+        {/* Top Bar with Back Button */}
+        <div className={`px-6 py-4 border-b ${theme === 'dark' ? 'border-zinc-800 bg-zinc-900' : 'border-gray-200 bg-gray-50'}`}>
+          <button
+            onClick={() => setShowHomepage(true)}
+            className={`flex items-center gap-2 px-4 py-2 rounded-lg transition-colors ${
+              theme === 'dark'
+                ? 'text-zinc-300 hover:bg-zinc-800'
+                : 'text-gray-600 hover:bg-gray-100'
+            }`}
+          >
+            <ArrowLeft size={20} />
+            <span>Back to Home</span>
+          </button>
+        </div>
+        
+        <div className={`flex-1 flex ${theme === 'dark' ? 'bg-black' : 'bg-white'}`}>
+          <Sidebar activeView={activeView} setActiveView={setActiveView} theme={theme} />
+          <main className="flex-1 overflow-auto">
+            {renderView()}
+          </main>
+        </div>
       </div>
       <Toaster theme={theme === 'dark' ? 'dark' : 'light'} />
+      <WaitlistModal isOpen={waitlistModalOpen} onClose={() => setWaitlistModalOpen(false)} theme={theme} />
     </AuthProvider>
   );
 }
