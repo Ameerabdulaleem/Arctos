@@ -1,5 +1,5 @@
 import { ArrowRight, Zap, Brain, TrendingUp, Bell, BarChart3, Shield, Twitter, Github, Send } from 'lucide-react';
-import arctosLogo from '@/assets/images/arctos-logo.png';
+const arctosLogo = "https://placehold.co/600x400/1e40af/ffffff?text=ARCTOS+LOGO";
 import { useState } from 'react';
 import { WalletConnectionModal } from './WalletConnectionModal';
 import { EmailAuthModal } from './EmailAuthModal';
