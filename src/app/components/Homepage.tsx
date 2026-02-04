@@ -96,7 +96,7 @@ export function Homepage({ onGetStarted, theme }: HomepageProps) {
   ];
 
   return (
-    <div className={`min-h-screen ${isDark ? 'bg-black' : 'bg-white'} relative overflow-hidden`}>
+    <div className={`min-h-screen app-bg relative overflow-hidden`}>
       {/* Abstract Background Design */}
       {isDark && (
         <div className="absolute inset-0 overflow-hidden pointer-events-none">
@@ -379,7 +379,7 @@ export function Homepage({ onGetStarted, theme }: HomepageProps) {
               </p>
               <div className="flex gap-4">
                 <a
-                  href="https://twitter.com/arctos"
+                  href="https://twitter.com/arctosapp"
                   target="_blank"
                   rel="noopener noreferrer"
                   className={`w-10 h-10 rounded-lg ${isDark ? 'bg-zinc-900 hover:bg-zinc-800' : 'bg-gray-100 hover:bg-gray-200'} flex items-center justify-center transition-colors`}

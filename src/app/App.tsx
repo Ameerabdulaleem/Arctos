@@ -101,7 +101,7 @@ export default function App() {
 
   return (
     <AuthProvider>
-      <div className={`size-full flex flex-col ${theme === 'dark' ? 'bg-black' : 'bg-white'}`}>
+      <div className={`size-full flex flex-col app-bg ${theme === 'dark' ? 'bg-black' : 'bg-white'}`}>
         {/* Top Bar with Back Button */}
         <div className={`px-6 py-4 border-b ${theme === 'dark' ? 'border-zinc-800 bg-zinc-900' : 'border-gray-200 bg-gray-50'}`}>
           <button
