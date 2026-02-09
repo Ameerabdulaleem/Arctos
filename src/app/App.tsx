@@ -24,10 +24,13 @@ export default function App() {
 
   // Apply theme to document
   useEffect(() => {
-    if (theme === 'light') {
-      document.documentElement.classList.add('light-mode');
-    } else {
+    // Ensure the HTML element receives the correct theme class
+    if (theme === 'dark') {
+      document.documentElement.classList.add('dark');
       document.documentElement.classList.remove('light-mode');
+    } else {
+      document.documentElement.classList.remove('dark');
+      document.documentElement.classList.add('light-mode');
     }
   }, [theme]);
 

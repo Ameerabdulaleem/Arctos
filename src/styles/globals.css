@@ -119,18 +119,63 @@
 
   /* App background utilities for a modern Web3 look */
   .app-bg {
+    position: relative;
     background-color: hsl(var(--background));
-    background-image: radial-gradient( circle at 10% 20%, rgba(99,102,241,0.06) 0%, transparent 25% ),
-                      radial-gradient( circle at 90% 80%, rgba(139,92,246,0.06) 0%, transparent 25% ),
-                      linear-gradient(180deg, rgba(255,255,255,0.02), rgba(0,0,0,0.02) );
+    background-image: linear-gradient(180deg, rgba(0,0,0,0.04), rgba(0,0,0,0.02));
     background-attachment: fixed;
     background-size: cover;
+    overflow: hidden;
   }
 
+  .app-bg::before {
+    content: "";
+    position: absolute;
+    inset: 0;
+    pointer-events: none;
+    background-image: radial-gradient(circle at 10% 20%, rgba(99,102,241,0.08) 0%, transparent 20%),
+                      radial-gradient(circle at 90% 80%, rgba(139,92,246,0.06) 0%, transparent 25%),
+                      radial-gradient(circle at 50% 50%, rgba(56,189,248,0.04) 0%, transparent 30%);
+    mix-blend-mode: screen;
+    opacity: 0.95;
+    z-index: 0;
+    animation: bgShift 20s linear infinite;
+    transform: translateZ(0);
+  }
+
+  .app-bg > * {
+    position: relative;
+    z-index: 10;
+  }
+
+  @keyframes bgShift {
+    0% { transform: scale(1) translateY(0px) rotate(0deg); }
+    50% { transform: scale(1.03) translateY(-8px) rotate(180deg); }
+    100% { transform: scale(1) translateY(0px) rotate(360deg); }
+  }
   .glass {
     background: linear-gradient(135deg, rgba(255,255,255,0.04), rgba(255,255,255,0.02));
     backdrop-filter: blur(8px) saturate(120%);
     -webkit-backdrop-filter: blur(8px) saturate(120%);
     border: 1px solid rgba(255,255,255,0.04);
+  }
+
+  @keyframes blink {
+    0%, 100% { opacity: 1; }
+    50% { opacity: 0; }
+  }
+
+  .typing-caret::after {
+    content: '';
+    display: inline-block;
+    width: 2px;
+    height: 1em;
+    margin-left: 4px;
+    vertical-align: middle;
+    background: currentColor;
+    animation: blink 1s step-end infinite;
+  }
+
+  .typing-text {
+    white-space: pre-wrap;
   }
 }

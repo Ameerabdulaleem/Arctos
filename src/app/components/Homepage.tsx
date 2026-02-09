@@ -1,6 +1,7 @@
 import { ArrowRight, Zap, Brain, TrendingUp, Bell, BarChart3, Shield, Twitter, Github, Send, CheckCircle, Sparkles, Rocket, Eye, AlertTriangle, Lock, Gauge } from 'lucide-react';
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { WaitlistModal } from './WaitlistModal';
+import { WalletConnectionModal } from './WalletConnectionModal';
 import arctosLogo from '../../assets/images/arctos-logo.png.png';
 
 interface HomepageProps {
@@ -15,6 +16,12 @@ export function Homepage({ onGetStarted, theme }: HomepageProps) {
   const [inlineEmail, setInlineEmail] = useState('');
   const [inlineSubmitting, setInlineSubmitting] = useState(false);
   const [inlineSuccess, setInlineSuccess] = useState(false);
+  const [walletModalOpen, setWalletModalOpen] = useState(false);
+
+  // Typing animation state for hero subheadline
+  const fullSubheadline = 'Arctos transforms trading: real-time whale tracking, instant execution, fundamental news feeds, and smart trade management, all unified in one AI-powered platform.';
+  const [typed, setTyped] = useState('');
+  const [isTyping, setIsTyping] = useState(true);
 
   // Check if user has already joined the waitlist
   useState(() => {
@@ -48,6 +55,23 @@ export function Homepage({ onGetStarted, theme }: HomepageProps) {
       setTimeout(() => setInlineSuccess(false), 5000);
     }, 1000);
   };
+
+  // Typing effect: progressively reveal characters for hero subheadline
+  useEffect(() => {
+    let i = 0;
+    setTyped('');
+    setIsTyping(true);
+    const speed = 45; // ms per character — slightly slower, natural
+    const timer = setInterval(() => {
+      i += 1;
+      setTyped(fullSubheadline.slice(0, i));
+      if (i >= fullSubheadline.length) {
+        clearInterval(timer);
+        setIsTyping(false);
+      }
+    }, speed);
+    return () => clearInterval(timer);
+  }, [fullSubheadline]);
 
   const features = [
     {
@@ -159,6 +183,12 @@ export function Homepage({ onGetStarted, theme }: HomepageProps) {
               Sign In
             </button>
             <button
+              onClick={() => setWalletModalOpen(true)}
+              className="px-6 py-2 bg-gradient-to-r from-indigo-500 to-cyan-500 text-white rounded-lg hover:from-indigo-600 hover:to-cyan-600 transition-colors font-medium"
+            >
+              Connect Wallet
+            </button>
+            <button
               onClick={onGetStarted}
               className="px-6 py-2 bg-gradient-to-r from-blue-600 to-purple-600 text-white rounded-lg hover:from-blue-700 hover:to-purple-700 transition-colors font-medium"
             >
@@ -187,16 +217,17 @@ export function Homepage({ onGetStarted, theme }: HomepageProps) {
             </div>
 
             {/* Main Headline */}
-            <h1 className={`text-5xl md:text-7xl font-bold mb-6 ${isDark ? 'text-white' : 'text-gray-900'}`}>
-              Dex Trading Evolved:{' '}
+            <h1 className={`text-4xl md:text-6xl font-bold mb-6 leading-tight max-w-3xl mx-auto ${isDark ? 'text-white' : 'text-gray-900'}`}>
+              DEX TRADING EVOLVED:{' '}
               <span className="bg-gradient-to-r from-blue-500 to-purple-600 bg-clip-text text-transparent">
-                Where AI Meets Blockchain
+                Where Blockchain Intelligence<br/>Meets AI Precision
               </span>
             </h1>
 
-            {/* Sub-headline */}
-            <p className={`text-xl md:text-2xl mb-10 ${isDark ? 'text-zinc-400' : 'text-gray-600'}`}>
-              Arctos makes trading faster, smarter, and more accessible. Track whales, execute instantly, win consistently.
+            {/* Sub-headline (typing animation) */}
+            <p className={`text-lg md:text-xl mb-10 max-w-2xl mx-auto leading-relaxed ${isDark ? 'text-zinc-400' : 'text-gray-600'}`}>
+              <span className="typing-text">{typed}</span>
+              {isTyping && <span className="typing-caret" aria-hidden="true"></span>}
             </p>
 
             {/* CTA Button */}
@@ -444,6 +475,7 @@ export function Homepage({ onGetStarted, theme }: HomepageProps) {
 
       {/* Auth Modals */}
       <WaitlistModal isOpen={waitlistModalOpen} onClose={() => setWaitlistModalOpen(false)} theme={theme} />
+      <WalletConnectionModal open={walletModalOpen} onOpenChange={setWalletModalOpen} />
     </div>
   );
 }

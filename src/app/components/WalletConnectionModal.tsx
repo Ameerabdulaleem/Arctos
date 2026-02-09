@@ -10,8 +10,10 @@ interface WalletConnectionModalProps {
 const walletOptions = [
   { id: 'metamask', name: 'MetaMask', icon: Wallet, description: 'Connect using MetaMask', color: 'bg-orange-500' },
   { id: 'phantom', name: 'Phantom', icon: Shield, description: 'Connect using Phantom', color: 'bg-purple-500' },
+  { id: 'okx', name: 'OKX Wallet', icon: Wallet, description: 'Connect using OKX Wallet', color: 'bg-green-500' },
+  { id: 'hot', name: 'Hot Wallet', icon: Wallet, description: 'Use a hot / custodial wallet', color: 'bg-red-500' },
   { id: 'rabby', name: 'Rabby Wallet', icon: Key, description: 'Connect using Rabby', color: 'bg-blue-500' },
-  { id: 'okx', name: 'OKX Wallet', icon: Wallet, description: 'Connect using OKX', color: 'bg-green-500' },
+  { id: 'ton', name: 'Ton Wallet', icon: Shield, description: 'Connect using TON Wallet', color: 'bg-cyan-500' },
   { id: 'create', name: 'Create Wallet', icon: UserPlus, description: 'Create a new wallet', color: 'bg-gray-500' },
 ]
 
