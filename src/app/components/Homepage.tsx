@@ -34,7 +34,8 @@ export function Homepage({ onGetStarted, theme }: HomepageProps) {
     setInlineSubmitting(true);
 
     // POST to local Mailchimp proxy server
-    fetch('/api/waitlist', {
+    const base = (import.meta.env.VITE_API_BASE || '');
+    fetch(base + '/api/waitlist', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ email: inlineEmail })

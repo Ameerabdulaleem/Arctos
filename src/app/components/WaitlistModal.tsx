@@ -1,4 +1,5 @@
 import { useState } from 'react';
+import { resendService } from '../services/resendService';
 import { X, Mail, CheckCircle, Loader2 } from 'lucide-react';
 
 interface WaitlistModalProps {
@@ -37,20 +38,66 @@ export function WaitlistModal({ isOpen, onClose, theme }: WaitlistModalProps) {
 
     setIsSubmitting(true);
 
-    // Simulate API call
-    setTimeout(() => {
-      setIsSubmitting(false);
-      setIsSubmitted(true);
-      
-      // Store in localStorage (mock database)
+    try {
+      const base = import.meta.env.VITE_API_BASE || '';
+      const resp = await fetch(base + '/api/waitlist', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email })
+      })
+
+      const data = await resp.json()
+      if (!resp.ok) throw data
+
+      // Persist locally for UI and compute position
       const waitlist = JSON.parse(localStorage.getItem('arctos-waitlist') || '[]');
       waitlist.push({
         email,
         timestamp: new Date().toISOString(),
-        position: waitlist.length + 1
+          position: waitlist.length + 1
       });
       localStorage.setItem('arctos-waitlist', JSON.stringify(waitlist));
-    }, 1500);
+
+        // Attempt to send a welcome email via Resend (client-side). This uses your VITE_RESEND_API_KEY.
+        try {
+          const position = waitlist.length
+          const emailRes = await resendService.sendWelcomeEmail({ email, position })
+          if (!emailRes.success) {
+            console.error('Welcome email failed (client):', emailRes.message)
+            // Attempt server-side proxy fallback if configured
+            try {
+              const baseUrl = import.meta.env.VITE_API_BASE || ''
+              if (baseUrl) {
+                const fallback = await fetch(baseUrl + '/api/resend', {
+                  method: 'POST',
+                  headers: { 'Content-Type': 'application/json' },
+                  body: JSON.stringify({
+                    email,
+                    name: '',
+                    position,
+                    subject: `🚀 You're Position #${position} on ARCTOS-fi Waitlist`,
+                    html: resendService.getWelcomeEmailHTML ? resendService.getWelcomeEmailHTML('', position) : undefined,
+                    text: resendService.getWelcomeEmailText ? resendService.getWelcomeEmailText('', position) : undefined
+                  })
+                })
+                const fb = await fallback.text().catch(() => '')
+                console.log('Server resend fallback status:', fallback.status, fb)
+              }
+            } catch (fbErr) {
+              console.error('Server resend fallback error', fbErr)
+            }
+          }
+        } catch (e) {
+          console.error('Resend client error', e)
+        }
+
+      setIsSubmitted(true);
+    } catch (err: any) {
+      console.error('Waitlist submit error', err)
+      setError(err?.error?.title || err?.message || 'Failed to join waitlist')
+    } finally {
+      setIsSubmitting(false)
+    }
   };
 
   const handleClose = () => {
