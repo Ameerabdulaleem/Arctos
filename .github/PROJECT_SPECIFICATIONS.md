@@ -298,6 +298,79 @@ Rust will power high-performance backend services for real-time features while k
 - Cache expensive API calls (CoinGecko, DefiLlama)
 - Rate limit management across multiple free APIs
 - Request batching to reduce API calls
+
+---
+
+## Mailchimp Waitlist Integration (New)
+
+Goal: add new waitlist subscribers to a Mailchimp audience and trigger Mailchimp's automated welcome email (free tier). Implement a small server-side proxy to keep the Mailchimp API key secret and call the Mailchimp Marketing API.
+
+Implementation steps:
+
+- Install dependencies:
+
+  ```bash
+  npm install @mailchimp/mailchimp_marketing express cors dotenv
+  npm install --save-dev nodemon
+  ```
+
+- Files added to repository:
+
+  - `server/mailchimp-server.js` — small Express server that exposes `POST /api/waitlist` and calls Mailchimp to add the member to your audience.
+  - `.env.example` — example environment variables to copy into `.env`.
+
+- Required Mailchimp setup (what you must do in Mailchimp):
+
+  1. Sign up at mailchimp.com using `arctosapp@gmail.com` and create an account.
+  2. Create or choose an Audience (List) for the waitlist and note the Audience ID (List ID). You'll need this for `MAILCHIMP_LIST_ID`.
+  3. Create an API key in your Mailchimp account (Account -> Extras -> API keys). The API key has a suffix like `-us1`; the `us1` part is your server prefix.
+  4. (Optional) In the Audience settings enable an automated "Welcome" email so new subscribers receive a confirmation/welcome email automatically. Automations are available on free tiers for basic welcome emails.
+
+- Environment variables (add to `.env`):
+
+  - `MAILCHIMP_API_KEY` — your Mailchimp API key (keep secret).
+  - `MAILCHIMP_SERVER_PREFIX` — e.g. `us1` (the datacenter prefix from the API key).
+  - `MAILCHIMP_LIST_ID` — the Audience (List) ID you want to add members to.
+  - `ALLOWED_ORIGIN` — (optional) `http://localhost:5173` for local dev.
+
+- How it works in this repo:
+
+  - The frontend (`src/app/components/Homepage.tsx`) now sends `POST /api/waitlist` with `{ email }` when a user submits the waitlist form.
+  - The Express proxy (`server/mailchimp-server.js`) receives the request, forwards the email to Mailchimp via `@mailchimp/mailchimp_marketing` server-side SDK, and returns success to the client.
+  - Mailchimp (if you enable the Audience welcome automation) will send the confirmation/welcome email to the user automatically.
+
+- Running locally:
+
+  1. Copy `.env.example` to `.env` and fill in your Mailchimp values.
+  2. Start the API server in a separate terminal:
+
+     ```bash
+     npm run start:api
+     # or, for auto-reload during development
+     npm run dev:api
+     ```
+
+  3. Start the frontend dev server as usual:
+
+     ```bash
+     npm run dev
+     ```
+
+- Deploy notes:
+
+  - For production, host the API as a serverless function (Vercel Serverless Function, Netlify Functions, or a small Node host) and point the frontend to that URL. Keep the Mailchimp API key secret in the host's environment variables.
+  - Alternatively, integrate the Mailchimp call into your Rust backend if you deploy a Rust service — still keep the API key server-side.
+
+Security & privacy notes:
+
+- Never expose `MAILCHIMP_API_KEY` in client-side code or in public repos. Use environment variables in your server or hosting provider.
+- Ensure you comply with Mailchimp's requirements about double opt-in and GDPR if you target EU users (Mailchimp provides audience and consent features).
+
+If you'd like, I can also:
+
+- Wire a Vercel serverless function instead of a standalone Express server.
+- Add UI feedback to the frontend for API errors.
+- Add server-side logging and retry/backoff in the proxy.
 - Load balancing between multiple endpoints
 - Fallback mechanisms
 

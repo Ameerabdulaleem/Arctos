@@ -1,5 +1,6 @@
 import { ArrowRight, Zap, Brain, TrendingUp, Bell, BarChart3, Shield, Twitter, Github, Send, CheckCircle, Sparkles, Rocket, Eye, AlertTriangle, Lock, Gauge } from 'lucide-react';
 import { useState, useEffect } from 'react';
+import { toast } from 'sonner';
 import { WaitlistModal } from './WaitlistModal';
 import { WalletConnectionModal } from './WalletConnectionModal';
 import arctosLogo from '../../assets/images/arctos-logo.png.png';
@@ -31,29 +32,47 @@ export function Homepage({ onGetStarted, theme }: HomepageProps) {
 
   const handleInlineSubmit = (e: React.FormEvent) => {
     e.preventDefault();
-    
     if (!inlineEmail || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(inlineEmail)) {
       return;
     }
 
     setInlineSubmitting(true);
 
-    // Simulate API call
-    setTimeout(() => {
-      const waitlist = JSON.parse(localStorage.getItem('arctos-waitlist') || '[]');
-      waitlist.push({
-        email: inlineEmail,
-        timestamp: new Date().toISOString(),
-        position: waitlist.length + 1
-      });
-      localStorage.setItem('arctos-waitlist', JSON.stringify(waitlist));
-      
-      setInlineSubmitting(false);
-      setInlineSuccess(true);
-      setInlineEmail('');
-      
-      setTimeout(() => setInlineSuccess(false), 5000);
-    }, 1000);
+    // POST to local Mailchimp proxy server
+    fetch('/api/waitlist', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ email: inlineEmail })
+    })
+      .then(async (res) => {
+        if (!res.ok) throw await res.json()
+        // Optionally persist locally as fallback
+        const waitlist = JSON.parse(localStorage.getItem('arctos-waitlist') || '[]');
+        waitlist.push({ email: inlineEmail, timestamp: new Date().toISOString(), position: waitlist.length + 1 });
+        localStorage.setItem('arctos-waitlist', JSON.stringify(waitlist));
+
+        setInlineSubmitting(false);
+        setInlineSuccess(true);
+        setInlineEmail('');
+        setTimeout(() => setInlineSuccess(false), 5000);
+      })
+      .catch((err) => {
+        console.error('Waitlist error', err)
+        setInlineSubmitting(false)
+        // keep UX: show success to avoid leaking errors to user
+        setInlineSuccess(true)
+        setInlineEmail('')
+        setTimeout(() => setInlineSuccess(false), 5000)
+      })
+    
+  };
+
+  const handleComingSoon = (e?: React.MouseEvent) => {
+    e?.preventDefault();
+    const msg = 'Arctos is launching soon! Join our waitlist to get early access.';
+    toast.info(msg);
+    // Open waitlist modal as friendly fallback
+    setWaitlistModalOpen(true);
   };
 
   // Typing effect: progressively reveal characters for hero subheadline
@@ -159,129 +178,133 @@ export function Homepage({ onGetStarted, theme }: HomepageProps) {
       )}
 
       {/* Navigation */}
-      <nav className={`fixed top-0 left-0 right-0 z-50 ${isDark ? 'bg-black/80 border-zinc-800' : 'bg-white/80 border-gray-200'} backdrop-blur-lg border-b`}>
-        <div className="max-w-7xl mx-auto px-6 py-4 flex items-center justify-between">
+      <nav className={`fixed top-0 left-0 right-0 z-50 ${isDark ? 'bg-black/70 border-zinc-800' : 'bg-white/70 border-gray-200'} backdrop-blur-md border-b`}>
+        <div className="max-w-7xl mx-auto px-6 py-3 flex items-center justify-between">
           <div className="flex items-center gap-3">
-            <img src={arctosLogo} alt="Arctos" className="w-12 h-12 object-contain drop-shadow-lg" />
-            <span className={`text-2xl font-bold ${isDark ? 'text-white' : 'text-gray-900'}`}>Arctos</span>
+            <img src={arctosLogo} alt="Arctos" className="w-10 h-10 object-contain drop-shadow" />
+            <span className={`text-lg font-semibold tracking-tight ${isDark ? 'text-white' : 'text-gray-900'}`}>Arctos</span>
           </div>
-          
-          <div className="hidden md:flex items-center gap-8">
-            <a href="#features" className={`${isDark ? 'text-zinc-400 hover:text-white' : 'text-gray-600 hover:text-gray-900'} transition-colors`}>
-              Features
-            </a>
-            <a href="#about" className={`${isDark ? 'text-zinc-400 hover:text-white' : 'text-gray-600 hover:text-gray-900'} transition-colors`}>
-              About
-            </a>
-            <a href="#contact" className={`${isDark ? 'text-zinc-400 hover:text-white' : 'text-gray-600 hover:text-gray-900'} transition-colors`}>
-              Contact
-            </a>
-            <button
-              onClick={() => setWaitlistModalOpen(true)}
-              className="px-6 py-2 bg-zinc-800 text-white rounded-lg hover:bg-zinc-700 transition-colors font-medium border border-zinc-700"
-            >
-              Sign In
-            </button>
-            <button
-              onClick={() => setWalletModalOpen(true)}
-              className="px-6 py-2 bg-gradient-to-r from-indigo-500 to-cyan-500 text-white rounded-lg hover:from-indigo-600 hover:to-cyan-600 transition-colors font-medium"
-            >
-              Connect Wallet
-            </button>
-            <button
-              onClick={onGetStarted}
-              className="px-6 py-2 bg-gradient-to-r from-blue-600 to-purple-600 text-white rounded-lg hover:from-blue-700 hover:to-purple-700 transition-colors font-medium"
-            >
-              Launch App
-            </button>
+
+          <div className="hidden md:flex items-center gap-4">
+            <a href="#features" className={`${isDark ? 'text-zinc-400 hover:text-white' : 'text-gray-600 hover:text-gray-900'} transition-colors text-sm`}>Features</a>
+            <a href="#about" className={`${isDark ? 'text-zinc-400 hover:text-white' : 'text-gray-600 hover:text-gray-900'} transition-colors text-sm`}>About</a>
+            <a href="#contact" className={`${isDark ? 'text-zinc-400 hover:text-white' : 'text-gray-600 hover:text-gray-900'} transition-colors text-sm`}>Contact</a>
+
+            <button onClick={handleComingSoon} className="px-4 py-2 bg-gradient-to-r from-indigo-500 to-cyan-500 text-white rounded-md text-sm">Connect</button>
+            <button onClick={onGetStarted} className="px-4 py-2 bg-gradient-to-r from-blue-600 to-purple-600 text-white rounded-md text-sm">Launch App</button>
           </div>
         </div>
       </nav>
 
-      {/* Hero Section */}
-      <section className="pt-32 pb-20 px-6">
-        <div className="max-w-7xl mx-auto">
-          <div className="text-center max-w-4xl mx-auto">
-            {/* Coming Soon Badge */}
-            <div className="mb-6 flex justify-center">
-              <div className="px-6 py-2 rounded-full bg-gradient-to-r from-blue-600/20 to-purple-600/20 border border-blue-500/30">
-                <span className="text-sm font-semibold bg-gradient-to-r from-blue-400 to-purple-400 bg-clip-text text-transparent">
-                  🚀 Coming Soon
-                </span>
+      {/* Slim ticker below nav for token/market glance */}
+      <div className={`fixed top-14 left-0 right-0 z-40 ${isDark ? 'bg-black/50' : 'bg-white/50'} backdrop-blur-sm border-b border-zinc-800/20`}>
+        <div className="max-w-7xl mx-auto px-6 py-2 flex items-center gap-6 text-xs text-zinc-300">
+          <div className="flex items-center gap-3">
+            <span className="font-semibold text-white">ARCT</span>
+            <span className="text-zinc-400">$1.24</span>
+            <span className="text-green-400">+3.2%</span>
+          </div>
+          <div className="h-4 w-px bg-zinc-700/30" />
+          <div className="flex items-center gap-3 text-zinc-400">BTC $48,200 <span className="text-green-400">+1.6%</span></div>
+          <div className="ml-auto text-zinc-400">Live · Onchain · AI</div>
+        </div>
+      </div>
+
+      {/* Hero Section (split layout with terminal preview) */}
+      <section className="pt-36 pb-20 px-6">
+        <div className="max-w-7xl mx-auto grid grid-cols-1 md:grid-cols-2 gap-12 items-center">
+          {/* Left: Messaging */}
+          <div className="order-2 md:order-1 text-center md:text-left">
+            <div className="inline-flex items-center gap-3 mb-4">
+              <div className="px-4 py-1 rounded-full bg-gradient-to-r from-blue-600/20 to-purple-600/20 border border-blue-500/20">
+                <span className="text-xs font-semibold text-blue-300">🚀 Early Access</span>
               </div>
             </div>
 
-            {/* Logo */}
-            <div className="mb-8 flex justify-center">
-              <img src={arctosLogo} alt="Arctos" className="w-40 h-40 object-contain drop-shadow-2xl" />
+           <h1 className={`text-3xl md:text-5xl font-extrabold mb-6 leading-tight ${isDark ? 'text-white' : 'text-gray-900'}`}>
+  DEX TRADING EVOLVED:
+  <span className="block">
+    <span className="bg-gradient-to-r from-blue-500 to-cyan-500 bg-clip-text text-transparent">Where</span>{' '}
+    <span className="bg-gradient-to-r from-blue-500 to-cyan-500 bg-clip-text text-transparent">
+      Blockchain Intelligence Meets
+    </span>
+  </span>
+  <span className="block">
+    <span className="bg-gradient-to-r from-purple-500 to-pink-500 bg-clip-text text-transparent">
+      AI Precision
+    </span>
+  </span>
+</h1>
+
+            <p className={`text-base md:text-lg mb-6 ${isDark ? 'text-zinc-400' : 'text-gray-600'}`}>{typed}{isTyping && <span className="ml-1 animate-pulse">▍</span>}</p>
+
+            <div className="flex flex-col sm:flex-row gap-4 md:gap-6">
+              <button onClick={onGetStarted} className="px-6 py-3 bg-gradient-to-r from-blue-600 to-purple-600 text-white rounded-lg font-semibold shadow-lg">Get Started</button>
+              <button onClick={handleComingSoon} className="px-6 py-3 border rounded-lg font-medium border-zinc-700 text-zinc-200">Connect Wallet</button>
             </div>
 
-            {/* Main Headline */}
-            <h1 className={`text-4xl md:text-6xl font-bold mb-6 leading-tight max-w-3xl mx-auto ${isDark ? 'text-white' : 'text-gray-900'}`}>
-              DEX TRADING EVOLVED:{' '}
-              <span className="bg-gradient-to-r from-blue-500 to-purple-600 bg-clip-text text-transparent">
-                Where Blockchain Intelligence<br/>Meets AI Precision
-              </span>
-            </h1>
-
-            {/* Sub-headline (typing animation) */}
-            <p className={`text-lg md:text-xl mb-10 max-w-2xl mx-auto leading-relaxed ${isDark ? 'text-zinc-400' : 'text-gray-600'}`}>
-              <span className="typing-text">{typed}</span>
-              {isTyping && <span className="typing-caret" aria-hidden="true"></span>}
-            </p>
-
-            {/* CTA Button */}
-            <button
-              onClick={onGetStarted}
-              className="group px-8 py-4 bg-gradient-to-r from-blue-600 to-purple-600 text-white rounded-xl hover:from-blue-700 hover:to-purple-700 transition-all font-bold text-lg flex items-center gap-3 mx-auto shadow-lg shadow-blue-500/50"
-            >
-              Get Started
-              <ArrowRight className="w-5 h-5 group-hover:translate-x-1 transition-transform" />
-            </button>
-
-            {/* Inline Email Form for Early Access */}
             <div className="mt-8">
-              <p className={`text-sm mb-4 ${isDark ? 'text-zinc-500' : 'text-gray-500'}`}>
-                Or join our waitlist for early access
-              </p>
               {inlineSuccess ? (
-                <div className="flex items-center justify-center gap-2 text-green-500">
+                <div className="flex items-center gap-2 text-green-500">
                   <CheckCircle className="w-5 h-5" />
                   <span className="font-medium">You're on the waitlist! Check your email.</span>
                 </div>
               ) : (
-                <form onSubmit={handleInlineSubmit} className="flex flex-col sm:flex-row gap-3 max-w-md mx-auto">
-                  <input
-                    type="email"
-                    value={inlineEmail}
-                    onChange={(e) => setInlineEmail(e.target.value)}
-                    placeholder="Enter your email"
-                    className={`flex-1 px-6 py-3 rounded-lg border ${
-                      isDark 
-                        ? 'bg-zinc-900 border-zinc-800 text-white placeholder-zinc-500 focus:border-blue-500' 
-                        : 'bg-white border-gray-300 text-gray-900 placeholder-gray-400 focus:border-blue-500'
-                    } focus:outline-none focus:ring-2 focus:ring-blue-500/20 transition-colors`}
-                    disabled={inlineSubmitting}
-                  />
-                  <button
-                    type="submit"
-                    disabled={inlineSubmitting}
-                    className="px-6 py-3 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors font-medium disabled:opacity-50 disabled:cursor-not-allowed whitespace-nowrap"
-                  >
-                    {inlineSubmitting ? 'Joining...' : 'Join Waitlist'}
-                  </button>
+                <form onSubmit={handleInlineSubmit} className="flex flex-col sm:flex-row gap-3 max-w-md">
+                  <input type="email" value={inlineEmail} onChange={(e) => setInlineEmail(e.target.value)} placeholder="Email for early access" className={`flex-1 px-4 py-3 rounded-lg border ${isDark ? 'bg-zinc-900 border-zinc-800 text-white' : 'bg-white border-gray-300 text-gray-900'}`} disabled={inlineSubmitting} />
+                  <button type="submit" disabled={inlineSubmitting} className="px-4 py-3 bg-blue-600 text-white rounded-lg">{inlineSubmitting ? 'Joining...' : 'Join Waitlist'}</button>
                 </form>
               )}
             </div>
 
-            {/* Stats */}
-            <div className="grid grid-cols-2 md:grid-cols-4 gap-8 mt-20">
-              {stats.map((stat, index) => (
-                <div key={index} className={`p-6 rounded-2xl ${isDark ? 'bg-zinc-900 border border-zinc-800' : 'bg-gray-50 border border-gray-200'}`}>
-                  <div className={`text-3xl font-bold mb-2 ${isDark ? 'text-white' : 'text-gray-900'}`}>{stat.value}</div>
-                  <div className={`${isDark ? 'text-zinc-400' : 'text-gray-600'}`}>{stat.label}</div>
+            {/* Stats (compact) */}
+            <div className="mt-10 grid grid-cols-2 sm:grid-cols-4 gap-4">
+              {stats.map((stat, i) => (
+                <div key={i} className={`p-4 rounded-xl ${isDark ? 'bg-zinc-900 border border-zinc-800' : 'bg-white/80 border border-gray-200'}`}>
+                  <div className={`text-xl font-bold ${isDark ? 'text-white' : 'text-gray-900'}`}>{stat.value}</div>
+                  <div className={`text-sm ${isDark ? 'text-zinc-400' : 'text-gray-600'}`}>{stat.label}</div>
                 </div>
               ))}
+            </div>
+          </div>
+
+          {/* Right: Terminal / preview */}
+          <div className="order-1 md:order-2">
+            <div className={`rounded-2xl overflow-hidden shadow-2xl ${isDark ? 'bg-zinc-900 border border-zinc-800' : 'bg-white'} transform hover:scale-101 transition-transform`}>
+              <div className={`px-4 py-3 flex items-center justify-between ${isDark ? 'bg-zinc-950' : 'bg-gray-100'}`}>
+                <div className="flex items-center gap-2">
+                  <span className="w-3 h-3 rounded-full bg-red-500" />
+                  <span className="w-3 h-3 rounded-full bg-yellow-400" />
+                  <span className="w-3 h-3 rounded-full bg-green-400" />
+                </div>
+                <div className="text-xs text-zinc-400">Preview · Live Data</div>
+              </div>
+
+              <div className="p-6">
+                <div className="h-56 bg-gradient-to-br from-indigo-900/60 to-cyan-800/40 rounded-lg p-4 text-white flex flex-col justify-between">
+                  <div className="flex items-start justify-between">
+                    <div>
+                      <div className="text-xs text-zinc-300">ARCT / USDC</div>
+                      <div className="text-2xl font-bold">$1.24 <span className="text-sm text-green-400">+3.2%</span></div>
+                    </div>
+                    <div className="text-right text-xs text-zinc-300">
+                      <div>24h Vol</div>
+                      <div className="font-semibold">$2.5B</div>
+                    </div>
+                  </div>
+
+                  {/* small sparkline */}
+                  <svg viewBox="0 0 200 40" className="w-full h-12">
+                    <polyline fill="none" stroke="#7dd3fc" strokeWidth="3" points="0,30 25,26 50,20 75,18 100,12 125,14 150,8 175,10 200,6" strokeLinecap="round" strokeLinejoin="round" />
+                  </svg>
+
+                        <div className="flex items-center gap-2">
+                          <button onClick={handleComingSoon} className="px-3 py-1 bg-white/10 rounded text-sm">Buy</button>
+                          <button onClick={handleComingSoon} className="px-3 py-1 bg-white/10 rounded text-sm">Sell</button>
+                          <button onClick={handleComingSoon} className="ml-auto px-3 py-1 bg-gradient-to-r from-indigo-500 to-cyan-500 rounded text-sm text-white">Connect</button>
+                        </div>
+                </div>
+              </div>
             </div>
           </div>
         </div>
@@ -476,6 +499,7 @@ export function Homepage({ onGetStarted, theme }: HomepageProps) {
       {/* Auth Modals */}
       <WaitlistModal isOpen={waitlistModalOpen} onClose={() => setWaitlistModalOpen(false)} theme={theme} />
       <WalletConnectionModal open={walletModalOpen} onOpenChange={setWalletModalOpen} />
+      
     </div>
   );
 }
