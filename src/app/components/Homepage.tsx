@@ -23,11 +23,7 @@ export function Homepage({ onGetStarted, theme }: HomepageProps) {
   const [typed, setTyped] = useState('');
   const [isTyping, setIsTyping] = useState(true);
 
-  // Check if user has already joined the waitlist
-  useEffect(() => {
-    const waitlist = JSON.parse(localStorage.getItem('arctos-waitlist') || '[]');
-    // optionally use this later; currently just ensures state consistency
-  }, []);
+  // (no-op removed) waitlist check not required at build time
 
   const handleInlineSubmit = (e: React.FormEvent) => {
     e.preventDefault();

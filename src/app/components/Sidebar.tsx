@@ -1,8 +1,6 @@
 import { Home, BarChart3, Zap, MessageSquare, Settings, TrendingUp, BookOpen, Wallet, LogOut, User, Newspaper } from 'lucide-react';
 import { useState } from 'react';
 import { useAuth } from '../contexts/AuthContext';
-import { WalletConnectionModal } from './WalletConnectionModal';
-import { EmailAuthModal } from './EmailAuthModal';
 import { toast } from 'sonner';
 
 interface SidebarProps {
@@ -13,8 +11,8 @@ interface SidebarProps {
 
 export function Sidebar({ activeView, setActiveView, theme }: SidebarProps) {
   const { isAuthenticated, isWalletConnected, disconnectWallet, signOut } = useAuth();
-  const [walletModalOpen, setWalletModalOpen] = useState(false);
-  const [emailAuthModalOpen, setEmailAuthModalOpen] = useState(false);
+  const [, setWalletModalOpen] = useState(false);
+  const [, setEmailAuthModalOpen] = useState(false);
 
   const menuItems = [
     { id: 'dashboard', label: 'Dashboard', icon: Home },
