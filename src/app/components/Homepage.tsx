@@ -1,4 +1,4 @@
-import { ArrowRight, Zap, Brain, TrendingUp, Bell, BarChart3, Shield, Twitter, Github, Send, CheckCircle, Sparkles, Rocket, Eye, AlertTriangle, Lock, Gauge } from 'lucide-react';
+import { ArrowRight, Twitter, Github, Send, CheckCircle, Sparkles, Rocket, Eye, AlertTriangle, Lock, Gauge } from 'lucide-react';
 import { useState, useEffect } from 'react';
 import { toast } from 'sonner';
 import { WaitlistModal } from './WaitlistModal';
@@ -13,7 +13,6 @@ interface HomepageProps {
 export function Homepage({ onGetStarted, theme }: HomepageProps) {
   const isDark = theme === 'dark';
   const [waitlistModalOpen, setWaitlistModalOpen] = useState(false);
-  const [hasJoinedWaitlist, setHasJoinedWaitlist] = useState(false);
   const [inlineEmail, setInlineEmail] = useState('');
   const [inlineSubmitting, setInlineSubmitting] = useState(false);
   const [inlineSuccess, setInlineSuccess] = useState(false);
@@ -25,10 +24,10 @@ export function Homepage({ onGetStarted, theme }: HomepageProps) {
   const [isTyping, setIsTyping] = useState(true);
 
   // Check if user has already joined the waitlist
-  useState(() => {
+  useEffect(() => {
     const waitlist = JSON.parse(localStorage.getItem('arctos-waitlist') || '[]');
-    setHasJoinedWaitlist(waitlist.length > 0);
-  });
+    // optionally use this later; currently just ensures state consistency
+  }, []);
 
   const handleInlineSubmit = (e: React.FormEvent) => {
     e.preventDefault();

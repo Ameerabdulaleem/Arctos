@@ -1,4 +1,4 @@
-import { Home, BarChart3, Zap, Bell, MessageSquare, Settings, TrendingUp, BookOpen, Wallet, LogOut, User, Newspaper } from 'lucide-react';
+import { Home, BarChart3, Zap, MessageSquare, Settings, TrendingUp, BookOpen, Wallet, LogOut, User, Newspaper } from 'lucide-react';
 import { useState } from 'react';
 import { useAuth } from '../contexts/AuthContext';
 import { WalletConnectionModal } from './WalletConnectionModal';
@@ -12,7 +12,7 @@ interface SidebarProps {
 }
 
 export function Sidebar({ activeView, setActiveView, theme }: SidebarProps) {
-  const { user, isAuthenticated, isWalletConnected, disconnectWallet, signOut } = useAuth();
+  const { isAuthenticated, isWalletConnected, disconnectWallet, signOut } = useAuth();
   const [walletModalOpen, setWalletModalOpen] = useState(false);
   const [emailAuthModalOpen, setEmailAuthModalOpen] = useState(false);
 

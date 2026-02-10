@@ -26,6 +26,18 @@ interface Window {
     connect: () => Promise<{ publicKey: { toString: () => string } }>;
     disconnect: () => Promise<void>;
   };
+  // Some providers are exposed under `window.phantom` wrapper
+  phantom?: {
+    solana?: {
+      isPhantom?: boolean;
+      connect: () => Promise<{ publicKey: { toString: () => string } }>;
+      disconnect: () => Promise<void>;
+    }
+  };
+  // OKX wallet injector
+  okxwallet?: {
+    request: (args: { method: string; params?: any[] }) => Promise<any>;
+  };
   
   // Keplr (Cosmos)
   keplr?: any;
