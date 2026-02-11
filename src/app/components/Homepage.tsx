@@ -192,8 +192,8 @@ export function Homepage({ onGetStarted, theme }: HomepageProps) {
         </div>
       </nav>
 
-      {/* Slim ticker below nav for token/market glance */}
-      <div className={`fixed top-14 left-0 right-0 z-40 ${isDark ? 'bg-black/50' : 'bg-white/50'} backdrop-blur-sm border-b border-zinc-800/20`}>
+      {/* Slim ticker below nav for token/market glance - hidden on mobile, fixed on desktop */}
+      <div className={`hidden md:block fixed top-14 left-0 right-0 z-40 ${isDark ? 'bg-black/50' : 'bg-white/50'} backdrop-blur-sm border-b border-zinc-800/20`}>
         <div className="max-w-7xl mx-auto px-6 py-2 flex items-center gap-6 text-xs text-zinc-300">
           <div className="flex items-center gap-3">
             <span className="font-semibold text-white">ARCT</span>
@@ -207,7 +207,7 @@ export function Homepage({ onGetStarted, theme }: HomepageProps) {
       </div>
 
       {/* Hero Section (split layout with terminal preview) */}
-      <section className="pt-36 pb-20 px-6">
+      <section className="pt-36 md:pt-36 pb-20 px-6">
         <div className="max-w-7xl mx-auto grid grid-cols-1 md:grid-cols-2 gap-12 items-center">
           {/* Left: Messaging */}
           <div className="order-2 md:order-1 text-center md:text-left">
@@ -305,6 +305,20 @@ export function Homepage({ onGetStarted, theme }: HomepageProps) {
           </div>
         </div>
       </section>
+
+      {/* Mobile ticker - shown only on mobile, below hero writeup */}
+      <div className={`md:hidden ${isDark ? 'bg-black/50' : 'bg-white/50'} backdrop-blur-sm border-b border-zinc-800/20`}>
+        <div className="max-w-7xl mx-auto px-6 py-2 flex items-center gap-6 text-xs text-zinc-300">
+          <div className="flex items-center gap-3">
+            <span className="font-semibold text-white">ARCT</span>
+            <span className="text-zinc-400">$1.24</span>
+            <span className="text-green-400">+3.2%</span>
+          </div>
+          <div className="h-4 w-px bg-zinc-700/30" />
+          <div className="flex items-center gap-3 text-zinc-400">BTC $48,200 <span className="text-green-400">+1.6%</span></div>
+          <div className="ml-auto text-zinc-400">Live · Onchain · AI</div>
+        </div>
+      </div>
 
       {/* Features Section */}
       <section id="features" className={`py-20 px-6 ${isDark ? 'bg-zinc-950' : 'bg-gray-50'} relative overflow-hidden`}>
