@@ -58,16 +58,16 @@ export function WaitlistModal({ isOpen, onClose, theme }: WaitlistModalProps) {
       });
       localStorage.setItem('arctos-waitlist', JSON.stringify(waitlist));
 
-        // Attempt to send a welcome email via Resend (client-side and server proxy).
-        try {
-          const position = waitlist.length
-          const emailRes = await resendService.sendWelcomeEmail({ email, position })
-          if (!emailRes.success) {
-            console.error('Welcome email failed:', emailRes.message)
-          }
-        } catch (e) {
-          console.error('Resend error', e)
-        }
+        // Attempt to send a welcome email via Brevo (client-side and server proxy).
+       try {
+  const position = waitlist.length
+  const emailRes = await brevoService.sendWelcomeEmail({ email, position })
+  if (!emailRes.success) {
+    console.error('Brevo email failed:', emailRes.message)
+  }
+} catch (e) {
+  console.error('Brevo error', e)
+}
 
       setIsSubmitted(true);
     } catch (err) {

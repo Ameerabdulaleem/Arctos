@@ -42,7 +42,7 @@ export function Homepage({ onGetStarted, theme }: HomepageProps) {
       waitlist.push({ email: inlineEmail, timestamp: new Date().toISOString(), position });
       localStorage.setItem('arctos-waitlist', JSON.stringify(waitlist));
 
-      // Send instant welcome email via Resend (frontend service)
+      // Send instant welcome email via Brevo (frontend service)
      try {
   const emailRes = await brevoService.sendWelcomeEmail({ email: inlineEmail, position });
   if (emailRes.success) {
@@ -69,12 +69,12 @@ export function Homepage({ onGetStarted, theme }: HomepageProps) {
       localStorage.setItem('arctos-waitlist', JSON.stringify(waitlist));
 
       try {
-        await resendService.sendWelcomeEmail({ email: inlineEmail, position });
-        toast.success('Joined waitlist — confirmation email sent');
-      } catch (e) {
-        console.error('Resend fallback error', e);
-        toast.success('Joined waitlist — we will contact you soon');
-      }
+  await brevoService.sendWelcomeEmail({ email: inlineEmail, position });
+  toast.success('Joined waitlist — confirmation email sent');
+} catch (e) {
+  console.error('Brevo fallback error', e);
+  toast.success('Joined waitlist — we will contact you soon');
+}
 
       setInlineSubmitting(false);
       setInlineSuccess(true);
