@@ -77,7 +77,7 @@ class ResendService {
       return { success: true }
     } catch (err) {
       console.error('❌ Resend service error:', err)
-      return { success: false, message: (err as any)?.message || 'Resend request failed' }
+      return { success: false, message: (err)?.message || 'Resend request failed' }
     }
   }
 

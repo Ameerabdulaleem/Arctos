@@ -1,14 +1,6 @@
-import { Resend } from 'resend';
+import nodemailer from 'nodemailer';
 
-interface EmailPayload {
-  from: string;
-  to: string[];
-  subject: string;
-  html?: string;
-  text?: string;
-}
-
-// Vercel serverless function handler
+// Vercel serverless function handler for Brevo SMTP
 export default async function handler(req: any, res: any) {
   // Only allow POST
   if (req.method !== 'POST') {
@@ -17,30 +9,50 @@ export default async function handler(req: any, res: any) {
 
   try {
     const body = req.body;
+    const { email, position, subject, html, text } = body;
 
-    const RESEND_KEY = process.env.RESEND_API_KEY;
-    const FROM_EMAIL = process.env.RESEND_FROM_EMAIL || 'arctos@resend.dev';
-    const FROM_NAME = process.env.RESEND_FROM_NAME || 'ARCTOS Team';
+    // Get Brevo SMTP credentials from environment
+    const MAIL_HOST = process.env.MAIL_HOST || 'smtp-relay.brevo.com';
+    const MAIL_PORT = parseInt(process.env.MAIL_PORT || '587');
+    const MAIL_USERNAME = process.env.MAIL_USERNAME;
+    const MAIL_PASSWORD = process.env.MAIL_PASSWORD;
+    const MAIL_FROM = process.env.MAIL_FROM || 'noreply@arctos-fi.vercel.app';
 
-    if (!RESEND_KEY) {
-      return res.status(500).json({ error: 'Missing server RESEND_API_KEY' });
+    if (!MAIL_USERNAME || !MAIL_PASSWORD) {
+      console.error('Missing Brevo SMTP credentials');
+      return res.status(500).json({ error: 'Missing SMTP configuration' });
     }
 
-    const resend = new Resend(RESEND_KEY);
+    // Create Nodemailer transporter with Brevo SMTP
+    const transporter = nodemailer.createTransport({
+      host: MAIL_HOST,
+      port: MAIL_PORT,
+      secure: false, // Use TLS (not SSL)
+      auth: {
+        user: MAIL_USERNAME,
+        pass: MAIL_PASSWORD,
+      },
+    });
 
-    const sendPayload: EmailPayload = {
-      from: `${FROM_NAME} <${FROM_EMAIL}>`,
-      to: [body.email],
-      subject: body.subject || `🚀 You're Position #${body.position} on Arctos-fi Waitlist`,
-      html: body.html || undefined,
-      text: body.text || undefined,
-    };
+    // Send email
+    const info = await transporter.sendMail({
+      from: MAIL_FROM,
+      to: email,
+      subject: subject || `🚀 You're Position #${position} on ARCTOS.fi Waitlist`,
+      html: html || '',
+      text: text || '',
+      replyTo: 'arctosapp@gmail.com',
+    });
 
-    const result = await resend.emails.send(sendPayload as any);
-    return res.status(200).json(result);
+    console.log('✅ Email sent via Brevo:', info.messageId);
+    return res.status(200).json({
+      success: true,
+      data: { id: info.messageId },
+      error: null,
+    });
   } catch (err) {
     const errorMessage = (err as any)?.message || 'Unknown error';
-    console.error('Resend error:', errorMessage);
+    console.error('❌ Brevo SMTP error:', errorMessage);
     return res.status(500).json({ error: errorMessage });
   }
 }
