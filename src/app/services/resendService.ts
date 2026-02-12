@@ -1,6 +1,7 @@
 const RESEND_API_KEY = import.meta.env.VITE_RESEND_API_KEY
 const FROM_EMAIL = import.meta.env.VITE_RESEND_FROM_EMAIL || 'arctos@resend.dev'
 const FROM_NAME = import.meta.env.VITE_RESEND_FROM_NAME || 'ARCTOS Team'
+const API_BASE = import.meta.env.VITE_API_BASE || ''
 
 export interface EmailData {
   email: string
@@ -10,6 +11,33 @@ export interface EmailData {
 
 class ResendService {
   async sendWelcomeEmail(data: EmailData): Promise<{ success: boolean; message?: string }> {
+    // If a server proxy base is provided, prefer using that to keep API key secret
+    if (API_BASE) {
+      try {
+        const res = await fetch(`${API_BASE.replace(/\/$/, '')}/api/resend`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            email: data.email,
+            name: data.name,
+            position: data.position
+          })
+        })
+
+        if (!res.ok) {
+          const txt = await res.text().catch(() => '')
+          console.error('❌ Server resend proxy error:', res.status, txt)
+          return { success: false, message: `Server resend proxy error ${res.status}` }
+        }
+
+        const json = await res.json().catch(() => ({}))
+        return { success: true }
+      } catch (err: any) {
+        console.error('❌ Error calling server resend proxy:', err)
+        // fall through to client-side attempt
+      }
+    }
+
     if (!RESEND_API_KEY) {
       console.error('Resend API key missing (VITE_RESEND_API_KEY)')
       return { success: false, message: 'Missing Resend API key' }

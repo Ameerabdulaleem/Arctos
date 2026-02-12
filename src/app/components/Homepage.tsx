@@ -4,6 +4,7 @@ import { toast } from 'sonner';
 import { WaitlistModal } from './WaitlistModal';
 import { WalletConnectionModal } from './WalletConnectionModal';
 import arctosLogo from '../../assets/images/arctos-logo.png.png';
+import { resendService } from '../services/resendService';
 
 interface HomepageProps {
   onGetStarted: () => void;
@@ -25,9 +26,10 @@ export function Homepage({ onGetStarted, theme }: HomepageProps) {
 
   // (no-op removed) waitlist check not required at build time
 
-  const handleInlineSubmit = (e: React.FormEvent) => {
+  const handleInlineSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!inlineEmail || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(inlineEmail)) {
+      toast.error('Please enter a valid email');
       return;
     }
 
@@ -35,32 +37,64 @@ export function Homepage({ onGetStarted, theme }: HomepageProps) {
 
     // POST to local Mailchimp proxy server
     const base = (import.meta.env.VITE_API_BASE || '');
-    fetch(base + '/api/waitlist', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ email: inlineEmail })
-    })
-      .then(async (res) => {
-        if (!res.ok) throw await res.json()
-        // Optionally persist locally as fallback
-        const waitlist = JSON.parse(localStorage.getItem('arctos-waitlist') || '[]');
-        waitlist.push({ email: inlineEmail, timestamp: new Date().toISOString(), position: waitlist.length + 1 });
-        localStorage.setItem('arctos-waitlist', JSON.stringify(waitlist));
+    try {
+      const res = await fetch(base + '/api/waitlist', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email: inlineEmail })
+      });
 
-        setInlineSubmitting(false);
-        setInlineSuccess(true);
-        setInlineEmail('');
-        setTimeout(() => setInlineSuccess(false), 5000);
-      })
-      .catch((err) => {
-        console.error('Waitlist error', err)
-        setInlineSubmitting(false)
-        // keep UX: show success to avoid leaking errors to user
-        setInlineSuccess(true)
-        setInlineEmail('')
-        setTimeout(() => setInlineSuccess(false), 5000)
-      })
-    
+      if (!res.ok) {
+        // try to surface server message if available
+        const j = await res.json().catch(() => null);
+        throw j || new Error('Failed to join waitlist');
+      }
+
+      // Persist locally as fallback and compute position
+      const waitlist = JSON.parse(localStorage.getItem('arctos-waitlist') || '[]');
+      const position = waitlist.length + 1;
+      waitlist.push({ email: inlineEmail, timestamp: new Date().toISOString(), position });
+      localStorage.setItem('arctos-waitlist', JSON.stringify(waitlist));
+
+      // Send instant welcome email via Resend (frontend service)
+      try {
+        const emailRes = await resendService.sendWelcomeEmail({ email: inlineEmail, position });
+        if (emailRes.success) {
+          toast.success('Joined waitlist — confirmation email sent');
+        } else {
+          console.warn('Resend email not sent:', emailRes.message);
+          toast.success('Joined waitlist — confirmation pending');
+        }
+      } catch (err) {
+        console.error('Resend send error', err);
+        toast.success('Joined waitlist — confirmation pending');
+      }
+
+      setInlineSubmitting(false);
+      setInlineSuccess(true);
+      setInlineEmail('');
+      setTimeout(() => setInlineSuccess(false), 5000);
+    } catch (err) {
+      console.error('Waitlist error', err);
+      // As a fallback, still persist locally and attempt to send email so user gets instant reply
+      const waitlist = JSON.parse(localStorage.getItem('arctos-waitlist') || '[]');
+      const position = waitlist.length + 1;
+      waitlist.push({ email: inlineEmail, timestamp: new Date().toISOString(), position });
+      localStorage.setItem('arctos-waitlist', JSON.stringify(waitlist));
+
+      try {
+        await resendService.sendWelcomeEmail({ email: inlineEmail, position });
+        toast.success('Joined waitlist — confirmation email sent');
+      } catch (e) {
+        console.error('Resend fallback error', e);
+        toast.success('Joined waitlist — we will contact you soon');
+      }
+
+      setInlineSubmitting(false);
+      setInlineSuccess(true);
+      setInlineEmail('');
+      setTimeout(() => setInlineSuccess(false), 5000);
+    }
   };
 
   const handleComingSoon = (e?: React.MouseEvent) => {
