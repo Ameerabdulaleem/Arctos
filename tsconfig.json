@@ -27,6 +27,6 @@
       "@components/*": ["./src/app/components/*"]
     }
   },
-  "include": ["src", "src/app/api/resend,
+  "include": ["src"],
   "references": [{ "path": "./tsconfig.node.json" }]
 }

@@ -58,43 +58,21 @@ export function WaitlistModal({ isOpen, onClose, theme }: WaitlistModalProps) {
       });
       localStorage.setItem('arctos-waitlist', JSON.stringify(waitlist));
 
-        // Attempt to send a welcome email via Resend (client-side). This uses your VITE_RESEND_API_KEY.
+        // Attempt to send a welcome email via Resend (client-side and server proxy).
         try {
           const position = waitlist.length
           const emailRes = await resendService.sendWelcomeEmail({ email, position })
           if (!emailRes.success) {
-            console.error('Welcome email failed (client):', emailRes.message)
-            // Attempt server-side proxy fallback if configured
-            try {
-              const baseUrl = import.meta.env.VITE_API_BASE || ''
-              if (baseUrl) {
-                const fallback = await fetch(baseUrl + '/api/resend', {
-                  method: 'POST',
-                  headers: { 'Content-Type': 'application/json' },
-                  body: JSON.stringify({
-                    email,
-                    name: '',
-                    position,
-                    subject: `🚀 You're Position #${position} on ARCTOS-fi Waitlist`,
-                    html: resendService.getWelcomeEmailHTML ? resendService.getWelcomeEmailHTML('', position) : undefined,
-                    text: resendService.getWelcomeEmailText ? resendService.getWelcomeEmailText('', position) : undefined
-                  })
-                })
-                const fb = await fallback.text().catch(() => '')
-                console.log('Server resend fallback status:', fallback.status, fb)
-              }
-            } catch (fbErr) {
-              console.error('Server resend fallback error', fbErr)
-            }
+            console.error('Welcome email failed:', emailRes.message)
           }
         } catch (e) {
-          console.error('Resend client error', e)
+          console.error('Resend error', e)
         }
 
       setIsSubmitted(true);
-    } catch (err: any) {
+    } catch (err) {
       console.error('Waitlist submit error', err)
-      setError(err?.error?.title || err?.message || 'Failed to join waitlist')
+      setError((err as any)?.error?.title || (err as any)?.message || 'Failed to join waitlist')
     } finally {
       setIsSubmitting(false)
     }

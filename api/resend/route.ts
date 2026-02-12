@@ -1,4 +1,3 @@
-// Serverless route handler for Resend (compatible with Next.js / Vercel route handlers)
 import { Resend } from 'resend';
 
 interface EmailPayload {
@@ -9,6 +8,7 @@ interface EmailPayload {
   text?: string;
 }
 
+// Vercel / Next-style serverless route: POST /api/resend
 export async function POST(request: Request) {
   try {
     const body = await request.json();

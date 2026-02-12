@@ -19,8 +19,11 @@ class ResendService {
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
             email: data.email,
-            name: data.name,
-            position: data.position
+            name: data.name || 'Trader',
+            position: data.position,
+            subject: `🚀 You're Position #${data.position} on ARCTOS.fi Waitlist`,
+            html: this.getWelcomeEmailHTML(data.name || 'Trader', data.position),
+            text: this.getWelcomeEmailText(data.name || 'Trader', data.position)
           })
         })
 
