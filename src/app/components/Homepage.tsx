@@ -4,7 +4,7 @@ import { toast } from 'sonner';
 import { WaitlistModal } from './WaitlistModal';
 import { WalletConnectionModal } from './WalletConnectionModal';
 import arctosLogo from '../../assets/images/arctos-logo.png.png';
-import { resendService } from '../services/resendService';
+import { brevoService } from '../services/brevoService';
 
 interface HomepageProps {
   onGetStarted: () => void;
@@ -43,18 +43,18 @@ export function Homepage({ onGetStarted, theme }: HomepageProps) {
       localStorage.setItem('arctos-waitlist', JSON.stringify(waitlist));
 
       // Send instant welcome email via Resend (frontend service)
-      try {
-        const emailRes = await resendService.sendWelcomeEmail({ email: inlineEmail, position });
-        if (emailRes.success) {
-          toast.success('Joined waitlist — confirmation email sent');
-        } else {
-          console.warn('Resend email not sent:', emailRes.message);
-          toast.success('Joined waitlist — confirmation pending');
-        }
-      } catch (err) {
-        console.error('Resend send error', err);
-        toast.success('Joined waitlist — confirmation pending');
-      }
+     try {
+  const emailRes = await brevoService.sendWelcomeEmail({ email: inlineEmail, position });
+  if (emailRes.success) {
+    toast.success('Joined waitlist — confirmation email sent');
+  } else {
+    console.warn('Brevo email not sent:', emailRes.message);
+    toast.success('Joined waitlist — confirmation pending');
+  }
+} catch (err) {
+  console.error('Brevo send error', err);
+  toast.success('Joined waitlist — confirmation pending');
+}
 
       setInlineSubmitting(false);
       setInlineSuccess(true);

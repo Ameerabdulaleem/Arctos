@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { resendService } from '../services/resendService';
+import { brevoService } from '../services/brevoService';
 import { X, Mail, CheckCircle, Loader2 } from 'lucide-react';
 
 interface WaitlistModalProps {
