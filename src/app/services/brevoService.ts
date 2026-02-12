@@ -16,25 +16,24 @@ class BrevoEmailService {
   }
 
   private initTransporter() {
-    try {
-      this.transporter = nodemailer.createTransport({
-        host: 'smtp-relay.brevo.com',
-        port: 587,
-        secure: false,
-        auth: {
-          user: import.meta.env.VITE_BREVO_EMAIL || 'arctosapp@gmail.com',
-          pass: import.meta.env.VITE_BREVO_SMTP_KEY,
-        },
-        tls: {
-          rejectUnauthorized: false,
-        },
-      });
-      console.log('✅ Brevo transporter initialized');
-    } catch (error) {
-      console.error('❌ Failed to initialize Brevo transporter:', error);
-    }
+  try {
+    this.transporter = nodemailer.createTransport({
+      host: import.meta.env.VITE_BREVO_HOST || 'smtp-relay.brevo.com',
+      port: parseInt(import.meta.env.VITE_BREVO_PORT) || 587,
+      secure: false, // true for 465, false for 587
+      auth: {
+        user: import.meta.env.VITE_BREVO_SMTP_LOGIN,  // ← This is the LOGIN (a2363f001@smtp-brevo.com)
+        pass: import.meta.env.VITE_BREVO_SMTP_PASSWORD, // ← This is the PASSWORD
+      },
+      tls: {
+        rejectUnauthorized: false, // Brevo uses self-signed certs
+      },
+    });
+    console.log('✅ Brevo transporter initialized with SMTP login');
+  } catch (error) {
+    console.error('❌ Failed to initialize Brevo transporter:', error);
   }
-
+}
   async sendWelcomeEmail(data: EmailData): Promise<{ success: boolean; message?: string }> {
     try {
       if (!this.transporter) {
