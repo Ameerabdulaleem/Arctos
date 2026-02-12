@@ -35,22 +35,8 @@ export function Homepage({ onGetStarted, theme }: HomepageProps) {
 
     setInlineSubmitting(true);
 
-    // POST to local Mailchimp proxy server
-    const base = (import.meta.env.VITE_API_BASE || '');
     try {
-      const res = await fetch(base + '/api/waitlist', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ email: inlineEmail })
-      });
-
-      if (!res.ok) {
-        // try to surface server message if available
-        const j = await res.json().catch(() => null);
-        throw j || new Error('Failed to join waitlist');
-      }
-
-      // Persist locally as fallback and compute position
+      // Persist locally and compute position
       const waitlist = JSON.parse(localStorage.getItem('arctos-waitlist') || '[]');
       const position = waitlist.length + 1;
       waitlist.push({ email: inlineEmail, timestamp: new Date().toISOString(), position });
