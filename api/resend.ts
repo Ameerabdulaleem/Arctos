@@ -31,7 +31,7 @@ export default async function handler(req: any, res: any) {
     const sendPayload: EmailPayload = {
       from: `${FROM_NAME} <${FROM_EMAIL}>`,
       to: [body.email],
-      subject: body.subject || `🚀 You're Position #${body.position} on ARCTOS.fi Waitlist`,
+      subject: body.subject || `🚀 You're Position #${body.position} on Arctos-fi Waitlist`,
       html: body.html || undefined,
       text: body.text || undefined,
     };
