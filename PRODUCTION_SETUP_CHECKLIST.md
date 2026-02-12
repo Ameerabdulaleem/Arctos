@@ -1,6 +1,6 @@
 # Production Setup Checklist for ARCTOS Waitlist
 
-This guide will walk you through getting Vercel + GitHub + Resend configured for production email sending.
+This guide will walk you through getting Vercel + GitHub + Brevo SMTP configured for production email sending.
 
 ---
 
@@ -74,9 +74,9 @@ These tell Vercel how to send emails and where the frontend calls the API.
 
 | Variable Name | Value | Notes |
 |---|---|---|
-| `RESEND_API_KEY` | `re_9nbkT8zh_FMXHb2u9851dm4fvhUUyHGDy` | Your actual Resend server key (starts with `re_`) |
-| `RESEND_FROM_EMAIL` | `arctos@resend.dev` | For now (will change if you verify a custom domain) |
-| `RESEND_FROM_NAME` | `ARCTOS Team` | Sender name |
+| `BREVO_SMTP_LOGIN` | `your-smtp-login@smtp-brevo.com` | Brevo SMTP login |
+| `BREVO_SMTP_PASSWORD` | `your-smtp-password` | Brevo SMTP password |
+| `BREVO_FROM_EMAIL` | `arctosapp@gmail.com` | Sender address (verified in Brevo) |
 | `VITE_API_BASE` | `https://arctos-fi.vercel.app` | Your actual Vercel URL (change if different) |
 
 **For each:**
@@ -123,28 +123,23 @@ Or manually redeploy:
 
 ### Check for email:
 
-- Go to https://resend.com/emails
-- You should see a new email with status ✅ **Delivered**
-- Check your email inbox
-- You should receive the **full welcome email** (with position, features, etc.)
-
-**If you see just "Test email" — something is wrong, contact me.**
+Check your email inbox for the **full welcome email** (with position, features, etc.).
 
 ---
 
 ## Troubleshooting
 
-### "Cannot GET /api/resend"
+### "Cannot GET /api/brevo"
 - ❌ Vercel deploy didn't work
-- ✅ Re-check: Is `api/resend/route.ts` at project root? Deploy again.
+- ✅ Re-check: Is `api/brevo.js` at project root? Deploy again.
 
-### "Missing RESEND_API_KEY"
-- ❌ Env var not set in Vercel
+### "Missing Brevo SMTP credentials"
+- ❌ Env vars not set in Vercel
 - ✅ Go to Vercel Settings → Environment Variables → check Production tab
 
 ### No email received
-- ❌ Resend API key is wrong or email limit reached
-- ✅ Check Resend dashboard for error: https://resend.com/emails
+- ❌ Brevo SMTP login or password is wrong
+- ✅ Check Brevo SMTP credentials in your Brevo dashboard
 
 ### Workflow failed to deploy
 - ❌ GitHub secrets missing or Vercel token expired
@@ -157,9 +152,9 @@ Or manually redeploy:
 | Service | URL | What to do |
 |---|---|---|
 | GitHub Secrets | https://github.com/YOUR-ORG/arctos/settings/secrets/actions | Add VERCEL_TOKEN, VERCEL_PROJECT_ID, VERCEL_ORG_ID |
-| Vercel Env Vars | https://vercel.com/dashboard → arctos-fi → Settings → Environment Variables | Add RESEND_API_KEY, RESEND_FROM_EMAIL, VITE_API_BASE |
+| Vercel Env Vars | https://vercel.com/dashboard → arctos-fi → Settings → Environment Variables | Add BREVO_SMTP_LOGIN, BREVO_SMTP_PASSWORD, BREVO_FROM_EMAIL, VITE_API_BASE |
 | Vercel Tokens | https://vercel.com/account/tokens | Create new token |
-| Resend Dashboard | https://resend.com/emails | Check if emails delivered |
+| Brevo Dashboard | https://app.brevo.com | Check SMTP credentials |
 | Your Live App | https://arctos-fi.vercel.app | Test registration |
 
 ---

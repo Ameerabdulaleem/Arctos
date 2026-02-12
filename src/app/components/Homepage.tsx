@@ -42,7 +42,7 @@ export function Homepage({ onGetStarted, theme }: HomepageProps) {
       waitlist.push({ email: inlineEmail, timestamp: new Date().toISOString(), position });
       localStorage.setItem('arctos-waitlist', JSON.stringify(waitlist));
 
-      // Send instant welcome email via Brevo (frontend service)
+      // Send instant welcome email via Brevo (serverless API)
      try {
   const emailRes = await brevoService.sendWelcomeEmail({ email: inlineEmail, position });
   if (emailRes.success) {

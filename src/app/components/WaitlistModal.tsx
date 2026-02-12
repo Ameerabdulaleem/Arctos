@@ -58,7 +58,7 @@ export function WaitlistModal({ isOpen, onClose, theme }: WaitlistModalProps) {
       });
       localStorage.setItem('arctos-waitlist', JSON.stringify(waitlist));
 
-        // Attempt to send a welcome email via Brevo (client-side and server proxy).
+        // Attempt to send a welcome email via Brevo (serverless API).
        try {
   const position = waitlist.length
   const emailRes = await brevoService.sendWelcomeEmail({ email, position })

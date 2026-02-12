@@ -1,6 +1,3 @@
-// Using Brevo's official SMTP with nodemailer - NO multi-mailer!
-import nodemailer from 'nodemailer';
-
 export interface EmailData {
   email: string;
   name?: string;
@@ -8,61 +5,32 @@ export interface EmailData {
 }
 
 class BrevoEmailService {
-  private transporter: nodemailer.Transporter | null = null;
+  private apiBase = import.meta.env.VITE_API_BASE || '';
 
-  constructor() {
-    // Create transporter once
-    this.initTransporter();
-  }
-
-  private initTransporter() {
-  try {
-    this.transporter = nodemailer.createTransport({
-      host: import.meta.env.VITE_BREVO_HOST || 'smtp-relay.brevo.com',
-      port: parseInt(import.meta.env.VITE_BREVO_PORT) || 587,
-      secure: false, // true for 465, false for 587
-      auth: {
-        user: import.meta.env.VITE_BREVO_SMTP_LOGIN,  // ← This is the LOGIN (a2363f001@smtp-brevo.com)
-        pass: import.meta.env.VITE_BREVO_SMTP_PASSWORD, // ← This is the PASSWORD
-      },
-      tls: {
-        rejectUnauthorized: false, // Brevo uses self-signed certs
-      },
-    });
-    console.log('✅ Brevo transporter initialized with SMTP login');
-  } catch (error) {
-    console.error('❌ Failed to initialize Brevo transporter:', error);
-  }
-}
   async sendWelcomeEmail(data: EmailData): Promise<{ success: boolean; message?: string }> {
     try {
-      if (!this.transporter) {
-        this.initTransporter();
+      const response = await fetch(`${this.apiBase}/api/brevo`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          email: data.email,
+          name: data.name,
+          position: data.position,
+          subject: `🚀 You're Position #${data.position} on ARCTOS.fi Waitlist`,
+          html: this.getWelcomeEmailHTML(data.name || 'Trader', data.position),
+          text: this.getWelcomeEmailText(data.name || 'Trader', data.position)
+        })
+      });
+
+      if (!response.ok) {
+        const payload = await response.json().catch(() => ({}));
+        const message = payload?.error || payload?.message || 'Email request failed';
+        return { success: false, message };
       }
 
-      if (!this.transporter) {
-        throw new Error('Email service not initialized');
-      }
-
-      console.log('📧 Brevo: sending welcome email to', data.email);
-
-      const mailOptions = {
-        from: `"ARCTOS Team" <${import.meta.env.VITE_BREVO_FROM_EMAIL || 'arctosapp@gmail.com'}>`,
-        to: data.email,
-        subject: `🚀 You're Position #${data.position} on ARCTOS.fi Waitlist`,
-        html: this.getWelcomeEmailHTML(data.name || 'Trader', data.position),
-        text: this.getWelcomeEmailText(data.name || 'Trader', data.position),
-        replyTo: 'arctosapp@gmail.com',
-      };
-
-      const info = await this.transporter.sendMail(mailOptions);
-      
-      console.log('✅ Brevo: Email sent successfully! Message ID:', info.messageId);
       return { success: true };
-      
     } catch (err: any) {
       const errorMessage = err?.message || 'Unknown email send error';
-      console.error('❌ Brevo email error:', errorMessage);
       return { success: false, message: errorMessage };
     }
   }
