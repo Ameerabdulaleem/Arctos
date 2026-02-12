@@ -1,4 +1,6 @@
 // Serverless route handler for Resend (compatible with Next.js / Vercel route handlers)
+import { Resend } from 'resend';
+
 export async function POST(request: Request) {
   try {
     const body = await request.json();
@@ -11,27 +13,18 @@ export async function POST(request: Request) {
       return new Response(JSON.stringify({ error: 'Missing server RESEND_API_KEY' }), { status: 500 });
     }
 
-    const payload: any = {
+    const resend = new Resend(RESEND_KEY);
+
+    const sendPayload: any = {
       from: `${FROM_NAME} <${FROM_EMAIL}>`,
       to: [body.email],
-      subject: body.subject || `🚀 You're Position #${body.position} on Arctos-fi Waitlist`,
-      html: body.html || null,
-      text: body.text || null,
-      tags: body.tags || []
+      subject: body.subject || `🚀 You're Position #${body.position} on ARCTOS.fi Waitlist`,
+      html: body.html || undefined,
+      text: body.text || undefined,
     };
 
-    const resp = await fetch('https://api.resend.com/emails', {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'Authorization': `Bearer ${RESEND_KEY}`
-      },
-      body: JSON.stringify(payload)
-    });
-
-    const text = await resp.text().catch(() => '');
-    const contentType = resp.headers.get('content-type') || 'text/plain';
-    return new Response(text, { status: resp.status, headers: { 'Content-Type': contentType } });
+    const result = await resend.emails.send(sendPayload);
+    return new Response(JSON.stringify(result), { status: 200, headers: { 'Content-Type': 'application/json' } });
   } catch (err: any) {
     return new Response(JSON.stringify({ error: err?.message || 'Unknown error' }), { status: 500 });
   }

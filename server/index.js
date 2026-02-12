@@ -4,7 +4,7 @@
 */
 require('dotenv').config();
 const express = require('express');
-const fetch = require('node-fetch');
+const { Resend } = require('resend');
 const app = express();
 app.use(express.json());
 
@@ -16,29 +16,24 @@ app.post('/api/resend', async (req, res) => {
   if (!key) return res.status(500).json({ error: 'Missing RESEND_API_KEY in server environment' });
 
   const body = req.body || {};
-  const payload = {
-    from: `${fromName} <${fromEmail}>`,
-    to: [body.email],
-    subject: body.subject || `🚀 You're Position #${body.position} on Arctos-fi Waitlist`,
-    html: body.html || null,
-    text: body.text || null,
-    tags: body.tags || []
-  };
 
+  // Use Resend SDK to send the email (server-side)
   try {
-    const r = await fetch('https://api.resend.com/emails', {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'Authorization': `Bearer ${key}`
-      },
-      body: JSON.stringify(payload)
-    });
+    const resend = new Resend(key);
+    const sendPayload = {
+      from: `${fromName} <${fromEmail}>`,
+      to: [body.email],
+      subject: body.subject || `🚀 You're Position #${body.position} on Arctos-fi Waitlist`,
+      html: body.html || undefined,
+      text: body.text || undefined,
+      // SDK may ignore unknown fields; tag support differs by SDK version
+    };
 
-    const text = await r.text().catch(() => '');
-    res.status(r.status).send(text);
+    const result = await resend.emails.send(sendPayload);
+    // result contains the API response: return it to caller for debugging
+    res.status(200).json(result);
   } catch (err) {
-    console.error('Server resend proxy error', err);
+    console.error('Server resend proxy error (SDK)', err);
     res.status(500).json({ error: err?.message || 'Server proxy error' });
   }
 });
