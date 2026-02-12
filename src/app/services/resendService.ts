@@ -30,9 +30,8 @@ class ResendService {
           return { success: false, message: `Server resend proxy error ${res.status}` }
         }
 
-        const json = await res.json().catch(() => ({}))
         return { success: true }
-      } catch (err: any) {
+      } catch (err) {
         console.error('❌ Error calling server resend proxy:', err)
         // fall through to client-side attempt
       }
@@ -73,9 +72,9 @@ class ResendService {
       const result = await response.json().catch(() => ({}))
       console.log('✅ Resend result:', result)
       return { success: true }
-    } catch (error: any) {
-      console.error('❌ Resend service error:', error)
-      return { success: false, message: error?.message || 'Resend request failed' }
+    } catch (err) {
+      console.error('❌ Resend service error:', err)
+      return { success: false, message: (err as any)?.message || 'Resend request failed' }
     }
   }
 
