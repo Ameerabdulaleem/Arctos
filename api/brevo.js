@@ -23,7 +23,7 @@ export default async function handler(req, res) {
   const port = Number(process.env.BREVO_PORT || process.env.BREVO_SMTP_PORT || process.env.VITE_BREVO_PORT || 587);
   const user = process.env.BREVO_SMTP_LOGIN || process.env.BREVO_SMTP_USER || process.env.VITE_BREVO_SMTP_LOGIN;
   const pass = process.env.BREVO_SMTP_PASSWORD || process.env.BREVO_SMTP_PASS || process.env.VITE_BREVO_SMTP_PASSWORD;
-  const fromEmail = process.env.BREVO_FROM_EMAIL || process.env.VITE_BREVO_FROM_EMAIL || 'arctosapp@gmail.com';
+  const fromEmail = process.env.BREVO_FROM_EMAIL || process.env.VITE_BREVO_FROM_EMAIL || 'noreply@example.com';
   const fromName = process.env.BREVO_FROM_NAME || process.env.VITE_BREVO_FROM_NAME || 'ARCTOS Team';
   const replyTo = process.env.BREVO_REPLY_TO || process.env.VITE_BREVO_REPLY_TO || fromEmail;
 

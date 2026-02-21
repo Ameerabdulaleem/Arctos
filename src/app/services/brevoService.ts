@@ -5,13 +5,14 @@ export interface EmailData {
 }
 
 class BrevoEmailService {
-  private apiBase = import.meta.env.VITE_API_BASE || '';
-
   async sendWelcomeEmail(data: EmailData): Promise<{ success: boolean; message?: string }> {
     try {
-      const response = await fetch(`${this.apiBase}/api/brevo`, {
+      const base = import.meta.env.VITE_API_BASE || '';
+      const response = await fetch(base + '/api/brevo', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: {
+          'Content-Type': 'application/json'
+        },
         body: JSON.stringify({
           email: data.email,
           name: data.name,
@@ -23,14 +24,14 @@ class BrevoEmailService {
       });
 
       if (!response.ok) {
-        const payload = await response.json().catch(() => ({}));
-        const message = payload?.error || payload?.message || 'Email request failed';
-        return { success: false, message };
+        const err = await response.json().catch(() => ({}));
+        throw new Error(err?.error || 'Email send failed');
       }
 
       return { success: true };
-    } catch (err: any) {
-      const errorMessage = err?.message || 'Unknown email send error';
+    } catch (err: unknown) {
+      const errorMessage = err instanceof Error ? err.message : 'Unknown email send error';
+      console.error('❌ Brevo email error:', errorMessage);
       return { success: false, message: errorMessage };
     }
   }
