@@ -58,3 +58,6 @@ coverage/
 
 # Vite cache
 .cache/
+
+# Private local notes
+.github/explanation.md

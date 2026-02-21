@@ -1,7 +1,4 @@
-import { Home, BarChart3, Zap, MessageSquare, Settings, TrendingUp, BookOpen, Wallet, LogOut, User, Newspaper } from 'lucide-react';
-import { useState } from 'react';
-import { useAuth } from '../contexts/AuthContext';
-import { toast } from 'sonner';
+import { Gauge, BarChart3, Target, MessageSquare, Settings, Eye, BookOpen, Newspaper } from 'lucide-react';
 
 interface SidebarProps {
   activeView: string;
@@ -10,31 +7,17 @@ interface SidebarProps {
 }
 
 export function Sidebar({ activeView, setActiveView, theme }: SidebarProps) {
-  const { isAuthenticated, isWalletConnected, disconnectWallet, signOut } = useAuth();
-  const [, setWalletModalOpen] = useState(false);
-  const [, setEmailAuthModalOpen] = useState(false);
-
   const menuItems = [
-    { id: 'dashboard', label: 'Dashboard', icon: Home },
+    { id: 'dashboard', label: 'Dashboard', icon: Gauge },
     { id: 'trading', label: 'Trading Terminal', icon: BarChart3 },
-    { id: 'sniper', label: 'Sniper Panel', icon: Zap },
-    { id: 'whale', label: 'Whale Alerts', icon: TrendingUp },
+    { id: 'sniper', label: 'Sniper Panel', icon: Target },
+    { id: 'whale', label: 'Whale Alerts', icon: Eye },
     { id: 'news', label: 'Fundamental News', icon: Newspaper },
     { id: 'chat', label: 'AI Chat', icon: MessageSquare },
     { id: 'tradebook', label: 'Trade Book', icon: BookOpen },
   ];
 
   const isDark = theme === 'dark';
-
-  const handleSignOut = () => {
-    signOut();
-    toast.success('Signed out successfully');
-  };
-
-  const handleDisconnectWallet = () => {
-    disconnectWallet();
-    toast.success('Wallet disconnected');
-  };
 
   return (
     <div className={`w-64 ${isDark ? 'bg-zinc-900 border-zinc-800' : 'bg-gray-50 border-gray-200'} border-r flex flex-col h-full`}>
@@ -49,68 +32,6 @@ export function Sidebar({ activeView, setActiveView, theme }: SidebarProps) {
           />
           Arctos
         </h1>
-      </div>
-
-      {/* Rest of your Sidebar code remains the same */}
-      <div className={`p-4 border-b ${isDark ? 'border-zinc-800' : 'border-gray-200'}`}>
-        {isAuthenticated ? (
-          <div className="space-y-2">
-            <div className={`p-3 rounded-lg ${isDark ? 'bg-zinc-800' : 'bg-gray-200'}`}>
-              <div className="flex items-center gap-2 mb-2">
-                {isWalletConnected ? (
-                  <>
-                    <Wallet className="w-4 h-4 text-blue-500" />
-                    <span className={`text-sm font-medium ${isDark ? 'text-white' : 'text-gray-900'}`}>
-                      Wallet
-                    </span>
-                  </>
-                ) : (
-                  <>
-                    <User className="w-4 h-4 text-blue-500" />
-                    <span className={`text-sm font-medium ${isDark ? 'text-white' : 'text-gray-900'}`}>
-                      Email Account
-                    </span>
-                  </>
-                )}
-              </div>
-              <div className={`text-xs ${isDark ? 'text-zinc-400' : 'text-gray-600'} truncate`}>
-                Connected
-              </div>
-            </div>
-            <button
-              onClick={isWalletConnected ? handleDisconnectWallet : handleSignOut}
-              className={`w-full flex items-center justify-center gap-2 px-4 py-2 rounded-lg text-sm transition-colors ${
-                isDark
-                  ? 'bg-zinc-800 hover:bg-zinc-700 text-zinc-300'
-                  : 'bg-gray-200 hover:bg-gray-300 text-gray-700'
-              }`}
-            >
-              <LogOut className="w-4 h-4" />
-              {isWalletConnected ? 'Disconnect' : 'Sign Out'}
-            </button>
-          </div>
-        ) : (
-          <div className="space-y-2">
-            <button
-              onClick={() => setWalletModalOpen(true)}
-              className="w-full flex items-center justify-center gap-2 px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg transition-colors text-sm font-medium"
-            >
-              <Wallet className="w-4 h-4" />
-              Connect Wallet
-            </button>
-            <button
-              onClick={() => setEmailAuthModalOpen(true)}
-              className={`w-full flex items-center justify-center gap-2 px-4 py-2 rounded-lg text-sm transition-colors ${
-                isDark
-                  ? 'bg-zinc-800 hover:bg-zinc-700 text-zinc-300'
-                  : 'bg-gray-200 hover:bg-gray-300 text-gray-700'
-              }`}
-            >
-              <User className="w-4 h-4" />
-              Sign In
-            </button>
-          </div>
-        )}
       </div>
 
       {/* Navigation */}
@@ -130,7 +51,7 @@ export function Sidebar({ activeView, setActiveView, theme }: SidebarProps) {
                         : 'text-gray-600 hover:bg-gray-200 hover:text-gray-900'
                   }`}
                 >
-                  <Icon className="w-5 h-5" />
+                  <Icon className="w-[18px] h-[18px]" strokeWidth={1.5} />
                   <span>{item.label}</span>
                 </button>
               </li>
@@ -151,7 +72,7 @@ export function Sidebar({ activeView, setActiveView, theme }: SidebarProps) {
                 : 'text-gray-600 hover:bg-gray-200 hover:text-gray-900'
           }`}
         >
-          <Settings className="w-5 h-5" />
+          <Settings className="w-[18px] h-[18px]" strokeWidth={1.5} />
           <span>Settings</span>
         </button>
       </div>
