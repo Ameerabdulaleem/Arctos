@@ -13,7 +13,7 @@ use std::{
     env,
     net::SocketAddr,
     sync::Arc,
-    time::{Duration, SystemTime, UNIX_EPOCH},
+    time::Duration,
 };
 use tokio::sync::{broadcast, RwLock};
 use tower_http::cors::{Any, CorsLayer};
@@ -109,15 +109,17 @@ async fn main() {
         .ok()
         .and_then(|v| v.parse::<u16>().ok())
         .unwrap_or(4000);
-    let addr: SocketAddr = format!("{}:{}", host, port)
+    let base_addr: SocketAddr = format!("{}:{}", host, port)
         .parse()
         .unwrap_or(SocketAddr::from(([127, 0, 0, 1], 4000)));
 
-    println!("Starting server at http://{}", addr);
-    axum::Server::bind(&addr)
-        .serve(app.into_make_service())
-        .await
-        .unwrap();
+    let listener = bind_first_available(base_addr, 20).await;
+    let local_addr = listener
+        .local_addr()
+        .unwrap_or(SocketAddr::from(([127, 0, 0, 1], port)));
+
+    println!("Starting server at http://{}", local_addr);
+    axum::serve(listener, app).await.unwrap();
 }
 
 async fn root() -> &'static str {
@@ -398,4 +400,19 @@ fn build_cors_layer() -> CorsLayer {
             .allow_methods(Any)
             .allow_headers(Any)
     }
+}
+
+async fn bind_first_available(base_addr: SocketAddr, max_port_offset: u16) -> tokio::net::TcpListener {
+    for offset in 0..=max_port_offset {
+        let candidate = SocketAddr::new(base_addr.ip(), base_addr.port().saturating_add(offset));
+        if let Ok(listener) = tokio::net::TcpListener::bind(candidate).await {
+            return listener;
+        }
+    }
+
+    panic!(
+        "Failed to bind server on {} or next {} ports",
+        base_addr,
+        max_port_offset
+    );
 }
