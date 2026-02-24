@@ -8,6 +8,10 @@ dist/
 dist-ssr/
 *.local
 
+# Rust build outputs
+backend/target/
+**/target/
+
 # Environment variables
 .env*
 .env.local
