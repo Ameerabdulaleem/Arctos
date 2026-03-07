@@ -10,7 +10,7 @@ export function Sidebar({ activeView, setActiveView, theme }: SidebarProps) {
   const menuItems = [
     { id: 'dashboard', label: 'Dashboard', icon: Gauge },
     { id: 'trading', label: 'Trading Terminal', icon: BarChart3 },
-    { id: 'sniper', label: 'Sniper Panel', icon: Target },
+    { id: 'sniper', label: 'Sniper Engine', icon: Target },
     { id: 'whale', label: 'Whale Alerts', icon: Eye },
     { id: 'news', label: 'Fundamental News', icon: Newspaper },
     { id: 'chat', label: 'AI Chat', icon: MessageSquare },
