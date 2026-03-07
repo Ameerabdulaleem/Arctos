@@ -228,34 +228,25 @@ export default function AutomatedTrading({
   const totalPnl = openPositions.reduce((s, t) => s + (t.pnlPercent ?? 0), 0);
 
   /* -------------------------------------------------------------- */
-  /*  Wallet gate                                                    */
-  /* -------------------------------------------------------------- */
-  if (!isWalletConnected) {
-    return (
-      <div className="bg-zinc-900 border border-zinc-800 rounded-xl p-8 flex flex-col items-center justify-center gap-4 min-h-[320px]">
-        <div className="w-16 h-16 rounded-2xl bg-zinc-800 flex items-center justify-center">
-          <Zap className="w-8 h-8 text-zinc-500" />
-        </div>
-        <h3 className="text-xl font-bold text-white">Automated Trading</h3>
-        <p className="text-zinc-400 text-sm text-center max-w-sm">
-          Connect your wallet to enable automated token scanning and trading across
-          Solana, Ethereum, BNB Chain, Base, and Arbitrum.
-        </p>
-        <button
-          onClick={onRequestWalletConnect}
-          className="px-6 py-3 rounded-lg bg-blue-600 hover:bg-blue-700 text-white font-medium transition-colors"
-        >
-          Connect Wallet
-        </button>
-      </div>
-    );
-  }
-
-  /* -------------------------------------------------------------- */
   /*  Main UI                                                        */
   /* -------------------------------------------------------------- */
   return (
     <div className="space-y-4">
+      {/* ── Wallet banner ─────────────────────────────────────────── */}
+      {!isWalletConnected && (
+        <div className="flex items-center justify-between gap-4 px-4 py-3 bg-zinc-900 border border-zinc-800 rounded-xl">
+          <p className="text-zinc-400 text-sm">
+            Connect your wallet to start the auto-trader and execute trades.
+          </p>
+          <button
+            onClick={onRequestWalletConnect}
+            className="flex items-center gap-1.5 px-3 py-1.5 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors text-xs font-medium shrink-0"
+          >
+            Connect Wallet
+          </button>
+        </div>
+      )}
+
       {/* Header */}
       <div className="bg-zinc-900 border border-zinc-800 rounded-xl p-5">
         <div className="flex items-center justify-between mb-4">
@@ -266,7 +257,9 @@ export default function AutomatedTrading({
             <div>
               <h3 className="text-lg font-bold text-white">Auto-Trader</h3>
               <p className="text-xs text-zinc-500">
-                {walletAddress ? `${walletAddress.slice(0, 6)}…${walletAddress.slice(-4)}` : 'Connected'}
+                {walletAddress
+                  ? `${walletAddress.slice(0, 6)}…${walletAddress.slice(-4)}`
+                  : 'No wallet connected'}
               </p>
             </div>
           </div>

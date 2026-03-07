@@ -11,10 +11,10 @@ export function Sidebar({ activeView, setActiveView, theme }: SidebarProps) {
     { id: 'dashboard', label: 'Dashboard', icon: Gauge },
     { id: 'trading', label: 'Trading Terminal', icon: BarChart3 },
     { id: 'sniper', label: 'Sniper Engine', icon: Target },
+    { id: 'tradebook', label: 'Trade Book', icon: BookOpen },
     { id: 'whale', label: 'Whale Alerts', icon: Eye },
     { id: 'news', label: 'Fundamental News', icon: Newspaper },
     { id: 'chat', label: 'AI Chat', icon: MessageSquare },
-    { id: 'tradebook', label: 'Trade Book', icon: BookOpen },
   ];
 
   const isDark = theme === 'dark';
