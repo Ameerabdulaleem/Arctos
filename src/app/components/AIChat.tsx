@@ -61,7 +61,7 @@ const QUICK_PROMPTS = [
 const INITIAL_MESSAGE: Message = {
   id: 'init',
   text:
-    "Hello! I'm your **Arctos AI Trading Advisor**. I have real-time access to your trade book, sniper engine, and market news — so my advice is tailored to your actual data.\n\nAsk me anything: portfolio review, token analysis, risk assessment, or market outlook.",
+    "Hello! I'm your **Arctos AI Trading Advisor**. I have real-time access to your trade book, sniper engine, and market news, so my advice is tailored to your actual data.\n\nAsk me anything: portfolio review, token analysis, risk assessment, or market outlook.",
   role: 'ai',
   timestamp: new Date(),
 };
