@@ -63,8 +63,7 @@ coverage/
 # Vite cache
 .cache/
 
-# Private local notes
-.github/explanation.md
-.github/to-do.md
+# Private local notes (without secrets)
+# Note: RUST_*.md files are documentation and safe to commit
 explanation.md
 to-do.md
