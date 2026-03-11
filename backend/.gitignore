@@ -1,0 +1,50 @@
+# Environment Variables - NEVER commit secrets!
+.env
+.env.local
+.env.*.local
+
+# Database Files
+arctos.db
+arctos.db-shm
+arctos.db-wal
+*.db
+*.sqlite
+*.sqlite3
+
+# Rust Build Artifacts
+/target/
+Cargo.lock
+**/*.rs.bk
+
+# IDE & Editor Files
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+.DS_Store
+.project
+.classpath
+.c9/
+*.launch
+.settings/
+*.sublime-workspace
+
+# Logs
+*.log
+logs/
+
+# SQLx Cache
+.sqlx/
+
+# Temporary Files
+*.tmp
+*.temp
+tmp/
+
+# OS Files
+Thumbs.db
+.DS_Store
+
+# Dependencies (optional - only if not using Cargo.lock)
+# Cargo.lock  # Uncomment if managing lockfile manually
