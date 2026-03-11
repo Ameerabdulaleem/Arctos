@@ -1,199 +1,138 @@
+mod config;
+mod db;
+mod error;
+mod handlers;
+mod types;
+
+use std::{collections::HashMap, env, net::SocketAddr, sync::Arc, time::Duration};
+
 use axum::{
-    extract::{
-        ws::{Message, WebSocket, WebSocketUpgrade},
-        State,
-    },
-    response::IntoResponse,
-    routing::get,
-    Json, Router,
-};
-use serde::{Deserialize, Serialize};
-use std::{
-    collections::HashMap,
-    env,
-    net::SocketAddr,
-    sync::Arc,
-    time::Duration,
+    routing::{get, post},
+    Router,
 };
 use tokio::sync::{broadcast, RwLock};
 use tower_http::cors::{Any, CorsLayer};
+use tracing::info;
+
+pub use config::Config;
+pub use types::*;
+
+// ── Application State ────────────────────────────────────────────────────────
 
 #[derive(Clone)]
-struct AppState {
-    latest_snapshot: Arc<RwLock<DashboardSnapshot>>,
-    tx: broadcast::Sender<DashboardSnapshot>,
+pub struct AppState {
+    pub latest_snapshot: Arc<RwLock<DashboardSnapshot>>,
+    pub dashboard_tx: broadcast::Sender<DashboardSnapshot>,
+    pub sniper_tx: broadcast::Sender<SniperUpdateEvent>,
+    pub db: sqlx::SqlitePool,
+    pub config: Arc<Config>,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-struct DashboardSnapshot {
-    metrics: DashboardMetrics,
-    recent_activities: Vec<RecentActivity>,
-    assets: DashboardAssets,
-    updated_at: String,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-struct DashboardMetrics {
-    portfolio_value: f64,
-    portfolio_change_percent: f64,
-    portfolio_change_value: f64,
-    altseason_index: u32,
-    altseason_trend: Vec<u32>,
-    btc_dominance: f64,
-    eth_dominance: f64,
-    dominance_map: HashMap<String, f64>,
-    total_market_cap: f64,
-    market_cap_change_percent: f64,
-    market_cap_trend: Vec<f64>,
-    fear_greed_index: u32,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-struct RecentActivity {
-    action: String,
-    amount: String,
-    value: String,
-    time: String,
-    chain: String,
-    chain_color: String,
-    r#type: String,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-struct DashboardAssets {
-    tokens: Vec<AssetItem>,
-    defi: Vec<AssetItem>,
-    nfts: Vec<AssetItem>,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-struct AssetItem {
-    name: String,
-    symbol: String,
-    chain: String,
-    amount: String,
-    value: String,
-    change24h: f64,
-}
+// ── Entry Point ───────────────────────────────────────────────────────────────
 
 #[tokio::main]
 async fn main() {
-    tracing_subscriber::fmt::init();
+    // Load .env if present (silently skip if missing)
+    let _ = dotenv::dotenv();
+
+    tracing_subscriber::fmt()
+        .with_env_filter(
+            tracing_subscriber::EnvFilter::try_from_default_env()
+                .unwrap_or_else(|_| "arctos_backend=info,tower_http=info".into()),
+        )
+        .init();
+
+    let cfg = Arc::new(Config::from_env());
+
+    let db = db::init_pool(&cfg.database_url)
+        .await
+        .expect("Failed to initialise SQLite database");
 
     let initial_snapshot = build_snapshot(0);
-    let (tx, _) = broadcast::channel::<DashboardSnapshot>(64);
-    let state = AppState {
-        latest_snapshot: Arc::new(RwLock::new(initial_snapshot.clone())),
-        tx: tx.clone(),
-    };
+    let (dashboard_tx, _) = broadcast::channel::<DashboardSnapshot>(64);
+    let (sniper_tx, _) = broadcast::channel::<SniperUpdateEvent>(64);
 
-    let updater_state = state.clone();
-    tokio::spawn(async move {
-        run_snapshot_updater(updater_state).await;
+    let state = Arc::new(AppState {
+        latest_snapshot: Arc::new(RwLock::new(initial_snapshot)),
+        dashboard_tx,
+        sniper_tx,
+        db,
+        config: cfg.clone(),
     });
 
-    let app = Router::new()
-        .route("/", get(root))
-        .route("/api/dashboard/overview", get(get_dashboard_overview))
-        .route("/ws/dashboard", get(ws_dashboard))
-        .layer(build_cors_layer())
-        .with_state(state);
+    // Spawn the dashboard live-data updater
+    let updater_state = state.clone();
+    tokio::spawn(async move {
+        handlers::ws_dashboard::run_snapshot_updater(updater_state).await;
+    });
 
-    let host = env::var("BACKEND_HOST").unwrap_or_else(|_| "127.0.0.1".to_string());
-    let port = env::var("BACKEND_PORT")
-        .ok()
-        .and_then(|v| v.parse::<u16>().ok())
-        .unwrap_or(4000);
-    let base_addr: SocketAddr = format!("{}:{}", host, port)
+    let app = build_router(state);
+
+    let base_addr: SocketAddr = format!("{}:{}", cfg.host, cfg.port)
         .parse()
-        .unwrap_or(SocketAddr::from(([127, 0, 0, 1], 4000)));
+        .unwrap_or(SocketAddr::from(([0, 0, 0, 0], 4000)));
 
     let listener = bind_first_available(base_addr, 20).await;
     let local_addr = listener
         .local_addr()
-        .unwrap_or(SocketAddr::from(([127, 0, 0, 1], port)));
+        .unwrap_or(SocketAddr::from(([0, 0, 0, 0], cfg.port)));
 
-    println!("Starting server at http://{}", local_addr);
+    info!("Arctos backend listening on http://{}", local_addr);
     axum::serve(listener, app).await.unwrap();
 }
+
+// ── Router ───────────────────────────────────────────────────────────────────
+
+fn build_router(state: Arc<AppState>) -> Router {
+    Router::new()
+        // Health
+        .route("/health", get(health))
+        // Root
+        .route("/", get(root))
+        // Dashboard REST + WebSocket
+        .route(
+            "/api/dashboard/overview",
+            get(handlers::dashboard::get_dashboard_overview),
+        )
+        .route("/ws/dashboard", get(handlers::ws_dashboard::ws_dashboard))
+        // Sniper REST
+        .route("/api/sniper/tokens", get(handlers::sniper::get_tokens))
+        .route(
+            "/api/sniper/token-search",
+            get(handlers::sniper::search_token),
+        )
+        .route("/api/sniper/config", post(handlers::sniper::save_config))
+        .route("/api/sniper/state", post(handlers::sniper::set_state))
+        .route("/api/sniper/snipe", post(handlers::sniper::execute_snipe))
+        // Sniper WebSocket
+        .route("/ws/sniper", get(handlers::ws_sniper::ws_sniper))
+        // News
+        .route("/api/news", get(handlers::news::get_news))
+        // Tradebook
+        .route(
+            "/api/tradebook/trades",
+            get(handlers::tradebook::get_trades).post(handlers::tradebook::save_trades),
+        )
+        // Email
+        .route("/api/brevo", post(handlers::email::send_email))
+        // Middleware
+        .layer(build_cors_layer())
+        .with_state(state)
+}
+
+// ── Simple handlers ───────────────────────────────────────────────────────────
 
 async fn root() -> &'static str {
     "Arctos backend live sync server"
 }
 
-async fn get_dashboard_overview(State(state): State<AppState>) -> Json<DashboardSnapshot> {
-    let snapshot = state.latest_snapshot.read().await.clone();
-    Json(snapshot)
+async fn health() -> &'static str {
+    "OK"
 }
 
-async fn ws_dashboard(
-    ws: WebSocketUpgrade,
-    State(state): State<AppState>,
-) -> impl IntoResponse {
-    ws.on_upgrade(move |socket| handle_ws_connection(socket, state))
-}
+// ── Snapshot builder (live-simulated data) ────────────────────────────────────
 
-async fn handle_ws_connection(mut socket: WebSocket, state: AppState) {
-    let initial_snapshot = state.latest_snapshot.read().await.clone();
-    if let Ok(initial_text) = serde_json::to_string(&initial_snapshot) {
-        if socket.send(Message::Text(initial_text)).await.is_err() {
-            return;
-        }
-    } else {
-        return;
-    }
-
-    let mut rx = state.tx.subscribe();
-
-    loop {
-        tokio::select! {
-            msg = rx.recv() => {
-                match msg {
-                    Ok(snapshot) => {
-                        if let Ok(text) = serde_json::to_string(&snapshot) {
-                            if socket.send(Message::Text(text)).await.is_err() {
-                                break;
-                            }
-                        }
-                    }
-                    Err(_) => break,
-                }
-            }
-            incoming = socket.recv() => {
-                match incoming {
-                    Some(Ok(Message::Close(_))) | None => break,
-                    Some(Ok(_)) => {}
-                    Some(Err(_)) => break,
-                }
-            }
-        }
-    }
-}
-
-async fn run_snapshot_updater(state: AppState) {
-    let mut tick: u64 = 1;
-    let mut interval = tokio::time::interval(Duration::from_secs(3));
-
-    loop {
-        interval.tick().await;
-
-        let next = build_snapshot(tick);
-        {
-            let mut lock = state.latest_snapshot.write().await;
-            *lock = next.clone();
-        }
-
-        let _ = state.tx.send(next);
-        tick = tick.saturating_add(1);
-    }
-}
-
-fn build_snapshot(tick: u64) -> DashboardSnapshot {
+pub fn build_snapshot(tick: u64) -> DashboardSnapshot {
     let phase = (tick % 40) as f64;
     let portfolio_base = 128_456.32;
     let portfolio_drift = (phase - 20.0) * 215.0;
@@ -236,7 +175,16 @@ fn build_snapshot(tick: u64) -> DashboardSnapshot {
             dominance_map,
             total_market_cap,
             market_cap_change_percent: round2(market_cap_change_percent),
-            market_cap_trend: vec![2.22, 2.24, 2.27, 2.31, 2.28, 2.35, 2.39, round2(total_market_cap / 1e12)],
+            market_cap_trend: vec![
+                2.22,
+                2.24,
+                2.27,
+                2.31,
+                2.28,
+                2.35,
+                2.39,
+                round2(total_market_cap / 1e12),
+            ],
             fear_greed_index,
         },
         recent_activities: vec![
@@ -371,7 +319,9 @@ fn build_snapshot(tick: u64) -> DashboardSnapshot {
     }
 }
 
-fn round2(value: f64) -> f64 {
+// ── Utilities ─────────────────────────────────────────────────────────────────
+
+pub fn round2(value: f64) -> f64 {
     (value * 100.0).round() / 100.0
 }
 
@@ -379,10 +329,13 @@ fn now_iso_string() -> String {
     chrono::Utc::now().to_rfc3339()
 }
 
-fn build_cors_layer() -> CorsLayer {
+pub fn build_cors_layer() -> CorsLayer {
     let origins = env::var("FRONTEND_ORIGINS").unwrap_or_default();
     if origins.trim().is_empty() {
-        return CorsLayer::new().allow_origin(Any).allow_methods(Any).allow_headers(Any);
+        return CorsLayer::new()
+            .allow_origin(Any)
+            .allow_methods(Any)
+            .allow_headers(Any);
     }
 
     let allowed = origins
@@ -393,7 +346,10 @@ fn build_cors_layer() -> CorsLayer {
         .collect::<Vec<_>>();
 
     if allowed.is_empty() {
-        CorsLayer::new().allow_origin(Any).allow_methods(Any).allow_headers(Any)
+        CorsLayer::new()
+            .allow_origin(Any)
+            .allow_methods(Any)
+            .allow_headers(Any)
     } else {
         CorsLayer::new()
             .allow_origin(allowed)
@@ -402,17 +358,20 @@ fn build_cors_layer() -> CorsLayer {
     }
 }
 
-async fn bind_first_available(base_addr: SocketAddr, max_port_offset: u16) -> tokio::net::TcpListener {
+pub async fn bind_first_available(
+    base_addr: SocketAddr,
+    max_port_offset: u16,
+) -> tokio::net::TcpListener {
     for offset in 0..=max_port_offset {
-        let candidate = SocketAddr::new(base_addr.ip(), base_addr.port().saturating_add(offset));
+        let candidate =
+            SocketAddr::new(base_addr.ip(), base_addr.port().saturating_add(offset));
         if let Ok(listener) = tokio::net::TcpListener::bind(candidate).await {
             return listener;
         }
     }
 
     panic!(
-        "Failed to bind server on {} or next {} ports",
-        base_addr,
-        max_port_offset
+        "Failed to bind server on {} or the next {} ports",
+        base_addr, max_port_offset
     );
 }
