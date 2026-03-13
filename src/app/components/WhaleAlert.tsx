@@ -122,12 +122,12 @@ function StatCard({ label, value, sub, accent = 'default' }: StatCardProps) {
         ? 'text-blue-400'
         : 'text-white';
   return (
-    <div className="bg-zinc-900 border border-zinc-800 rounded-xl p-4">
-      <p className="text-zinc-500 text-xs font-medium uppercase tracking-wide mb-2">
+    <div className="bg-zinc-900/80 border border-zinc-800/60 rounded-xl p-4">
+      <p className="text-zinc-500 text-[10px] font-medium uppercase tracking-wider mb-2">
         {label}
       </p>
-      <p className={`text-2xl font-bold ${valueColor}`}>{value}</p>
-      {sub && <p className="text-zinc-500 text-xs mt-1">{sub}</p>}
+      <p className={`text-xl font-bold tabular-nums ${valueColor}`}>{value}</p>
+      {sub && <p className="text-zinc-600 text-xs mt-1">{sub}</p>}
     </div>
   );
 }
@@ -283,17 +283,17 @@ export function WhaleAlert() {
         {/* ── Header ──────────────────────────────────────────────────────── */}
         <div className="mb-6 flex items-start justify-between gap-4">
           <div>
-            <h1 className="text-3xl font-bold text-white mb-1 flex items-center gap-3">
-              <span className="text-2xl leading-none">🐋</span>
+            <h1 className="text-2xl font-bold text-white mb-1 flex items-center gap-3 tracking-tight">
+              <span className="flex items-center justify-center w-9 h-9 rounded-lg bg-blue-600/15 text-lg leading-none">🐋</span>
               Whale Alerts
             </h1>
-            <p className="text-zinc-400 text-sm">
+            <p className="text-zinc-500 text-sm">
               Real-time monitoring of large on-chain transactions
             </p>
           </div>
           <button
             onClick={() => { setShowAddWhale(v => !v); setFormError(''); }}
-            className="flex items-center gap-2 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors font-medium text-sm shrink-0"
+            className="flex items-center gap-2 px-4 py-2 bg-blue-600 text-white rounded-xl hover:bg-blue-700 transition-colors font-medium text-sm shrink-0 shadow-lg shadow-blue-600/10"
           >
             <Plus className="w-4 h-4" />
             Track Whale
@@ -399,9 +399,9 @@ export function WhaleAlert() {
 
         {/* ── Tracked Wallets Panel ────────────────────────────────────────── */}
         {trackedWhales.length > 0 && (
-          <div className="mb-6 bg-zinc-900 border border-zinc-800 rounded-xl p-5">
+          <div className="mb-6 bg-zinc-900/80 border border-zinc-800/60 rounded-xl p-5">
             <div className="flex items-center justify-between mb-4">
-              <h3 className="text-sm font-semibold text-white flex items-center gap-2">
+              <h3 className="text-sm font-semibold text-white flex items-center gap-2 tracking-tight">
                 <Star className="w-4 h-4 text-yellow-500" />
                 Tracked Wallets
                 <span className="px-2 py-0.5 bg-zinc-800 text-zinc-400 rounded-full text-xs">
@@ -470,7 +470,7 @@ export function WhaleAlert() {
         </div>
 
         {/* ── Filters ──────────────────────────────────────────────────────── */}
-        <div className="bg-zinc-900 border border-zinc-800 rounded-xl px-5 py-4 mb-6">
+        <div className="bg-zinc-900/80 border border-zinc-800/60 rounded-xl px-5 py-4 mb-6">
           <div className="flex flex-wrap items-center gap-3">
             <div className="flex items-center gap-2 shrink-0">
               <Filter className="w-4 h-4 text-zinc-500" />
@@ -526,7 +526,7 @@ export function WhaleAlert() {
         </div>
 
         {/* ── Transactions Table ───────────────────────────────────────────── */}
-        <div className="bg-zinc-900 border border-zinc-800 rounded-xl overflow-hidden">
+        <div className="bg-zinc-900/80 border border-zinc-800/60 rounded-xl overflow-hidden">
           <div className="overflow-x-auto">
             <table className="w-full text-sm">
               <thead>
@@ -647,7 +647,7 @@ export function WhaleAlert() {
       </div>
 
       {/* ── Live Feed Indicator ─────────────────────────────────────────────── */}
-      <div className="fixed bottom-6 right-6 flex items-center gap-2 px-3 py-2 bg-zinc-900 border border-zinc-800 rounded-lg shadow-xl z-50 pointer-events-none">
+      <div className="fixed bottom-6 right-6 flex items-center gap-2 px-3 py-2 bg-zinc-900/80 border border-zinc-800/60 rounded-lg shadow-xl z-50 pointer-events-none">
         <div className="w-1.5 h-1.5 bg-green-500 rounded-full animate-pulse" />
         <span className="text-zinc-300 text-xs font-medium">Live Feed</span>
       </div>

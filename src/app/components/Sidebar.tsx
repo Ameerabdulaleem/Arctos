@@ -1,4 +1,5 @@
 import { Gauge, BarChart3, Target, MessageSquare, Settings, Eye, BookOpen, Newspaper } from 'lucide-react';
+import arctosLogo from '../../assets/images/arctos-logo.png.png';
 
 interface SidebarProps {
   activeView: string;
@@ -20,39 +21,51 @@ export function Sidebar({ activeView, setActiveView, theme }: SidebarProps) {
   const isDark = theme === 'dark';
 
   return (
-    <div className={`w-64 ${isDark ? 'bg-zinc-900 border-zinc-800' : 'bg-gray-50 border-gray-200'} border-r flex flex-col h-full`}>
+    <div className={`w-64 ${isDark ? 'bg-zinc-950 border-zinc-800/60' : 'bg-gray-50 border-gray-200'} border-r flex flex-col h-full`}>
       {/* Logo */}
-      <div className={`p-6 border-b ${isDark ? 'border-zinc-800' : 'border-gray-200'}`}>
-        <h1 className={`text-xl font-bold ${isDark ? 'text-white' : 'text-gray-900'} flex items-center gap-3`}>
-          {/* FIXED: Use URL instead of Figma import */}
+      <div className={`px-5 py-5 border-b ${isDark ? 'border-zinc-800/60' : 'border-gray-200'}`}>
+        <div className="flex items-center gap-3">
           <img 
-            src="https://placehold.co/600x400/1e40af/ffffff?text=ARCTOS+LOGO" 
+            src={arctosLogo} 
             alt="Arctos" 
-            className="w-14 h-14 object-contain drop-shadow-lg" 
+            className="w-10 h-10 object-contain rounded-lg" 
           />
-          Arctos
-        </h1>
+          <div>
+            <h1 className={`text-lg font-bold tracking-tight ${isDark ? 'text-white' : 'text-gray-900'}`}>
+              Arctos
+            </h1>
+            <p className={`text-[10px] font-medium uppercase tracking-widest ${isDark ? 'text-zinc-500' : 'text-gray-400'}`}>
+              Trading Platform
+            </p>
+          </div>
+        </div>
       </div>
 
       {/* Navigation */}
-      <nav className="flex-1 p-4">
-        <ul className="space-y-2">
+      <nav className="flex-1 px-3 py-4 overflow-y-auto">
+        <p className={`text-[10px] font-semibold uppercase tracking-widest mb-3 px-3 ${isDark ? 'text-zinc-600' : 'text-gray-400'}`}>
+          Navigation
+        </p>
+        <ul className="space-y-1">
           {menuItems.map((item) => {
             const Icon = item.icon;
+            const isActive = activeView === item.id;
             return (
               <li key={item.id}>
                 <button
                   onClick={() => setActiveView(item.id)}
-                  className={`w-full flex items-center gap-3 px-4 py-3 rounded-lg transition-colors ${
-                    activeView === item.id
-                      ? 'bg-blue-600 text-white'
+                  className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-lg transition-all duration-150 text-sm ${
+                    isActive
+                      ? isDark
+                        ? 'bg-blue-600/15 text-blue-400 border border-blue-500/20 shadow-sm shadow-blue-500/5'
+                        : 'bg-blue-50 text-blue-600 border border-blue-200'
                       : isDark 
-                        ? 'text-zinc-400 hover:bg-zinc-800 hover:text-white'
-                        : 'text-gray-600 hover:bg-gray-200 hover:text-gray-900'
+                        ? 'text-zinc-400 hover:bg-zinc-800/60 hover:text-zinc-200'
+                        : 'text-gray-600 hover:bg-gray-100 hover:text-gray-900'
                   }`}
                 >
-                  <Icon className="w-[18px] h-[18px]" strokeWidth={1.5} />
-                  <span>{item.label}</span>
+                  <Icon className={`w-[18px] h-[18px] ${isActive ? '' : 'opacity-70'}`} strokeWidth={isActive ? 2 : 1.5} />
+                  <span className={`font-medium ${isActive ? '' : 'font-normal'}`}>{item.label}</span>
                 </button>
               </li>
             );
@@ -61,25 +74,28 @@ export function Sidebar({ activeView, setActiveView, theme }: SidebarProps) {
       </nav>
 
       {/* Settings */}
-      <div className={`p-4 border-t ${isDark ? 'border-zinc-800' : 'border-gray-200'}`}>
+      <div className={`px-3 py-3 border-t ${isDark ? 'border-zinc-800/60' : 'border-gray-200'}`}>
         <button 
           onClick={() => setActiveView('settings')}
-          className={`w-full flex items-center gap-3 px-4 py-3 rounded-lg transition-colors ${
+          className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-lg transition-all duration-150 text-sm ${
             activeView === 'settings'
-              ? 'bg-blue-600 text-white'
+              ? isDark
+                ? 'bg-blue-600/15 text-blue-400 border border-blue-500/20'
+                : 'bg-blue-50 text-blue-600 border border-blue-200'
               : isDark
-                ? 'text-zinc-400 hover:bg-zinc-800 hover:text-white'
-                : 'text-gray-600 hover:bg-gray-200 hover:text-gray-900'
+                ? 'text-zinc-400 hover:bg-zinc-800/60 hover:text-zinc-200'
+                : 'text-gray-600 hover:bg-gray-100 hover:text-gray-900'
           }`}
         >
-          <Settings className="w-[18px] h-[18px]" strokeWidth={1.5} />
+          <Settings className="w-[18px] h-[18px] opacity-70" strokeWidth={1.5} />
           <span>Settings</span>
         </button>
-      </div>
 
-      {/* Auth Modals - We'll create these next */}
-      {/* <WalletConnectionModal open={walletModalOpen} onOpenChange={setWalletModalOpen} />
-      <EmailAuthModal open={emailAuthModalOpen} onOpenChange={setEmailAuthModalOpen} /> */}
+        {/* Version indicator */}
+        <p className={`text-center text-[10px] mt-3 ${isDark ? 'text-zinc-700' : 'text-gray-300'}`}>
+          v0.1.0 — Beta
+        </p>
+      </div>
     </div>
   );
 }

@@ -211,34 +211,69 @@ pub async fn execute_snipe(
     State(state): State<Arc<AppState>>,
     Json(body): Json<SnipeRequest>,
 ) -> Result<Json<SniperExecution>> {
-    // Look up the token to get its name
-    let token_name: String = {
-        let db_token: Option<(String,)> = sqlx::query_as(
-            "SELECT name FROM sniper_tokens WHERE id = ?1 OR address = ?2",
-        )
-        .bind(&body.token_id)
-        .bind(&body.token_address)
-        .fetch_optional(&state.db)
-        .await?;
+    // Validate required fields
+    if body.token_address.is_empty() {
+        return Err(AppError::BadRequest("token_address is required".to_string()));
+    }
+    if body.chain.is_empty() {
+        return Err(AppError::BadRequest("chain is required".to_string()));
+    }
 
-        match db_token {
-            Some((n,)) => n,
-            None => {
-                // check mocks
-                mock_tokens()
-                    .into_iter()
-                    .find(|t| t.id == body.token_id || t.address == body.token_address)
-                    .map(|t| t.name)
-                    .unwrap_or_else(|| body.token_id.clone())
-            }
+    // Look up the token to get its details
+    let token: Option<SniperToken> = sqlx::query_as(
+        r#"SELECT id, symbol, name, address, chain, price, liquidity_usd, market_cap_usd, holders, change_24h, status
+           FROM sniper_tokens WHERE id = ?1 OR address = ?2"#,
+    )
+    .bind(&body.token_id)
+    .bind(&body.token_address)
+    .fetch_optional(&state.db)
+    .await?;
+
+    let resolved_token = match token {
+        Some(t) => t,
+        None => {
+            // Check mocks as fallback
+            mock_tokens()
+                .into_iter()
+                .find(|t| t.id == body.token_id || t.address == body.token_address)
+                .ok_or_else(|| AppError::NotFound(format!(
+                    "Token {} not found", body.token_id
+                )))?
         }
     };
 
+    // Load sniper config for validation
+    let config_row: Option<SniperConfig> = sqlx::query_as(
+        r#"SELECT min_liquidity_usd_k, max_buy_tax_percent, max_sell_tax_percent,
+                  gas_price_gwei, slippage_percent, max_position_usd,
+                  min_creator_win_rate, max_risk_score,
+                  auto_take_profit_percent, auto_stop_loss_percent
+           FROM sniper_config WHERE id = 1"#,
+    )
+    .fetch_optional(&state.db)
+    .await?;
+
+    // Apply safety filters from config
+    if let Some(ref cfg) = config_row {
+        let min_liquidity = cfg.min_liquidity_usd_k * 1_000.0;
+        if resolved_token.liquidity_usd < min_liquidity {
+            return Err(AppError::BadRequest(format!(
+                "Token liquidity ${:.0} is below minimum ${:.0}",
+                resolved_token.liquidity_usd, min_liquidity
+            )));
+        }
+    }
+
+    let position_usd = config_row
+        .as_ref()
+        .map(|c| c.max_position_usd)
+        .unwrap_or(250.0);
+
     let exec = SniperExecution {
-        token: token_name,
+        token: resolved_token.symbol.clone(),
         action: "Buy".to_string(),
-        amount: "250 USD".to_string(),
-        value_usd: 250.0,
+        amount: format!("{:.2} USD", position_usd),
+        value_usd: position_usd,
         time: Utc::now().to_rfc3339(),
         success: true,
     };
@@ -259,7 +294,7 @@ pub async fn execute_snipe(
     .execute(&state.db)
     .await?;
 
-    // Broadcast the execution event
+    // Broadcast the execution event via WebSocket
     let event = SniperUpdateEvent {
         r#type: "execution".to_string(),
         token: None,

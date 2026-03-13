@@ -93,10 +93,10 @@ function StatCard({
   color?: string;
 }) {
   return (
-    <div className="bg-zinc-900 border border-zinc-800 rounded-xl p-5">
-      <p className="text-zinc-400 text-xs font-medium uppercase tracking-wider mb-2">{label}</p>
-      <p className={`text-2xl font-bold ${color ?? 'text-white'}`}>{value}</p>
-      {sub && <p className="text-zinc-500 text-xs mt-1">{sub}</p>}
+    <div className="bg-zinc-900/80 border border-zinc-800/60 rounded-xl p-5">
+      <p className="text-zinc-500 text-[10px] font-medium uppercase tracking-wider mb-2">{label}</p>
+      <p className={`text-xl font-bold tabular-nums ${color ?? 'text-white'}`}>{value}</p>
+      {sub && <p className="text-zinc-600 text-xs mt-1">{sub}</p>}
     </div>
   );
 }
@@ -316,16 +316,18 @@ export function TradeBook() {
         {/* ── Header ──────────────────────────────────────────────────────── */}
         <div className="mb-6 flex items-start justify-between gap-4">
           <div>
-            <h1 className="text-3xl font-bold text-white mb-1 flex items-center gap-3">
-              <BookOpen className="w-7 h-7 text-blue-500" strokeWidth={1.5} />
+            <h1 className="text-2xl font-bold text-white mb-1 flex items-center gap-3 tracking-tight">
+              <span className="flex items-center justify-center w-9 h-9 rounded-lg bg-blue-600/15">
+                <BookOpen className="w-5 h-5 text-blue-400" strokeWidth={1.5} />
+              </span>
               Trade Book
             </h1>
-            <p className="text-zinc-400 text-sm">Track and analyse your token trades</p>
+            <p className="text-zinc-500 text-sm">Track and analyse your token trades</p>
           </div>
 
           <button
             onClick={() => { resetForm(); setEditingId(null); setShowForm((v) => !v); }}
-            className="flex items-center gap-2 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors font-medium text-sm shrink-0"
+            className="flex items-center gap-2 px-4 py-2 bg-blue-600 text-white rounded-xl hover:bg-blue-700 transition-colors font-medium text-sm shrink-0 shadow-lg shadow-blue-600/10"
           >
             <Plus className="w-4 h-4" />
             Add Trade

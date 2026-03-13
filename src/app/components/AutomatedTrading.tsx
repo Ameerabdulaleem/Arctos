@@ -234,7 +234,7 @@ export default function AutomatedTrading({
     <div className="space-y-4">
       {/* ── Wallet banner ─────────────────────────────────────────── */}
       {!isWalletConnected && (
-        <div className="flex items-center justify-between gap-4 px-4 py-3 bg-zinc-900 border border-zinc-800 rounded-xl">
+        <div className="flex items-center justify-between gap-4 px-4 py-3 bg-zinc-900/80 border border-zinc-800/60 rounded-xl">
           <p className="text-zinc-400 text-sm">
             Connect your wallet to start the auto-trader and execute trades.
           </p>
@@ -248,14 +248,14 @@ export default function AutomatedTrading({
       )}
 
       {/* Header */}
-      <div className="bg-zinc-900 border border-zinc-800 rounded-xl p-5">
+      <div className="bg-zinc-900/80 border border-zinc-800/60 rounded-xl p-5">
         <div className="flex items-center justify-between mb-4">
           <div className="flex items-center gap-3">
-            <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-blue-600 to-purple-600 flex items-center justify-center">
+            <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-blue-600/20 to-purple-600/20 border border-blue-500/20 flex items-center justify-center">
               <Zap className="w-5 h-5 text-white" />
             </div>
             <div>
-              <h3 className="text-lg font-bold text-white">Auto-Trader</h3>
+              <h3 className="text-lg font-bold text-white tracking-tight">Auto-Trader</h3>
               <p className="text-xs text-zinc-500">
                 {walletAddress
                   ? `${walletAddress.slice(0, 6)}…${walletAddress.slice(-4)}`
@@ -306,7 +306,7 @@ export default function AutomatedTrading({
       </div>
 
       {/* Config panel */}
-      <div className="bg-zinc-900 border border-zinc-800 rounded-xl overflow-hidden">
+      <div className="bg-zinc-900/80 border border-zinc-800/60 rounded-xl overflow-hidden">
         <button
           onClick={() => setConfigOpen((o) => !o)}
           className="w-full flex items-center justify-between px-5 py-3 text-sm font-medium text-zinc-300 hover:text-white transition-colors"
@@ -353,7 +353,7 @@ export default function AutomatedTrading({
       </div>
 
       {/* Token feed */}
-      <div className="bg-zinc-900 border border-zinc-800 rounded-xl p-5">
+      <div className="bg-zinc-900/80 border border-zinc-800/60 rounded-xl p-5">
         <h4 className="text-sm font-semibold text-zinc-300 mb-3 flex items-center gap-2">
           <Search className="w-4 h-4" />
           Token Scanner Feed
@@ -397,7 +397,7 @@ function ConfigInput({ label, value, onChange }: { label: string; value: number;
         type="number"
         value={value}
         onChange={(e) => onChange(Number(e.target.value))}
-        className="w-full bg-zinc-800 text-white px-3 py-2 rounded-lg border border-zinc-700 focus:border-blue-600 focus:outline-none text-sm tabular-nums"
+      className="w-full bg-zinc-800/60 text-white px-3 py-2 rounded-lg border border-zinc-700/50 focus:border-blue-500/60 focus:outline-none focus:ring-1 focus:ring-blue-500/20 text-sm tabular-nums transition-colors"
       />
     </div>
   );

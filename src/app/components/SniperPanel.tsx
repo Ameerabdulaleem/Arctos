@@ -196,41 +196,51 @@ export function SniperPanel() {
     <div className="h-full bg-black p-6 overflow-auto">
       <div className="mb-6">
         <div className="flex items-center justify-between mb-2">
-          <h1 className="text-3xl font-bold text-white flex items-center gap-3">
-            <Zap className="w-8 h-8 text-yellow-500" />
+          <h1 className="text-2xl font-bold text-white flex items-center gap-3 tracking-tight">
+            <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-yellow-500 to-orange-600 flex items-center justify-center shadow-lg shadow-yellow-600/20">
+              <Zap className="w-5 h-5 text-white" />
+            </div>
             Sniper Engine
           </h1>
-          <button
-            onClick={handleToggleBot}
-            disabled={isTogglingBot}
-            className={`flex items-center gap-2 px-6 py-3 rounded-lg font-medium transition-colors ${
-              isActive
-                ? 'bg-green-600 hover:bg-green-700 text-white'
-                : !isWalletConnected
-                ? 'bg-blue-600 hover:bg-blue-700 text-white'
-                : 'bg-zinc-800 hover:bg-zinc-700 text-zinc-300'
-            }`}
-          >
-            {isTogglingBot ? (
-              <Loader2 className="w-5 h-5 animate-spin" />
-            ) : isActive ? (
-              <Pause className="w-5 h-5" />
-            ) : !isWalletConnected ? (
-              <Plus className="w-5 h-5" />
-            ) : (
-              <Play className="w-5 h-5" />
+          <div className="flex items-center gap-3">
+            {isActive && (
+              <span className="flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-green-500/10 border border-green-500/20 text-xs text-green-400 font-medium">
+                <span className="w-1.5 h-1.5 rounded-full bg-green-400 animate-pulse" />
+                Scanning
+              </span>
             )}
-            {isActive ? 'Active' : !isWalletConnected ? 'Connect Wallet' : 'Inactive'}
-          </button>
+            <button
+              onClick={handleToggleBot}
+              disabled={isTogglingBot}
+              className={`flex items-center gap-2 px-5 py-2.5 rounded-lg font-medium text-sm transition-all shadow-lg ${
+                isActive
+                  ? 'bg-green-600 hover:bg-green-700 text-white shadow-green-600/20'
+                  : !isWalletConnected
+                  ? 'bg-blue-600 hover:bg-blue-700 text-white shadow-blue-600/20'
+                  : 'bg-zinc-800 hover:bg-zinc-700 text-zinc-300 shadow-none border border-zinc-700'
+              }`}
+            >
+              {isTogglingBot ? (
+                <Loader2 className="w-4 h-4 animate-spin" />
+              ) : isActive ? (
+                <Pause className="w-4 h-4" />
+              ) : !isWalletConnected ? (
+                <Plus className="w-4 h-4" />
+              ) : (
+                <Play className="w-4 h-4" />
+              )}
+              {isActive ? 'Active' : !isWalletConnected ? 'Connect Wallet' : 'Start Bot'}
+            </button>
+          </div>
         </div>
-        <p className="text-zinc-400">Cross-chain sniper engine with configurable filters and wallet-gated execution.</p>
+        <p className="text-zinc-500 text-sm">Cross-chain sniper engine with configurable filters and wallet-gated execution.</p>
       </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-        <div className="bg-zinc-900 border border-zinc-800 rounded-xl p-6">
+        <div className="bg-zinc-900/80 border border-zinc-800/60 rounded-xl p-6">
           <div className="flex items-center justify-between mb-6">
-            <h2 className="text-xl font-bold text-white flex items-center gap-2">
-              <Settings className="w-5 h-5" />
+            <h2 className="text-lg font-semibold text-white flex items-center gap-2 tracking-tight">
+              <Settings className="w-4 h-4 text-zinc-400" />
               Configuration
             </h2>
           </div>
@@ -300,7 +310,7 @@ export function SniperPanel() {
             <button
               onClick={handleSaveConfiguration}
               disabled={isSavingConfig}
-              className="w-full py-3 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors font-medium disabled:opacity-70"
+              className="w-full py-3 bg-blue-600 text-white rounded-xl hover:bg-blue-700 transition-all font-medium disabled:opacity-70 shadow-lg shadow-blue-600/10 text-sm"
             >
               {isSavingConfig ? 'Saving...' : 'Save Configuration'}
             </button>
@@ -316,9 +326,9 @@ export function SniperPanel() {
           </div>
         </div>
 
-        <div className="lg:col-span-2 bg-zinc-900 border border-zinc-800 rounded-xl p-6">
+        <div className="lg:col-span-2 bg-zinc-900/80 border border-zinc-800/60 rounded-xl p-6">
           <div className="flex items-center justify-between mb-4 gap-3 flex-wrap">
-            <h2 className="text-xl font-bold text-white">Tracked Tokens</h2>
+            <h2 className="text-lg font-semibold text-white tracking-tight">Tracked Tokens</h2>
             <div className="flex items-center gap-2 flex-wrap">
               <select
                 value={searchChain}
@@ -357,81 +367,106 @@ export function SniperPanel() {
           </p>
 
           <div className="space-y-3">
-            {tokens.map((token) => (
-              <div
-                key={token.id}
-                className="p-5 bg-zinc-800 rounded-lg border border-zinc-700 hover:border-zinc-600 transition-colors"
-              >
-                <div className="flex items-start justify-between mb-4">
-                  <div>
-                    <div className="flex items-center gap-3 mb-2">
-                      <h3 className="text-white font-bold text-lg">{token.symbol}</h3>
-                      <StatusBadge status={token.status} />
-                      <span className="text-[11px] px-2 py-1 rounded bg-zinc-700 text-zinc-300 uppercase tracking-wide">
-                        {sniperService.formatChain(token.chain)}
-                      </span>
+            {tokens.map((token) => {
+              // Compute risk score based on config thresholds
+              const liquidityOk = token.liquidityUsd >= config.minLiquidityUsdK * 1000;
+              const holdersOk = token.holders >= 100;
+              const riskFactors = [!liquidityOk && 'Low liquidity', !holdersOk && 'Few holders'].filter(Boolean) as string[];
+              const riskLevel = riskFactors.length === 0 ? 'low' : riskFactors.length === 1 ? 'medium' : 'high';
+
+              return (
+                <div
+                  key={token.id}
+                  className="p-5 bg-zinc-800/40 rounded-xl border border-zinc-700/50 hover:border-zinc-600/70 transition-all"
+                >
+                  <div className="flex items-start justify-between mb-3">
+                    <div>
+                      <div className="flex items-center gap-2.5 mb-1.5">
+                        <h3 className="text-white font-bold text-lg">{token.symbol}</h3>
+                        <StatusBadge status={token.status} />
+                        <span className="text-[10px] px-2 py-0.5 rounded-full bg-zinc-700/60 text-zinc-400 uppercase tracking-wider font-medium">
+                          {sniperService.formatChain(token.chain)}
+                        </span>
+                        <span className={`text-[10px] px-2 py-0.5 rounded-full font-medium ${
+                          riskLevel === 'low' ? 'bg-green-500/15 text-green-400 border border-green-500/20' :
+                          riskLevel === 'medium' ? 'bg-amber-500/15 text-amber-400 border border-amber-500/20' :
+                          'bg-red-500/15 text-red-400 border border-red-500/20'
+                        }`}>
+                          {riskLevel === 'low' ? 'Safe' : riskLevel === 'medium' ? 'Caution' : 'High Risk'}
+                        </span>
+                      </div>
+                      <p className="text-zinc-400 text-sm">{token.name}</p>
+                      <p className="text-zinc-600 text-xs mt-1 font-mono">
+                        {token.address.slice(0, 10)}...{token.address.slice(-8)}
+                      </p>
                     </div>
-                    <p className="text-zinc-400 text-sm">{token.name}</p>
-                    <p className="text-zinc-500 text-xs mt-1 font-mono">
-                      {token.address.slice(0, 10)}...{token.address.slice(-8)}
-                    </p>
+                    <div className="text-right">
+                      <p className="text-white font-bold text-lg tabular-nums">{sniperService.formatCurrency(token.price)}</p>
+                      <p className={`text-sm font-medium tabular-nums ${token.change24h >= 0 ? 'text-green-400' : 'text-red-400'}`}>
+                        {token.change24h >= 0 ? '+' : ''}
+                        {token.change24h.toFixed(2)}%
+                      </p>
+                    </div>
                   </div>
-                  <div className="text-right">
-                    <p className="text-white font-bold text-lg">{sniperService.formatCurrency(token.price)}</p>
-                    <p className={`text-sm ${token.change24h >= 0 ? 'text-green-500' : 'text-red-500'}`}>
-                      {token.change24h >= 0 ? '+' : ''}
-                      {token.change24h.toFixed(2)}%
-                    </p>
+
+                  {riskFactors.length > 0 && (
+                    <div className="flex flex-wrap gap-1.5 mb-3">
+                      {riskFactors.map((factor) => (
+                        <span key={factor} className="text-[10px] px-2 py-0.5 rounded bg-amber-500/10 text-amber-400 border border-amber-500/15">
+                          {factor}
+                        </span>
+                      ))}
+                    </div>
+                  )}
+
+                  <div className="grid grid-cols-3 gap-4 mb-4">
+                    <Metric label="Liquidity" value={sniperService.formatCompactCurrency(token.liquidityUsd)} />
+                    <Metric label="Market Cap" value={sniperService.formatCompactCurrency(token.marketCapUsd)} />
+                    <Metric label="Holders" value={token.holders.toLocaleString()} />
+                  </div>
+
+                  <div className="flex gap-2">
+                    <button
+                      onClick={() => handleSnipe(token)}
+                      disabled={isSnipingNow === token.id}
+                      className="flex-1 flex items-center justify-center gap-2 py-2.5 bg-green-600 text-white rounded-lg hover:bg-green-700 transition-colors text-sm font-medium disabled:opacity-70 shadow-lg shadow-green-600/10"
+                    >
+                      {isSnipingNow === token.id ? (
+                        <Loader2 className="w-4 h-4 animate-spin" />
+                      ) : (
+                        <Target className="w-4 h-4" />
+                      )}
+                      Snipe Now
+                    </button>
+                    <button className="flex items-center justify-center gap-2 px-4 py-2.5 bg-zinc-700/50 text-zinc-300 rounded-lg hover:bg-zinc-700 transition-colors text-sm border border-zinc-700/50">
+                      <Clock className="w-4 h-4" />
+                    </button>
+                    <button className="flex items-center justify-center gap-2 px-4 py-2.5 bg-zinc-700/50 text-zinc-300 rounded-lg hover:bg-zinc-700 transition-colors text-sm border border-zinc-700/50">
+                      <Settings className="w-4 h-4" />
+                    </button>
                   </div>
                 </div>
-
-                <div className="grid grid-cols-3 gap-4 mb-4">
-                  <Metric label="Liquidity" value={sniperService.formatCompactCurrency(token.liquidityUsd)} />
-                  <Metric label="Market Cap" value={sniperService.formatCompactCurrency(token.marketCapUsd)} />
-                  <Metric label="Holders" value={token.holders.toLocaleString()} />
-                </div>
-
-                <div className="flex gap-2">
-                  <button
-                    onClick={() => handleSnipe(token)}
-                    disabled={isSnipingNow === token.id}
-                    className="flex-1 flex items-center justify-center gap-2 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 transition-colors text-sm font-medium disabled:opacity-70"
-                  >
-                    {isSnipingNow === token.id ? (
-                      <Loader2 className="w-4 h-4 animate-spin" />
-                    ) : (
-                      <Target className="w-4 h-4" />
-                    )}
-                    Snipe Now
-                  </button>
-                  <button className="flex items-center justify-center gap-2 px-4 py-2 bg-zinc-700 text-white rounded-lg hover:bg-zinc-600 transition-colors text-sm">
-                    <Clock className="w-4 h-4" />
-                  </button>
-                  <button className="flex items-center justify-center gap-2 px-4 py-2 bg-zinc-700 text-white rounded-lg hover:bg-zinc-600 transition-colors text-sm">
-                    <Settings className="w-4 h-4" />
-                  </button>
-                </div>
-              </div>
-            ))}
+              );
+            })}
           </div>
 
-          <div className="mt-6 pt-6 border-t border-zinc-800">
-            <h3 className="text-white font-bold mb-4">Recent Snipes</h3>
+          <div className="mt-6 pt-6 border-t border-zinc-800/60">
+            <h3 className="text-white font-semibold mb-4 tracking-tight">Recent Snipes</h3>
             <div className="space-y-2">
               {recentSnipes.length === 0 ? (
-                <div className="text-zinc-500 text-sm">No snipes yet.</div>
+                <div className="text-zinc-500 text-sm py-6 text-center">No snipes executed yet.</div>
               ) : (
                 recentSnipes.slice(0, 8).map((snipe, index) => (
-                  <div key={`${snipe.token}-${index}`} className="flex items-center justify-between p-3 bg-zinc-800 rounded-lg text-sm">
+                  <div key={`${snipe.token}-${index}`} className="flex items-center justify-between p-3 bg-zinc-800/40 rounded-lg text-sm border border-zinc-700/30 hover:border-zinc-700/50 transition-colors">
                     <div className="flex items-center gap-3">
-                      <div className={`w-2 h-2 rounded-full ${snipe.success ? 'bg-green-500' : 'bg-red-500'}`} />
+                      <div className={`w-2 h-2 rounded-full ${snipe.success ? 'bg-green-400 shadow-sm shadow-green-400/50' : 'bg-red-400 shadow-sm shadow-red-400/50'}`} />
                       <span className="text-white font-medium">{snipe.token}</span>
                       <span className="text-zinc-400">{snipe.action}</span>
-                      <span className="text-zinc-500">{snipe.amount}</span>
+                      <span className="text-zinc-500 tabular-nums">{snipe.amount}</span>
                     </div>
                     <div className="flex items-center gap-4">
-                      <span className="text-white font-medium">{sniperService.formatCurrency(snipe.valueUsd)}</span>
-                      <span className="text-zinc-500">{snipe.time}</span>
+                      <span className="text-white font-medium tabular-nums">{sniperService.formatCurrency(snipe.valueUsd)}</span>
+                      <span className="text-zinc-500 text-xs">{snipe.time}</span>
                     </div>
                   </div>
                 ))
@@ -465,13 +500,13 @@ function ConfigField({
 }) {
   return (
     <div>
-      <label className="text-zinc-200 text-sm mb-2 block">{label}</label>
-      <p className="text-xs text-zinc-500 mb-2">{help}</p>
+      <label className="text-zinc-300 text-xs font-medium mb-1.5 block tracking-wide uppercase">{label}</label>
+      <p className="text-[11px] text-zinc-500 mb-2 leading-relaxed">{help}</p>
       <input
         type="number"
         value={value}
         onChange={(event) => onChange(Number(event.target.value))}
-        className="w-full bg-zinc-800 text-white px-4 py-3 rounded-lg border border-zinc-700 focus:border-blue-600 focus:outline-none"
+        className="w-full bg-zinc-800/60 text-white px-3.5 py-2.5 rounded-lg border border-zinc-700/50 focus:border-blue-500/60 focus:outline-none focus:ring-1 focus:ring-blue-500/20 text-sm tabular-nums transition-colors"
       />
     </div>
   );
@@ -480,28 +515,28 @@ function ConfigField({
 function StatusBadge({ status }: { status: SniperToken['status'] }) {
   const styles =
     status === 'active'
-      ? 'bg-green-500/20 text-green-500'
+      ? 'bg-green-500/15 text-green-400 border border-green-500/20'
       : status === 'paused'
-      ? 'bg-yellow-500/20 text-yellow-500'
-      : 'bg-blue-500/20 text-blue-500';
+      ? 'bg-amber-500/15 text-amber-400 border border-amber-500/20'
+      : 'bg-blue-500/15 text-blue-400 border border-blue-500/20';
 
-  return <span className={`px-2 py-1 rounded text-xs font-medium ${styles}`}>{status}</span>;
+  return <span className={`px-2 py-0.5 rounded-full text-[10px] font-medium ${styles}`}>{status}</span>;
 }
 
 function Metric({ label, value }: { label: string; value: string }) {
   return (
-    <div>
-      <p className="text-zinc-500 text-xs mb-1">{label}</p>
-      <p className="text-white text-sm font-medium">{value}</p>
+    <div className="bg-zinc-800/30 rounded-lg px-3 py-2">
+      <p className="text-zinc-500 text-[10px] uppercase tracking-wider mb-0.5">{label}</p>
+      <p className="text-white text-sm font-semibold tabular-nums">{value}</p>
     </div>
   );
 }
 
 function StatRow({ label, value, valueClass = 'text-white' }: { label: string; value: string; valueClass?: string }) {
   return (
-    <div className="flex justify-between">
-      <span className="text-zinc-400">{label}</span>
-      <span className={`font-medium ${valueClass}`}>{value}</span>
+    <div className="flex justify-between items-center">
+      <span className="text-zinc-500 text-xs">{label}</span>
+      <span className={`font-semibold text-sm tabular-nums ${valueClass}`}>{value}</span>
     </div>
   );
 }

@@ -78,7 +78,7 @@ pub struct SniperToken {
     pub status: String,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, sqlx::FromRow)]
 #[serde(rename_all = "camelCase")]
 pub struct SniperConfig {
     pub min_liquidity_usd_k: f64,

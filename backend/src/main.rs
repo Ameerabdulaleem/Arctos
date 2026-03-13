@@ -332,6 +332,7 @@ fn now_iso_string() -> String {
 pub fn build_cors_layer() -> CorsLayer {
     let origins = env::var("FRONTEND_ORIGINS").unwrap_or_default();
     if origins.trim().is_empty() {
+        tracing::warn!("FRONTEND_ORIGINS not set — allowing all origins. Set this in production!");
         return CorsLayer::new()
             .allow_origin(Any)
             .allow_methods(Any)

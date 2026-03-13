@@ -128,20 +128,22 @@ export function FundamentalNews() {
       <div className="max-w-7xl mx-auto space-y-6">
         <section className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
           <div>
-            <h1 className="text-3xl font-bold flex items-center gap-3">
-              <Newspaper className="w-8 h-8 text-cyan-400" />
+            <h1 className="text-2xl font-bold flex items-center gap-3 tracking-tight">
+              <span className="flex items-center justify-center w-9 h-9 rounded-lg bg-cyan-600/15">
+                <Newspaper className="w-5 h-5 text-cyan-400" />
+              </span>
               Fundamental News
             </h1>
-            <p className="text-zinc-400 mt-1">Live crypto and macro headlines with impact scoring and smart filtering.</p>
+            <p className="text-zinc-500 mt-1 text-sm">Live crypto and macro headlines with impact scoring and smart filtering.</p>
             <div className="mt-2 flex flex-wrap items-center gap-2 text-xs">
-              <span className={`px-2 py-1 rounded-full border ${isLive ? 'border-emerald-500/40 bg-emerald-500/10 text-emerald-300' : 'border-amber-500/40 bg-amber-500/10 text-amber-300'}`}>
+              <span className={`px-2 py-1 rounded-full border ${isLive ? 'border-emerald-500/30 bg-emerald-500/10 text-emerald-400' : 'border-amber-500/30 bg-amber-500/10 text-amber-400'}`}>
                 {isLive ? 'Live Data' : 'Mock Data'}
               </span>
-              <span className="px-2 py-1 rounded-full border border-zinc-700 bg-zinc-900 text-zinc-300">
+              <span className="px-2 py-1 rounded-full border border-zinc-800/60 bg-zinc-900/80 text-zinc-400">
                 Provider: {provider}
               </span>
               {lastUpdated && (
-                <span className="px-2 py-1 rounded-full border border-zinc-700 bg-zinc-900 text-zinc-300">
+                <span className="px-2 py-1 rounded-full border border-zinc-800/60 bg-zinc-900/80 text-zinc-400">
                   Updated {getTimeAgo(lastUpdated)}
                 </span>
               )}
@@ -151,7 +153,7 @@ export function FundamentalNews() {
           <button
             onClick={() => void loadNews(true)}
             disabled={isRefreshing}
-            className="inline-flex items-center gap-2 px-4 py-2 rounded-lg bg-cyan-600 hover:bg-cyan-700 disabled:opacity-60 disabled:cursor-not-allowed transition-colors"
+            className="inline-flex items-center gap-2 px-4 py-2 rounded-xl bg-cyan-600 hover:bg-cyan-700 text-white disabled:opacity-60 disabled:cursor-not-allowed transition-colors shadow-lg shadow-cyan-600/10 text-sm font-medium"
           >
             <RefreshCw className={`w-4 h-4 ${isRefreshing ? 'animate-spin' : ''}`} />
             Refresh
@@ -182,8 +184,8 @@ export function FundamentalNews() {
                 onClick={() => setSelectedTab(tab.key)}
                 className={`rounded-xl border p-4 text-left transition-all ${selectedTab === tab.key ? 'border-cyan-500 bg-cyan-500/10 shadow-[0_0_0_1px_rgba(34,211,238,0.35)]' : 'border-zinc-800 bg-zinc-900 hover:border-zinc-700'}`}
               >
-                <p className="text-xs uppercase tracking-wide text-zinc-400">{tab.label}</p>
-                <p className="text-2xl font-semibold mt-1">{count}</p>
+                <p className="text-[10px] uppercase tracking-wider text-zinc-500">{tab.label}</p>
+                <p className="text-xl font-bold mt-1 tabular-nums">{count}</p>
               </button>
             );
           })}
@@ -241,7 +243,7 @@ export function FundamentalNews() {
 
         {!isLoading && trendingNews.length > 0 && (
           <section className="space-y-3">
-            <h2 className="text-xl font-bold flex items-center gap-2">
+            <h2 className="text-lg font-bold flex items-center gap-2 tracking-tight">
               <Flame className="w-5 h-5 text-orange-500" />
               Trending Now
             </h2>
@@ -282,7 +284,7 @@ export function FundamentalNews() {
         )}
 
         <section className="space-y-3">
-          <h2 className="text-xl font-bold">All News</h2>
+          <h2 className="text-lg font-bold tracking-tight">All News</h2>
 
           {isLoading ? (
             <div className="rounded-xl border border-zinc-800 bg-zinc-900 p-10 text-center text-zinc-400">

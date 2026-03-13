@@ -163,7 +163,7 @@ export function TradingTerminal() {
       {/* Header */}
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 mb-5">
         <div>
-          <h1 className="text-2xl font-bold text-white">Trading Terminal</h1>
+          <h1 className="text-2xl font-bold text-white tracking-tight">Trading Terminal</h1>
           <p className="text-zinc-500 text-sm">Professional trading with live charts &amp; automated execution</p>
         </div>
 
@@ -216,7 +216,7 @@ export function TradingTerminal() {
             {/* Order book + recent trades (side by side on larger screens) */}
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
               {/* Order Book */}
-              <div className="bg-zinc-900 border border-zinc-800 rounded-xl p-4">
+              <div className="bg-zinc-900/80 border border-zinc-800/60 rounded-xl p-4">
                 <h3 className="text-sm font-semibold text-zinc-300 mb-3 flex items-center gap-2">
                   <ArrowUpDown className="w-4 h-4" /> Order Book
                 </h3>
@@ -247,7 +247,7 @@ export function TradingTerminal() {
               </div>
 
               {/* Recent Trades */}
-              <div className="bg-zinc-900 border border-zinc-800 rounded-xl p-4">
+              <div className="bg-zinc-900/80 border border-zinc-800/60 rounded-xl p-4">
                 <h3 className="text-sm font-semibold text-zinc-300 mb-3 flex items-center gap-2">
                   <Clock className="w-4 h-4" /> Recent Trades
                 </h3>
@@ -272,7 +272,7 @@ export function TradingTerminal() {
           {/* -------- Right: Order panel (1 col on xl) -------- */}
           <div className="space-y-4">
             {/* Buy/Sell panel */}
-            <div className="bg-zinc-900 border border-zinc-800 rounded-xl p-5">
+            <div className="bg-zinc-900/80 border border-zinc-800/60 rounded-xl p-5">
               {/* Buy / Sell tabs */}
               <div className="flex gap-2 mb-5">
                 <button
@@ -407,8 +407,8 @@ export function TradingTerminal() {
             </div>
 
             {/* Market info card */}
-            <div className="bg-zinc-900 border border-zinc-800 rounded-xl p-4">
-              <h4 className="text-xs font-semibold text-zinc-400 uppercase tracking-wider mb-3">
+            <div className="bg-zinc-900/80 border border-zinc-800/60 rounded-xl p-4">
+              <h4 className="text-xs font-semibold text-zinc-500 uppercase tracking-wider mb-3">
                 {selectedPair.pair} Info
               </h4>
               <div className="space-y-2 text-xs">
@@ -457,8 +457,8 @@ function TabButton({
   return (
     <button
       onClick={onClick}
-      className={`flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium transition-colors ${
-        active ? 'bg-blue-600 text-white' : 'bg-zinc-900 border border-zinc-800 text-zinc-400 hover:text-white'
+      className={`flex items-center gap-2 px-4 py-2 rounded-xl text-sm font-medium transition-all ${
+        active ? 'bg-blue-600 text-white shadow-lg shadow-blue-600/15' : 'bg-zinc-900/80 border border-zinc-800/60 text-zinc-400 hover:text-white'
       }`}
     >
       {icon}
@@ -469,9 +469,9 @@ function TabButton({
 
 function InfoRow({ label, value, color = 'text-white' }: { label: string; value: string; color?: string }) {
   return (
-    <div className="flex justify-between">
-      <span className="text-zinc-500">{label}</span>
-      <span className={`font-medium ${color}`}>{value}</span>
+    <div className="flex justify-between items-center">
+      <span className="text-zinc-500 text-xs">{label}</span>
+      <span className={`font-semibold text-sm tabular-nums ${color}`}>{value}</span>
     </div>
   );
 }
