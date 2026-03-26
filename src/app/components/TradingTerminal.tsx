@@ -1,4 +1,4 @@
-import { useState, useMemo, useCallback } from 'react';
+import { useState, useMemo, useCallback, useEffect } from 'react';
 import {
   Wallet,
   Zap,
@@ -11,9 +11,10 @@ import { toast } from 'sonner';
 import { WalletConnectionModal } from './WalletConnectionModal';
 import TradingViewChart, { type ChartInterval } from './TradingViewChart';
 import AutomatedTrading from './AutomatedTrading';
+import { dashboardSyncService } from '../services/dashboardSyncService';
 
 /* ------------------------------------------------------------------ */
-/*  Static mock data (replaced by live feed once backend is wired)     */
+/*  Static mock data (enhanced with live CoinGecko prices)            */
 /* ------------------------------------------------------------------ */
 
 interface TradingPair {
@@ -25,7 +26,7 @@ interface TradingPair {
   volume24h: string;
 }
 
-const TRADING_PAIRS: TradingPair[] = [
+const DEFAULT_TRADING_PAIRS: TradingPair[] = [
   { pair: 'BTC/USDT',  price: '$45,234.56', priceNum: 45234.56, change: '+2.50%', isPositive: true,  volume24h: '$1.2B' },
   { pair: 'ETH/USDT',  price: '$2,345.67',  priceNum: 2345.67,  change: '+1.80%', isPositive: true,  volume24h: '$820M' },
   { pair: 'BNB/USDT',  price: '$312.45',    priceNum: 312.45,   change: '-0.50%', isPositive: false, volume24h: '$310M' },
@@ -102,7 +103,8 @@ export function TradingTerminal() {
   /* General state */
   const [walletModalOpen, setWalletModalOpen] = useState(false);
   const [terminalTab, setTerminalTab] = useState<TerminalTab>('manual');
-  const [selectedPair, setSelectedPair] = useState<TradingPair>(TRADING_PAIRS[0]);
+  const [tradingPairs, setTradingPairs] = useState<TradingPair[]>(DEFAULT_TRADING_PAIRS);
+  const [selectedPair, setSelectedPair] = useState<TradingPair>(DEFAULT_TRADING_PAIRS[0]);
   const [chartInterval, setChartInterval] = useState<ChartInterval>('15m');
 
   /* Order form */
@@ -110,6 +112,80 @@ export function TradingTerminal() {
   const [orderType, setOrderType] = useState<'market' | 'limit'>('market');
   const [price, setPrice] = useState('');
   const [amount, setAmount] = useState('');
+
+  /* Load real market data from CoinGecko */
+  useEffect(() => {
+    let mounted = true;
+
+    const loadMarketData = async () => {
+      try {
+        const marketData = await dashboardSyncService.getCachedMarketData();
+
+        if (!mounted) return;
+
+        if (!marketData) {
+          console.warn('Market data unavailable, using defaults');
+          return;
+        }
+
+        console.log('✅ Live market data loaded:', {
+          BTC: marketData.btcPrice,
+          ETH: marketData.ethPrice,
+          BNB: marketData.bnbPrice,
+          SOL: marketData.solPrice
+        });
+
+        // Update trading pairs with real prices
+        const updatedPairs: TradingPair[] = [
+          {
+            pair: 'BTC/USDT',
+            price: `$${marketData.btcPrice.toLocaleString('en-US', { maximumFractionDigits: 2 })}`,
+            priceNum: marketData.btcPrice,
+            change: `${marketData.priceChanges24h.btc > 0 ? '+' : ''}${marketData.priceChanges24h.btc.toFixed(2)}%`,
+            isPositive: marketData.priceChanges24h.btc >= 0,
+            volume24h: '$1.2B',
+          },
+          {
+            pair: 'ETH/USDT',
+            price: `$${marketData.ethPrice.toLocaleString('en-US', { maximumFractionDigits: 2 })}`,
+            priceNum: marketData.ethPrice,
+            change: `${marketData.priceChanges24h.eth > 0 ? '+' : ''}${marketData.priceChanges24h.eth.toFixed(2)}%`,
+            isPositive: marketData.priceChanges24h.eth >= 0,
+            volume24h: '$820M',
+          },
+          {
+            pair: 'BNB/USDT',
+            price: `$${marketData.bnbPrice.toLocaleString('en-US', { maximumFractionDigits: 2 })}`,
+            priceNum: marketData.bnbPrice,
+            change: `${marketData.priceChanges24h.bnb > 0 ? '+' : ''}${marketData.priceChanges24h.bnb.toFixed(2)}%`,
+            isPositive: marketData.priceChanges24h.bnb >= 0,
+            volume24h: '$310M',
+          },
+          {
+            pair: 'SOL/USDT',
+            price: `$${marketData.solPrice.toLocaleString('en-US', { maximumFractionDigits: 2 })}`,
+            priceNum: marketData.solPrice,
+            change: `${marketData.priceChanges24h.sol > 0 ? '+' : ''}${marketData.priceChanges24h.sol.toFixed(2)}%`,
+            isPositive: marketData.priceChanges24h.sol >= 0,
+            volume24h: '$540M',
+          },
+          DEFAULT_TRADING_PAIRS[4], // ARB (fallback)
+          DEFAULT_TRADING_PAIRS[5], // AVAX (fallback)
+        ];
+
+        setTradingPairs(updatedPairs);
+        setSelectedPair(updatedPairs[0]);
+      } catch (error) {
+        console.error('Error loading market data:', error);
+      }
+    };
+
+    void loadMarketData();
+
+    return () => {
+      mounted = false;
+    };
+  }, []);
 
   /* Derived mock data */
   const recentTrades = useMemo(() => generateRecentTrades(selectedPair.priceNum), [selectedPair]);
@@ -193,7 +269,7 @@ export function TradingTerminal() {
           <div className="xl:col-span-3 space-y-4">
             {/* Pair quick bar */}
             <div className="flex gap-2 overflow-x-auto pb-1 scrollbar-none">
-              {TRADING_PAIRS.map((p) => (
+              {tradingPairs.map((p) => (
                 <button
                   key={p.pair}
                   onClick={() => setSelectedPair(p)}

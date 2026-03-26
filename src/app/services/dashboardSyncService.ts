@@ -196,25 +196,214 @@ const snapshotFromApi = (payload: Partial<DashboardSnapshot>): DashboardSnapshot
   };
 };
 
+export interface CoinGeckoMarketData {
+  btcPrice: number;
+  ethPrice: number;
+  solPrice: number;
+  bnbPrice: number;
+  btcDominance: number;
+  marketCap: number;
+  timestamp: string;
+  priceChanges24h: {
+    btc: number;
+    eth: number;
+    sol: number;
+    bnb: number;
+  };
+}
+
+const COINGECKO_SNAPSHOT_KEY = 'coingecko_snapshot';
+const COINGECKO_MARKET_DATA_KEY = 'coingecko_market_data';
+const MARKET_DATA_CACHE_TTL = 60000; // 60 seconds
+
 class DashboardSyncService {
+  private cachedMarketData: CoinGeckoMarketData | null = null;
+  private lastMarketDataFetch: number = 0;
+
+  private async fetchMarketData(): Promise<CoinGeckoMarketData | null> {
+    try {
+      console.log('🔄 Fetching live prices from CoinGecko...');
+      const response = await fetch(
+        'https://api.coingecko.com/api/v3/simple/price?ids=bitcoin,ethereum,solana,binancecoin&vs_currencies=usd&include_market_cap=true&include_24hr_change=true'
+      );
+
+      if (!response.ok) {
+        console.error('❌ CoinGecko API error:', response.status);
+        return null;
+      }
+
+      const data = await response.json();
+
+      const marketData = {
+        btcPrice: data.bitcoin.usd,
+        ethPrice: data.ethereum.usd,
+        solPrice: data.solana.usd,
+        bnbPrice: data.binancecoin.usd,
+        btcDominance: 52.5, // Static for now - would need separate endpoint
+        marketCap: (data.bitcoin.usd_market_cap || 0) + (data.ethereum.usd_market_cap || 0),
+        timestamp: new Date().toISOString(),
+        priceChanges24h: {
+          btc: data.bitcoin.usd_24h_change || 0,
+          eth: data.ethereum.usd_24h_change || 0,
+          sol: data.solana.usd_24h_change || 0,
+          bnb: data.binancecoin.usd_24h_change || 0
+        }
+      };
+
+      console.log('✅ CoinGecko prices fetched successfully:', marketData);
+      return marketData;
+    } catch (error) {
+      console.error('❌ CoinGecko fetch failed:', error);
+      return null;
+    }
+  }
+
+  private saveSnapshotForFallback(snapshot: DashboardSnapshot): void {
+    try {
+      localStorage.setItem(COINGECKO_SNAPSHOT_KEY, JSON.stringify(snapshot));
+    } catch (error) {
+      console.error('Failed to save snapshot for fallback:', error);
+    }
+  }
+
+  private getFallbackSnapshot(): DashboardSnapshot {
+    try {
+      const stored = localStorage.getItem(COINGECKO_SNAPSHOT_KEY);
+      if (stored) {
+        return JSON.parse(stored) as DashboardSnapshot;
+      }
+    } catch (error) {
+      console.error('Failed to retrieve fallback snapshot:', error);
+    }
+    return DEFAULT_SNAPSHOT;
+  }
+
   async getInitialSnapshot(): Promise<DashboardSnapshot> {
     const apiBase = getApiBase();
+    let snapshot: DashboardSnapshot | null = null;
 
-    if (!apiBase) {
-      return DEFAULT_SNAPSHOT;
+    // Try Rust backend first (if available)
+    if (apiBase) {
+      try {
+        const response = await fetch(`${apiBase}/api/dashboard/overview`);
+        if (response.ok) {
+          const payload = (await response.json()) as Partial<DashboardSnapshot>;
+          snapshot = snapshotFromApi(payload);
+        }
+      } catch {
+        console.log('Rust backend unavailable, trying CoinGecko');
+      }
+    }
+
+    // If backend failed, try CoinGecko
+    if (!snapshot) {
+      const marketData = await this.fetchMarketData();
+
+      if (marketData) {
+        // Build snapshot from CoinGecko data
+        snapshot = {
+          metrics: {
+            ...DEFAULT_SNAPSHOT.metrics,
+            btcDominance: marketData.btcDominance,
+            ethDominance: 18.7, // From DEFAULT for now
+            totalMarketCap: marketData.marketCap,
+            marketCapChangePercent: 2.1 // From DEFAULT for now
+          },
+          recentActivities: DEFAULT_SNAPSHOT.recentActivities,
+          assets: {
+            ...DEFAULT_SNAPSHOT.assets,
+            tokens: DEFAULT_SNAPSHOT.assets.tokens.map((token) => {
+              // Update with real prices where available and recalculate values
+              let updatedToken = { ...token };
+              
+              if (token.symbol === 'ETH') {
+                const amount = parseFloat(token.amount) || 0;
+                const value = amount * marketData.ethPrice;
+                updatedToken = {
+                  ...token,
+                  value: `$${value.toLocaleString('en-US', { maximumFractionDigits: 2 })}`,
+                  change24h: marketData.priceChanges24h.eth
+                };
+              } else if (token.symbol === 'SOL') {
+                const amount = parseFloat(token.amount) || 0;
+                const value = amount * marketData.solPrice;
+                updatedToken = {
+                  ...token,
+                  value: `$${value.toLocaleString('en-US', { maximumFractionDigits: 2 })}`,
+                  change24h: marketData.priceChanges24h.sol
+                };
+              } else if (token.symbol === 'BNB') {
+                const amount = parseFloat(token.amount) || 0;
+                const value = amount * marketData.bnbPrice;
+                updatedToken = {
+                  ...token,
+                  value: `$${value.toLocaleString('en-US', { maximumFractionDigits: 2 })}`,
+                  change24h: marketData.priceChanges24h.bnb
+                };
+              }
+              
+              return updatedToken;
+            })
+          },
+          updatedAt: marketData.timestamp
+        };
+      }
+    }
+
+    // If all sources failed, use fallback from localStorage or DEFAULT
+    if (!snapshot) {
+      snapshot = this.getFallbackSnapshot();
+    }
+
+    // Save successful snapshot for future fallback
+    this.saveSnapshotForFallback(snapshot);
+
+    return snapshot;
+  }
+
+  async getMarketData(): Promise<CoinGeckoMarketData | null> {
+    // Return cached data if still fresh
+    const now = Date.now();
+    if (this.cachedMarketData && now - this.lastMarketDataFetch < MARKET_DATA_CACHE_TTL) {
+      console.log('📦 Returning cached market data (age: ' + (now - this.lastMarketDataFetch) + 'ms)');
+      return this.cachedMarketData;
+    }
+
+    // Fetch fresh data
+    const data = await this.fetchMarketData();
+    if (data) {
+      this.cachedMarketData = data;
+      this.lastMarketDataFetch = now;
+      // Also save to localStorage for persistence
+      try {
+        localStorage.setItem(COINGECKO_MARKET_DATA_KEY, JSON.stringify(data));
+      } catch {
+        // Silently fail localStorage save
+      }
+    }
+
+    return data;
+  }
+
+  async getCachedMarketData(): Promise<CoinGeckoMarketData | null> {
+    // Try cache first, then localStorage, then fetch
+    if (this.cachedMarketData) {
+      console.log('💾 Using in-memory cached market data');
+      return this.cachedMarketData;
     }
 
     try {
-      const response = await fetch(`${apiBase}/api/dashboard/overview`);
-      if (!response.ok) {
-        return DEFAULT_SNAPSHOT;
+      const stored = localStorage.getItem(COINGECKO_MARKET_DATA_KEY);
+      if (stored) {
+        console.log('📂 Using localStorage cached market data');
+        return JSON.parse(stored) as CoinGeckoMarketData;
       }
-
-      const payload = (await response.json()) as Partial<DashboardSnapshot>;
-      return snapshotFromApi(payload);
     } catch {
-      return DEFAULT_SNAPSHOT;
+      // Silently fail localStorage retrieval
     }
+
+    console.log('🌐 Fetching fresh market data from CoinGecko...');
+    return await this.getMarketData();
   }
 
   subscribeToUpdates(onSnapshot: (snapshot: DashboardSnapshot) => void): () => void {

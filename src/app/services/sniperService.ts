@@ -172,47 +172,87 @@ class SniperService {
     return this.cachedConfig;
   }
 
+  private async enrichTokenWithMarketData(tokens: SniperToken[]): Promise<SniperToken[]> {
+    // Dynamically import to avoid circular dependency
+    const { dashboardSyncService } = await import('./dashboardSyncService');
+    const marketData = await dashboardSyncService.getCachedMarketData();
+
+    if (!marketData) return tokens;
+
+    return tokens.map((token) => {
+      // Enrich with real prices where available
+      if (token.symbol === 'BTC') {
+        return { ...token, price: marketData.btcPrice, change24h: marketData.priceChanges24h.btc };
+      }
+      if (token.symbol === 'ETH') {
+        return { ...token, price: marketData.ethPrice, change24h: marketData.priceChanges24h.eth };
+      }
+      if (token.symbol === 'SOL') {
+        return { ...token, price: marketData.solPrice, change24h: marketData.priceChanges24h.sol };
+      }
+      if (token.symbol === 'BNB') {
+        return { ...token, price: marketData.bnbPrice, change24h: marketData.priceChanges24h.bnb };
+      }
+      return token;
+    });
+  }
+
   async getTrackedTokens(): Promise<SniperToken[]> {
     const apiBase = getApiBase();
-    if (!apiBase || IS_MOCK) return DEFAULT_TOKENS;
+    let tokens: SniperToken[] = DEFAULT_TOKENS;
 
-    try {
-      const response = await fetch(`${apiBase}/api/sniper/tokens`);
-      if (!response.ok) return DEFAULT_TOKENS;
-
-      const payload = (await response.json()) as Partial<SniperToken>[];
-      return payload.map((token) => tokenFromApi(token, token.chain || 'other'));
-    } catch {
-      return DEFAULT_TOKENS;
+    if (apiBase && !IS_MOCK) {
+      try {
+        const response = await fetch(`${apiBase}/api/sniper/tokens`);
+        if (response.ok) {
+          const payload = (await response.json()) as Partial<SniperToken>[];
+          tokens = payload.map((token) => tokenFromApi(token, token.chain || 'other'));
+        }
+      } catch {
+        // Fall through to DEFAULT_TOKENS
+      }
     }
+
+    // Enrich with real market data from CoinGecko
+    return await this.enrichTokenWithMarketData(tokens);
   }
 
   async searchToken(query: string, chain: SupportedChain): Promise<SniperToken | null> {
     const cleanQuery = query.trim();
     if (!cleanQuery) return null;
 
+    let token: SniperToken | null = null;
     const apiBase = getApiBase();
+
     if (!apiBase || IS_MOCK) {
       const existing = DEFAULT_TOKENS.find(
-        (token) =>
-          token.chain === chain &&
-          (token.symbol.toLowerCase() === cleanQuery.toLowerCase() ||
-            token.name.toLowerCase().includes(cleanQuery.toLowerCase()) ||
-            token.address.toLowerCase() === cleanQuery.toLowerCase()),
+        (t) =>
+          t.chain === chain &&
+          (t.symbol.toLowerCase() === cleanQuery.toLowerCase() ||
+            t.name.toLowerCase().includes(cleanQuery.toLowerCase()) ||
+            t.address.toLowerCase() === cleanQuery.toLowerCase()),
       );
-      return existing || randomTokenFromQuery(cleanQuery, chain);
+      token = existing || randomTokenFromQuery(cleanQuery, chain);
+    } else {
+      try {
+        const params = new URLSearchParams({ query: cleanQuery, chain });
+        const response = await fetch(`${apiBase}/api/sniper/token-search?${params.toString()}`);
+        if (response.ok) {
+          const payload = (await response.json()) as Partial<SniperToken>;
+          token = tokenFromApi(payload, chain);
+        }
+      } catch {
+        // Fall through, token stays null
+      }
     }
 
-    try {
-      const params = new URLSearchParams({ query: cleanQuery, chain });
-      const response = await fetch(`${apiBase}/api/sniper/token-search?${params.toString()}`);
-      if (!response.ok) return null;
-
-      const payload = (await response.json()) as Partial<SniperToken>;
-      return tokenFromApi(payload, chain);
-    } catch {
-      return null;
+    // Enrich with market data if found
+    if (token) {
+      const enriched = await this.enrichTokenWithMarketData([token]);
+      return enriched[0];
     }
+
+    return null;
   }
 
   async saveConfig(config: SniperConfig): Promise<boolean> {
