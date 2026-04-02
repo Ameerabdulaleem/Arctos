@@ -125,7 +125,7 @@ export function useAIContext(): AIContextData {
       if (!mounted) return;
 
       setSniperTokens(tokens);
-      setRecentNews(newsResult.slice(0, 6));
+      setRecentNews(newsResult.articles.slice(0, 6));
       setIsLoading(false);
     };
 
