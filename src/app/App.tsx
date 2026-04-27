@@ -5,6 +5,7 @@ import { DashboardView } from './components/DashboardView';
 import { TradingTerminal } from './components/TradingTerminal';
 import { SniperPanel } from './components/SniperPanel';
 import { WhaleAlert } from './components/WhaleAlert';
+import { StocksPreIPO } from './components/StocksPreIPO';
 import { AIChat } from './components/AIChat';
 import { Settings } from './components/Settings';
 import { Homepage } from './components/Homepage';
@@ -89,6 +90,8 @@ export default function App() {
         return <SniperPanel />;
       case 'whale':
         return <WhaleAlert />;
+      case 'stocks':
+        return <StocksPreIPO />;
       case 'chat':
         return <AIChat />;
       case 'tradebook':

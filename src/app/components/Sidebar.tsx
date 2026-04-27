@@ -1,4 +1,4 @@
-import { Gauge, BarChart3, Target, MessageSquare, Settings, Eye, BookOpen, Newspaper } from 'lucide-react';
+import { Gauge, BarChart3, Target, MessageSquare, Settings, Eye, BookOpen, Newspaper, TrendingUp } from 'lucide-react';
 import arctosLogo from '../../assets/images/arctos-logo.png.png';
 
 interface SidebarProps {
@@ -15,6 +15,7 @@ export function Sidebar({ activeView, setActiveView, theme }: SidebarProps) {
     { id: 'tradebook', label: 'Trade Book', icon: BookOpen },
     { id: 'whale', label: 'Whale Alerts', icon: Eye },
     { id: 'news', label: 'Fundamental News', icon: Newspaper },
+    { id: 'stocks', label: 'Stocks & PRE-IPO', icon: TrendingUp },
     { id: 'chat', label: 'AI Chat', icon: MessageSquare },
   ];
 
