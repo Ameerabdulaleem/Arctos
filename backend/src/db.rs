@@ -1,18 +1,18 @@
-use sqlx::{sqlite::SqlitePoolOptions, SqlitePool};
+use sqlx::{postgres::PgPoolOptions, PgPool};
 use tracing::info;
 
-pub async fn init_pool(database_url: &str) -> Result<SqlitePool, sqlx::Error> {
-    let pool = SqlitePoolOptions::new()
+pub async fn init_pool(database_url: &str) -> Result<PgPool, sqlx::Error> {
+    let pool = PgPoolOptions::new()
         .max_connections(10)
         .connect(database_url)
         .await?;
 
     run_migrations(&pool).await?;
-    info!("Database pool initialized at {}", database_url);
+    info!("PostgreSQL database pool initialized successfully");
     Ok(pool)
 }
 
-async fn run_migrations(pool: &SqlitePool) -> Result<(), sqlx::Error> {
+async fn run_migrations(pool: &PgPool) -> Result<(), sqlx::Error> {
     sqlx::query(
         r#"
         CREATE TABLE IF NOT EXISTS trades (
@@ -22,7 +22,7 @@ async fn run_migrations(pool: &SqlitePool) -> Result<(), sqlx::Error> {
             price_bought TEXT NOT NULL,
             amount       TEXT NOT NULL,
             price_sold   TEXT NOT NULL DEFAULT '0',
-            profit_loss  REAL NOT NULL DEFAULT 0,
+            profit_loss  DOUBLE PRECISION NOT NULL DEFAULT 0,
             date         TEXT NOT NULL
         );
         "#,
@@ -38,11 +38,11 @@ async fn run_migrations(pool: &SqlitePool) -> Result<(), sqlx::Error> {
             name         TEXT NOT NULL,
             address      TEXT NOT NULL,
             chain        TEXT NOT NULL,
-            price        REAL NOT NULL DEFAULT 0,
-            liquidity_usd  REAL NOT NULL DEFAULT 0,
-            market_cap_usd REAL NOT NULL DEFAULT 0,
+            price        DOUBLE PRECISION NOT NULL DEFAULT 0,
+            liquidity_usd  DOUBLE PRECISION NOT NULL DEFAULT 0,
+            market_cap_usd DOUBLE PRECISION NOT NULL DEFAULT 0,
             holders      INTEGER NOT NULL DEFAULT 0,
-            change_24h   REAL NOT NULL DEFAULT 0,
+            change_24h   DOUBLE PRECISION NOT NULL DEFAULT 0,
             status       TEXT NOT NULL DEFAULT 'active'
         );
         "#,
@@ -53,17 +53,17 @@ async fn run_migrations(pool: &SqlitePool) -> Result<(), sqlx::Error> {
     sqlx::query(
         r#"
         CREATE TABLE IF NOT EXISTS sniper_config (
-            id                      INTEGER PRIMARY KEY DEFAULT 1,
-            min_liquidity_usd_k     REAL NOT NULL DEFAULT 50,
-            max_buy_tax_percent     REAL NOT NULL DEFAULT 10,
-            max_sell_tax_percent    REAL NOT NULL DEFAULT 10,
-            gas_price_gwei          REAL NOT NULL DEFAULT 5,
-            slippage_percent        REAL NOT NULL DEFAULT 12,
-            max_position_usd        REAL NOT NULL DEFAULT 250,
-            min_creator_win_rate    REAL NOT NULL DEFAULT 60,
-            max_risk_score          REAL NOT NULL DEFAULT 40,
-            auto_take_profit_percent REAL NOT NULL DEFAULT 100,
-            auto_stop_loss_percent  REAL NOT NULL DEFAULT 30
+            id                      SERIAL PRIMARY KEY,
+            min_liquidity_usd_k     DOUBLE PRECISION NOT NULL DEFAULT 50,
+            max_buy_tax_percent     DOUBLE PRECISION NOT NULL DEFAULT 10,
+            max_sell_tax_percent    DOUBLE PRECISION NOT NULL DEFAULT 10,
+            gas_price_gwei          DOUBLE PRECISION NOT NULL DEFAULT 5,
+            slippage_percent        DOUBLE PRECISION NOT NULL DEFAULT 12,
+            max_position_usd        DOUBLE PRECISION NOT NULL DEFAULT 250,
+            min_creator_win_rate    DOUBLE PRECISION NOT NULL DEFAULT 60,
+            max_risk_score          DOUBLE PRECISION NOT NULL DEFAULT 40,
+            auto_take_profit_percent DOUBLE PRECISION NOT NULL DEFAULT 100,
+            auto_stop_loss_percent  DOUBLE PRECISION NOT NULL DEFAULT 30
         );
         "#,
     )
@@ -73,7 +73,7 @@ async fn run_migrations(pool: &SqlitePool) -> Result<(), sqlx::Error> {
     sqlx::query(
         r#"
         CREATE TABLE IF NOT EXISTS sniper_state (
-            id             INTEGER PRIMARY KEY DEFAULT 1,
+            id             SERIAL PRIMARY KEY,
             active         INTEGER NOT NULL DEFAULT 0,
             wallet_address TEXT
         );
@@ -89,7 +89,7 @@ async fn run_migrations(pool: &SqlitePool) -> Result<(), sqlx::Error> {
             token     TEXT NOT NULL,
             action    TEXT NOT NULL,
             amount    TEXT NOT NULL,
-            value_usd REAL NOT NULL DEFAULT 0,
+            value_usd DOUBLE PRECISION NOT NULL DEFAULT 0,
             time      TEXT NOT NULL,
             success   INTEGER NOT NULL DEFAULT 1
         );

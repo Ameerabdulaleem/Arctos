@@ -24,7 +24,7 @@ pub struct AppState {
     pub latest_snapshot: Arc<RwLock<DashboardSnapshot>>,
     pub dashboard_tx: broadcast::Sender<DashboardSnapshot>,
     pub sniper_tx: broadcast::Sender<SniperUpdateEvent>,
-    pub db: sqlx::SqlitePool,
+   pub db: sqlx::PgPool,
     pub config: Arc<Config>,
 }
 
