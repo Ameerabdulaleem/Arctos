@@ -2,7 +2,7 @@
 // Production-ready AI Trading Advisor component.
 //
 // Features:
-//   - Gemini 1.5 Flash integration (free tier, no credit card required)
+//   - Claude / Ollama chat integration for trading assistance
 //   - Live context injection: TradeBook stats, Sniper tokens, News headlines
 //   - Slim collapsible context panel (desktop)
 //   - Markdown-lite renderer (bold, inline code, bullet lists)
@@ -36,7 +36,7 @@ import {
   Zap,
 } from 'lucide-react';
 import { useAIContext, type AIContextData } from '@/app/hooks/useAIContext';
-import { aiService, type GeminiMessage } from '@/app/services/aiService';
+import { aiService, type AIChatMessage } from '@/app/services/aiService';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -224,8 +224,9 @@ function TypingIndicator() {
 
 export function AIChat() {
   const aiCtx = useAIContext();
-  const apiKey = (import.meta.env.VITE_GEMINI_API_KEY as string | undefined) ?? '';
-  const hasApiKey = apiKey.trim().length > 0;
+  const provider = ((import.meta.env.VITE_AI_PROVIDER as string | undefined) ?? 'claude').toLowerCase();
+  const apiKey = ((import.meta.env.VITE_ANTHROPIC_API_KEY as string | undefined) ?? (import.meta.env.VITE_CLAUDE_API_KEY as string | undefined) ?? '').trim();
+  const hasApiKey = apiKey.length > 0 || provider === 'ollama';
 
   const [messages, setMessages] = useState<Message[]>([INITIAL_MESSAGE]);
   const [input, setInput] = useState('');
@@ -270,7 +271,7 @@ export function AIChat() {
       setIsLoading(true);
 
       try {
-        const history: GeminiMessage[] = messages
+        const history: AIChatMessage[] = messages
           .filter((m) => !m.isError && m.id !== 'init')
           .map((m) => ({
             role: m.role === 'ai' ? 'model' : 'user',
@@ -341,7 +342,7 @@ export function AIChat() {
             <h1 className="text-white font-bold text-lg leading-tight tracking-tight">
               AI Trading Advisor
             </h1>
-            <p className="text-zinc-500 text-xs">Gemini 1.5 Flash · Context-aware</p>
+            <p className="text-zinc-500 text-xs">Claude / Ollama · Context-aware</p>
           </div>
         </div>
 
@@ -523,12 +524,12 @@ export function AIChat() {
                   <p className="text-amber-200/60 text-xs leading-relaxed">
                     Add{' '}
                     <code className="bg-zinc-800 text-amber-300 px-1 rounded">
-                      VITE_GEMINI_API_KEY=your_key
+                      VITE_ANTHROPIC_API_KEY=your_key
                     </code>{' '}
                     to your{' '}
                     <code className="bg-zinc-800 px-1 rounded">.env</code> file, then restart
-                    the dev server. Get a free key at{' '}
-                    <span className="underline text-amber-300/80">aistudio.google.com</span>.
+                    the dev server. For a fully free setup, run Ollama locally and set{' '}
+                    <code className="bg-zinc-800 text-amber-300 px-1 rounded">VITE_AI_PROVIDER=ollama</code>.
                   </p>
                 </div>
               </div>

@@ -49,3 +49,6 @@ Thumbs.db
 
 # Dependencies (optional - only if not using Cargo.lock)
 # Cargo.lock  # Uncomment if managing lockfile manually
+
+manually.md
+        todo.md
