@@ -46,7 +46,7 @@ async fn main() {
 
     let db = db::init_pool(&cfg.database_url)
         .await
-        .expect("Failed to initialise SQLite database");
+        .expect("Failed to initialise PostgreSQL database");
 
     let initial_snapshot = build_snapshot(0);
     let (dashboard_tx, _) = broadcast::channel::<DashboardSnapshot>(64);

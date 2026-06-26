@@ -1,15 +1,63 @@
 use sqlx::{postgres::PgPoolOptions, PgPool};
 use tracing::info;
 
+fn normalize_database_url(database_url: &str) -> String {
+    let trimmed = database_url.trim();
+
+    if trimmed.is_empty() {
+        return "postgres://postgres:postgres@localhost:5432/postgres".to_string();
+    }
+
+    let mut normalized = trimmed.to_string();
+
+    if normalized.starts_with("postgres://") {
+        normalized = normalized.replacen("postgres://", "postgresql://", 1);
+    }
+
+    if normalized.contains("sslmode=") {
+        return normalized;
+    }
+
+    if normalized.contains('?') {
+        normalized.push_str("&sslmode=require");
+    } else {
+        normalized.push_str("?sslmode=require");
+    }
+
+    normalized
+}
+
 pub async fn init_pool(database_url: &str) -> Result<PgPool, sqlx::Error> {
+    let normalized_url = normalize_database_url(database_url);
     let pool = PgPoolOptions::new()
         .max_connections(10)
-        .connect(database_url)
+        .connect(&normalized_url)
         .await?;
 
     run_migrations(&pool).await?;
     info!("PostgreSQL database pool initialized successfully");
     Ok(pool)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::normalize_database_url;
+
+    #[test]
+    fn adds_sslmode_for_supabase_urls() {
+        let url = "postgresql://postgres:secret@db.example.supabase.co:5432/postgres";
+        let normalized = normalize_database_url(url);
+        assert!(normalized.contains("sslmode=require"));
+        assert!(normalized.starts_with("postgresql://"));
+    }
+
+    #[test]
+    fn preserves_existing_query_params() {
+        let url = "postgresql://postgres:secret@db.example.supabase.co:5432/postgres?options=--cluster%3Dfoo";
+        let normalized = normalize_database_url(url);
+        assert!(normalized.contains("options=--cluster%3Dfoo"));
+        assert!(normalized.contains("sslmode=require"));
+    }
 }
 
 async fn run_migrations(pool: &PgPool) -> Result<(), sqlx::Error> {

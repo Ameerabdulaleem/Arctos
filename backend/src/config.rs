@@ -25,7 +25,7 @@ impl Config {
                 .and_then(|v| v.parse().ok())
                 .unwrap_or(4000),
             database_url: env::var("DATABASE_URL")
-                .unwrap_or_else(|_| "sqlite:arctos.db".to_string()),
+                .unwrap_or_else(|_| "postgres://postgres:postgres@localhost:5432/postgres".to_string()),
             frontend_origins: env::var("FRONTEND_ORIGINS").unwrap_or_default(),
             mail_host: env::var("MAIL_HOST")
                 .unwrap_or_else(|_| "smtp-relay.brevo.com".to_string()),
