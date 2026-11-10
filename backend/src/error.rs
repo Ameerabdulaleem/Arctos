@@ -8,49 +8,52 @@ use thiserror::Error;
 
 #[derive(Debug, Error)]
 pub enum AppError {
-    #[error("Database error: {0}")]
-    Database(#[from] sqlx::Error),
-
-    #[error("Not found: {0}")]
+    #[error("not found: {0}")]
     NotFound(String),
 
-    #[error("Bad request: {0}")]
+    #[error("bad request: {0}")]
     BadRequest(String),
 
-    #[error("Internal error: {0}")]
-    Internal(String),
+    #[error("rate limited")]
+    TooManyRequests,
 
-    #[error("Upstream API error: {0}")]
+    /// A feature that needs configuration which is missing (for example no API key).
+    #[error("unavailable: {0}")]
+    Unavailable(String),
+
+    #[error("upstream error: {0}")]
     Upstream(String),
+
+    #[error("forbidden: {0}")]
+    Forbidden(String),
+
+    #[error("internal error: {0}")]
+    Internal(String),
 }
 
 impl IntoResponse for AppError {
     fn into_response(self) -> Response {
+        // Messages that reach the client are deliberately generic for anything
+        // that could leak internals (database, upstream bodies, keys).
         let (status, message) = match &self {
-            AppError::Database(e) => {
-                tracing::error!("Database error: {}", e);
-                (
-                    StatusCode::INTERNAL_SERVER_ERROR,
-                    "An internal error occurred. Please try again later.".to_string(),
-                )
+            AppError::NotFound(m) => (StatusCode::NOT_FOUND, m.clone()),
+            AppError::BadRequest(m) => (StatusCode::BAD_REQUEST, m.clone()),
+            AppError::Forbidden(m) => (StatusCode::FORBIDDEN, m.clone()),
+            AppError::Unavailable(m) => (StatusCode::SERVICE_UNAVAILABLE, m.clone()),
+            AppError::TooManyRequests => (
+                StatusCode::TOO_MANY_REQUESTS,
+                "Too many requests. Please slow down and try again shortly.".to_string(),
+            ),
+            AppError::Upstream(m) => {
+                tracing::warn!("upstream failure: {m}");
+                (StatusCode::BAD_GATEWAY, "The upstream data provider is not responding right now.".to_string())
             }
-            AppError::NotFound(msg) => (StatusCode::NOT_FOUND, msg.clone()),
-            AppError::BadRequest(msg) => (StatusCode::BAD_REQUEST, msg.clone()),
-            AppError::Internal(msg) => {
-                tracing::error!("Internal error: {}", msg);
-                (
-                    StatusCode::INTERNAL_SERVER_ERROR,
-                    "An internal error occurred. Please try again later.".to_string(),
-                )
-            }
-            AppError::Upstream(msg) => {
-                tracing::warn!("Upstream API error: {}", msg);
-                (StatusCode::BAD_GATEWAY, "Upstream service unavailable.".to_string())
+            AppError::Internal(m) => {
+                tracing::error!("internal error: {m}");
+                (StatusCode::INTERNAL_SERVER_ERROR, "Something went wrong on our side.".to_string())
             }
         };
-
-        let body = Json(json!({ "error": message }));
-        (status, body).into_response()
+        (status, Json(json!({ "error": message }))).into_response()
     }
 }
 

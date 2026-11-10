@@ -14,7 +14,6 @@ arctos.db-wal
 
 # Rust Build Artifacts
 /target/
-Cargo.lock
 **/*.rs.bk
 
 # IDE & Editor Files
