@@ -1,61 +1,34 @@
-# Copilot / AI Agent Instructions for Arctos
+# Copilot and AI agent instructions for Arctos
 
-This file gives concise, actionable guidance for AI coding agents working in this repository.
+Read `README.md` first. It explains the architecture, what is live and what is simulated.
 
-1. Project overview
-- Frontend SPA built with React + TypeScript on Vite. Entry: [src/main.tsx](src/main.tsx#L1-L20) which mounts [src/app/App.tsx](src/app/App.tsx#L1-L40).
-- UI components live under [src/app/components](src/app/components) (use `@components` alias).
+## Shape of the project
 
-2. Build / dev / lint commands
-- Start dev server: `npm run dev` (runs `vite`).
-- Production build: `npm run build` (runs `tsc -b && vite build`).
-- Preview build: `npm run preview`.
-- Lint: `npm run lint` (uses ESLint config in repo root).
+- `src/app/` is the React app (Vite, TypeScript, Tailwind). Pages live in `components/`, API clients in `services/`, pure logic in `lib/`, shared state in `contexts/`.
+- `backend/` is the Rust data service (Axum, Tokio). It polls the public data providers, caches, rate limits and serves REST and WebSocket to the app. It also proxies the AI assistant and stores the waitlist.
+- The app never calls data providers directly. All market, chain, news, stock and AI data goes through the service in `src/app/services/api.ts`.
 
-3. Important config & aliases
-- Vite aliases: `@` => `src/`, `@components` => `src/app/components` (see [vite.config.ts](vite.config.ts#L1-L40)).
-- TypeScript paths mirror aliases in [tsconfig.json](tsconfig.json#L1-L40).
+## Rules to keep
 
-4. Auth & wallet patterns (critical)
-- Auth context: [src/app/contexts/AuthContext.tsx](src/app/contexts/AuthContext.tsx#L1-L200)
-  - User session persisted to `localStorage` under key `arctos_user`.
-  - Email mock accounts stored under `arctos_accounts` in `localStorage` during dev.
-  - Dev mock mode toggled by env `VITE_APP_MOCK_MODE` (string `'true'`).
-- Wallet connections: [src/app/services/walletService.ts](src/app/services/walletService.ts#L1-L200)
-  - Supports MetaMask, Phantom, Rabby, OKX; checks `window.ethereum`, `window.phantom`, `window.okxwallet`.
-  - Wallet mock mode is `VITE_APP_WALLET_CONNECTION_MOCK`.
-  - Example usage: call `walletService.connectMetaMask()` or use `useAuth().connectWallet('metamask')`.
+1. **No mock or random data in the app or the service.** If a source fails, show an error state. The only canned data lives in `scripts/dev-fixtures` and the tests.
+2. **No secrets in the browser.** Never put keys in `VITE_` variables. Anything that needs a key goes through the Rust service.
+3. **External text is untrusted.** Sanitise it in Rust, render it as text in React, and only open http or https links (`safeHref`).
+4. **Trading is paper trading.** Do not add real order execution without a reviewed signing flow and tests.
+5. **Effects must not return values.** In React effects use a block body, not an expression body, so a returned value is never treated as a cleanup function.
+6. **Do not poll in a loop on failure.** Failed requests must be remembered or backed off, never retried on every render.
 
-5. Patterns / conventions to follow
-- Small, focused components under `src/app/components`. Create new UI components there and export default.
-- UI primitives live under `src/app/components/ui` (dialog, sonner wrappers). Prefer these for consistent patterns.
-- Styles are Tailwind-based; global styles in [src/styles/globals.css](src/styles/globals.css#L1-L40) and Tailwind config in `tailwind.config.js`.
-- Keep logic that affects persistence or environment feature flags inside context/services (e.g., `AuthContext`, `walletService`).
+## Commands
 
-6. Environment and local dev notes
-- Use `.env` variables prefixed with `VITE_` for runtime checks in the client.
-  - Common flags discovered: `VITE_APP_MOCK_MODE`, `VITE_APP_WALLET_CONNECTION_MOCK`.
-- The project uses `noEmit` TypeScript and relies on `vite` for bundling; run `npm run build` to validate type-checking via `tsc -b`.
+```bash
+npm run dev            # web app on :5173, proxies /api and /ws to :4000
+npm test               # vitest unit tests
+npm run lint && npm run build
+cd backend && cargo run
+cd backend && cargo fmt --check && cargo clippy --all-targets -- -D warnings && cargo test
+```
 
-7. When editing or adding features
-- If your change touches authentication or wallet flows, update localStorage keys explicitly and preserve backward compatibility with existing keys (`arctos_user`, `arctos_accounts`).
-- Use existing dialogs and modals under `src/app/components/ui` to preserve UX patterns.
-- Prefer environment-driven behavior for mocks rather than hard-coded flags.
+## Style
 
-8. Quick file examples
-- Import using alias: `import Sidebar from '@components/Sidebar'` (alias defined in `vite.config.ts`).
-- Wallet mock check: see [walletService.isMetaMaskAvailable](src/app/services/walletService.ts#L120-L130).
-
-9. Testing / debugging tips
-- Start `npm run dev` and open browser console for runtime wallet errors (MetaMask / OKX). WalletService logs errors to console.
-- To reproduce email flows without a backend set `VITE_APP_MOCK_MODE=true` and use the localStorage `arctos_accounts` schema.
-
-10. Questions to ask the human reviewer
-- Should new global state use `zustand` (dependency present) or continue with context/local state? Point me to an example file to mirror.
-
-If anything above is unclear or you'd like additional examples (component scaffolding, a recommended test command, or a sample PR template), tell me which section to expand.
-
-11. Project plan & specifications
-- For the full implementation plan, roadmap, and backend/Rust integration details see [PROJECT_SPECIFICATIONS.md](PROJECT_SPECIFICATIONS.md#L1-L120).
-  - Use that file as the authoritative source for priorities (whale-tracking, price-aggregation, trade-book, sniper bot, etc.).
-  - The spec includes recommended Rust services (Axum/Tokio), hosting suggestions, and a phased timeline.
+- Dark UI with Tailwind zinc and blue. Keep layouts responsive down to 360 px.
+- Prefer small components, typed API clients, and pure functions that can be unit tested.
+- In copy shown to users, write plainly and avoid hyphens and dashes where a comma works.

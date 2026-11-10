@@ -55,7 +55,10 @@ impl RateLimiter {
         let (max, period) = bucket.limit();
         let mut map = self.inner.lock().unwrap_or_else(|e| e.into_inner());
         let now = Instant::now();
-        let w = map.entry((ip, bucket)).or_insert(Window { started: now, count: 0 });
+        let w = map.entry((ip, bucket)).or_insert(Window {
+            started: now,
+            count: 0,
+        });
         if now.duration_since(w.started) >= period {
             w.started = now;
             w.count = 0;
@@ -137,8 +140,14 @@ mod tests {
         let mut h = HeaderMap::new();
         h.insert("x-forwarded-for", "203.0.113.9, 10.0.0.1".parse().unwrap());
         let peer: SocketAddr = "192.0.2.1:5000".parse().unwrap();
-        assert_eq!(client_ip(&h, peer, false), "192.0.2.1".parse::<IpAddr>().unwrap());
-        assert_eq!(client_ip(&h, peer, true), "203.0.113.9".parse::<IpAddr>().unwrap());
+        assert_eq!(
+            client_ip(&h, peer, false),
+            "192.0.2.1".parse::<IpAddr>().unwrap()
+        );
+        assert_eq!(
+            client_ip(&h, peer, true),
+            "203.0.113.9".parse::<IpAddr>().unwrap()
+        );
     }
 
     #[test]
@@ -146,6 +155,9 @@ mod tests {
         assert_eq!(bucket_for(&Method::POST, "/api/ai/chat"), Bucket::Ai);
         assert_eq!(bucket_for(&Method::GET, "/api/ai/status"), Bucket::General);
         assert_eq!(bucket_for(&Method::POST, "/api/waitlist"), Bucket::Waitlist);
-        assert_eq!(bucket_for(&Method::GET, "/api/portfolio/0xabc"), Bucket::Portfolio);
+        assert_eq!(
+            bucket_for(&Method::GET, "/api/portfolio/0xabc"),
+            Bucket::Portfolio
+        );
     }
 }

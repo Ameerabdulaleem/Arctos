@@ -76,7 +76,7 @@ export function AIChat() {
   const endRef = useRef<HTMLDivElement>(null);
   const abortRef = useRef<AbortController | null>(null);
 
-  useEffect(() => endRef.current?.scrollIntoView({ behavior: 'smooth' }), [messages, busy]);
+  useEffect(() => { endRef.current?.scrollIntoView({ behavior: 'smooth' }); }, [messages, busy]);
   useEffect(() => () => abortRef.current?.abort(), []);
 
   const configured = status.data?.configured;

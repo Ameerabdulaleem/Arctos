@@ -88,7 +88,11 @@ impl BinanceStore {
     }
 
     pub fn price(&self, symbol_usdt: &str) -> Option<f64> {
-        self.tickers.read().unwrap_or_else(|e| e.into_inner()).get(symbol_usdt).map(|t| t.price)
+        self.tickers
+            .read()
+            .unwrap_or_else(|e| e.into_inner())
+            .get(symbol_usdt)
+            .map(|t| t.price)
     }
 }
 
@@ -110,10 +114,16 @@ fn f(v: &Value) -> Option<f64> {
 
 /// Parses a `!miniTicker@arr` frame (either the raw array or a combined stream envelope).
 pub fn parse_mini_tickers(raw: &str, wanted: &HashSet<String>, now_ms: i64) -> Vec<Ticker> {
-    let Ok(v) = serde_json::from_str::<Value>(raw) else { return vec![] };
+    let Ok(v) = serde_json::from_str::<Value>(raw) else {
+        return vec![];
+    };
     let arr = match &v {
         Value::Array(a) => a.clone(),
-        Value::Object(o) => o.get("data").and_then(|d| d.as_array()).cloned().unwrap_or_default(),
+        Value::Object(o) => o
+            .get("data")
+            .and_then(|d| d.as_array())
+            .cloned()
+            .unwrap_or_default(),
         _ => vec![],
     };
     arr.iter()
@@ -131,7 +141,11 @@ pub fn parse_mini_tickers(raw: &str, wanted: &HashSet<String>, now_ms: i64) -> V
                 open_24h: open,
                 high_24h: f(item.get("h")?)?,
                 low_24h: f(item.get("l")?)?,
-                change_24h_pct: if open > 0.0 { (price - open) / open * 100.0 } else { 0.0 },
+                change_24h_pct: if open > 0.0 {
+                    (price - open) / open * 100.0
+                } else {
+                    0.0
+                },
                 volume_base: f(item.get("v")?)?,
                 volume_quote: f(item.get("q")?)?,
                 updated_at: item.get("E").and_then(|e| e.as_i64()).unwrap_or(now_ms),
@@ -142,7 +156,9 @@ pub fn parse_mini_tickers(raw: &str, wanted: &HashSet<String>, now_ms: i64) -> V
 
 /// Parses the REST `/api/v3/ticker/24hr` response.
 pub fn parse_rest_tickers(raw: &str, now_ms: i64) -> Vec<Ticker> {
-    let Ok(Value::Array(arr)) = serde_json::from_str::<Value>(raw) else { return vec![] };
+    let Ok(Value::Array(arr)) = serde_json::from_str::<Value>(raw) else {
+        return vec![];
+    };
     arr.iter()
         .filter_map(|item| {
             let symbol = item.get("symbol")?.as_str()?;
@@ -187,7 +203,10 @@ pub fn parse_depth(raw: &str) -> Option<Depth> {
             .map(|lvl| Some([f(lvl.get(0)?)?, f(lvl.get(1)?)?]))
             .collect()
     };
-    Some(Depth { bids: side("bids")?, asks: side("asks")? })
+    Some(Depth {
+        bids: side("bids")?,
+        asks: side("asks")?,
+    })
 }
 
 pub fn parse_trades(raw: &str) -> Option<Vec<TradePrint>> {
@@ -202,7 +221,11 @@ pub fn parse_trades(raw: &str) -> Option<Vec<TradePrint>> {
                 qty: f(t.get("qty")?)?,
                 time: t.get("time")?.as_i64()?,
                 // isBuyerMaker=true means the buyer was resting, so the aggressor sold.
-                side: if t.get("isBuyerMaker")?.as_bool()? { "sell" } else { "buy" },
+                side: if t.get("isBuyerMaker")?.as_bool()? {
+                    "sell"
+                } else {
+                    "buy"
+                },
             })
         })
         .collect();
@@ -213,7 +236,8 @@ pub fn parse_trades(raw: &str) -> Option<Vec<TradePrint>> {
 pub fn valid_symbol(s: &str) -> bool {
     (5..=15).contains(&s.len())
         && s.ends_with("USDT")
-        && s.bytes().all(|b| b.is_ascii_uppercase() || b.is_ascii_digit())
+        && s.bytes()
+            .all(|b| b.is_ascii_uppercase() || b.is_ascii_digit())
 }
 
 pub fn valid_interval(s: &str) -> bool {
@@ -222,11 +246,19 @@ pub fn valid_interval(s: &str) -> bool {
 
 // ── Upstream access ──────────────────────────────────────────────────────────
 
-async fn binance_get_text(state: &AppState, path: &str, query: &[(&str, String)]) -> std::result::Result<String, UpstreamError> {
+async fn binance_get_text(
+    state: &AppState,
+    path: &str,
+    query: &[(&str, String)],
+) -> std::result::Result<String, UpstreamError> {
     let mut last = UpstreamError::Network("no exchange endpoint configured".into());
     for base in &state.config.binance_rest_bases {
         let url = format!("{}{}", base.trim_end_matches('/'), path);
-        match state.up.get_json_with::<Value>("binance", &url, query, &[]).await {
+        match state
+            .up
+            .get_json_with::<Value>("binance", &url, query, &[])
+            .await
+        {
             Ok(v) => return Ok(v.to_string()),
             Err(e) => last = e,
         }
@@ -239,11 +271,20 @@ fn now_ms() -> i64 {
 }
 
 fn tracked_set(state: &AppState) -> HashSet<String> {
-    state.config.tracked_symbols.iter().map(|s| format!("{s}USDT")).collect()
+    state
+        .config
+        .tracked_symbols
+        .iter()
+        .map(|s| format!("{s}USDT"))
+        .collect()
 }
 
 fn publish(state: &AppState, source: &'static str) {
-    let tickers = state.binance.tickers.read().unwrap_or_else(|e| e.into_inner());
+    let tickers = state
+        .binance
+        .tickers
+        .read()
+        .unwrap_or_else(|e| e.into_inner());
     let data: Vec<&Ticker> = state
         .config
         .tracked_symbols
@@ -252,13 +293,25 @@ fn publish(state: &AppState, source: &'static str) {
         .collect();
     let msg = serde_json::json!({ "type": "tickers", "source": source, "data": data }).to_string();
     drop(tickers);
-    *state.binance.tickers_source.write().unwrap_or_else(|e| e.into_inner()) = source;
+    *state
+        .binance
+        .tickers_source
+        .write()
+        .unwrap_or_else(|e| e.into_inner()) = source;
     let _ = state.binance.tx.send(msg);
 }
 
 async fn refresh_tickers_rest(state: &Arc<AppState>) -> bool {
-    let symbols: Vec<String> = state.config.tracked_symbols.iter().map(|s| format!("{s}USDT")).collect();
-    let query = [("symbols", serde_json::to_string(&symbols).unwrap_or_default())];
+    let symbols: Vec<String> = state
+        .config
+        .tracked_symbols
+        .iter()
+        .map(|s| format!("{s}USDT"))
+        .collect();
+    let query = [(
+        "symbols",
+        serde_json::to_string(&symbols).unwrap_or_default(),
+    )];
     match binance_get_text(state, "/api/v3/ticker/24hr", &query).await {
         Ok(raw) => {
             let parsed = parse_rest_tickers(&raw, now_ms());
@@ -266,7 +319,11 @@ async fn refresh_tickers_rest(state: &Arc<AppState>) -> bool {
                 return false;
             }
             {
-                let mut map = state.binance.tickers.write().unwrap_or_else(|e| e.into_inner());
+                let mut map = state
+                    .binance
+                    .tickers
+                    .write()
+                    .unwrap_or_else(|e| e.into_inner());
                 for t in parsed {
                     map.insert(t.symbol.clone(), t);
                 }
@@ -283,19 +340,27 @@ async fn refresh_tickers_rest(state: &Arc<AppState>) -> bool {
 
 async fn run_ticker_stream(state: &Arc<AppState>) -> std::result::Result<(), String> {
     let wanted = tracked_set(state);
-    let (mut ws, _) = connect_async(state.config.binance_ws_url.as_str()).await.map_err(|e| e.to_string())?;
+    let (mut ws, _) = connect_async(state.config.binance_ws_url.as_str())
+        .await
+        .map_err(|e| e.to_string())?;
     state.up.note("binance-stream", Ok(()));
     loop {
         let next = tokio::time::timeout(Duration::from_secs(30), ws.next())
             .await
             .map_err(|_| "no data for 30s".to_string())?;
-        let Some(msg) = next else { return Err("stream closed".into()) };
+        let Some(msg) = next else {
+            return Err("stream closed".into());
+        };
         match msg.map_err(|e| e.to_string())? {
             WsMsg::Text(text) => {
                 let parsed = parse_mini_tickers(&text, &wanted, now_ms());
                 if !parsed.is_empty() {
                     {
-                        let mut map = state.binance.tickers.write().unwrap_or_else(|e| e.into_inner());
+                        let mut map = state
+                            .binance
+                            .tickers
+                            .write()
+                            .unwrap_or_else(|e| e.into_inner());
                         for t in parsed {
                             map.insert(t.symbol.clone(), t);
                         }
@@ -342,11 +407,20 @@ pub struct TickersResponse {
 }
 
 pub async fn get_tickers(State(state): State<Arc<AppState>>) -> Result<Json<TickersResponse>> {
-    let empty = state.binance.tickers.read().unwrap_or_else(|e| e.into_inner()).is_empty();
+    let empty = state
+        .binance
+        .tickers
+        .read()
+        .unwrap_or_else(|e| e.into_inner())
+        .is_empty();
     if empty {
         refresh_tickers_rest(&state).await;
     }
-    let tickers = state.binance.tickers.read().unwrap_or_else(|e| e.into_inner());
+    let tickers = state
+        .binance
+        .tickers
+        .read()
+        .unwrap_or_else(|e| e.into_inner());
     let list: Vec<Ticker> = state
         .config
         .tracked_symbols
@@ -356,8 +430,15 @@ pub async fn get_tickers(State(state): State<Arc<AppState>>) -> Result<Json<Tick
     if list.is_empty() {
         return Err(AppError::Upstream("exchange tickers unavailable".into()));
     }
-    let source = *state.binance.tickers_source.read().unwrap_or_else(|e| e.into_inner());
-    Ok(Json(TickersResponse { tickers: list, source }))
+    let source = *state
+        .binance
+        .tickers_source
+        .read()
+        .unwrap_or_else(|e| e.into_inner());
+    Ok(Json(TickersResponse {
+        tickers: list,
+        source,
+    }))
 }
 
 #[derive(Deserialize)]
@@ -367,7 +448,10 @@ pub struct KlinesQuery {
     limit: Option<u32>,
 }
 
-pub async fn get_klines(State(state): State<Arc<AppState>>, Query(q): Query<KlinesQuery>) -> Result<Json<Vec<Candle>>> {
+pub async fn get_klines(
+    State(state): State<Arc<AppState>>,
+    Query(q): Query<KlinesQuery>,
+) -> Result<Json<Vec<Candle>>> {
     let symbol = q.symbol.to_ascii_uppercase();
     let interval = q.interval.unwrap_or_else(|| "15m".into());
     if !valid_symbol(&symbol) || !valid_interval(&interval) {
@@ -380,7 +464,11 @@ pub async fn get_klines(State(state): State<Arc<AppState>>, Query(q): Query<Klin
         .binance
         .klines
         .get_or_fetch(&key, || async move {
-            let query = [("symbol", symbol), ("interval", interval), ("limit", limit.to_string())];
+            let query = [
+                ("symbol", symbol),
+                ("interval", interval),
+                ("limit", limit.to_string()),
+            ];
             let raw = binance_get_text(&st, "/api/v3/klines", &query).await?;
             parse_klines(&raw).ok_or_else(|| UpstreamError::Parse("klines".into()))
         })
@@ -394,7 +482,10 @@ pub struct DepthQuery {
     limit: Option<u32>,
 }
 
-pub async fn get_depth(State(state): State<Arc<AppState>>, Query(q): Query<DepthQuery>) -> Result<Json<Depth>> {
+pub async fn get_depth(
+    State(state): State<Arc<AppState>>,
+    Query(q): Query<DepthQuery>,
+) -> Result<Json<Depth>> {
     let symbol = q.symbol.to_ascii_uppercase();
     if !valid_symbol(&symbol) {
         return Err(AppError::BadRequest("invalid symbol".into()));
@@ -424,7 +515,10 @@ pub struct TradesQuery {
     limit: Option<u32>,
 }
 
-pub async fn get_trades(State(state): State<Arc<AppState>>, Query(q): Query<TradesQuery>) -> Result<Json<Vec<TradePrint>>> {
+pub async fn get_trades(
+    State(state): State<Arc<AppState>>,
+    Query(q): Query<TradesQuery>,
+) -> Result<Json<Vec<TradePrint>>> {
     let symbol = q.symbol.to_ascii_uppercase();
     if !valid_symbol(&symbol) {
         return Err(AppError::BadRequest("invalid symbol".into()));
@@ -449,7 +543,10 @@ mod tests {
     use super::*;
 
     fn wanted() -> HashSet<String> {
-        ["BTCUSDT", "ETHUSDT"].iter().map(|s| s.to_string()).collect()
+        ["BTCUSDT", "ETHUSDT"]
+            .iter()
+            .map(|s| s.to_string())
+            .collect()
     }
 
     #[test]
@@ -492,13 +589,29 @@ mod tests {
     fn klines_convert_ms_to_seconds() {
         let raw = r#"[[1700000000000,"1.0","2.0","0.5","1.5","10.0",1700000059999,"15.0",3,"1","1","0"]]"#;
         let c = parse_klines(raw).unwrap();
-        assert_eq!(c, vec![Candle { t: 1_700_000_000, o: 1.0, h: 2.0, l: 0.5, c: 1.5, v: 10.0 }]);
-        assert!(parse_klines("[[1]]").is_none(), "short rows are rejected rather than half parsed");
+        assert_eq!(
+            c,
+            vec![Candle {
+                t: 1_700_000_000,
+                o: 1.0,
+                h: 2.0,
+                l: 0.5,
+                c: 1.5,
+                v: 10.0
+            }]
+        );
+        assert!(
+            parse_klines("[[1]]").is_none(),
+            "short rows are rejected rather than half parsed"
+        );
     }
 
     #[test]
     fn depth_and_trades_parse() {
-        let d = parse_depth(r#"{"lastUpdateId":1,"bids":[["99.5","2"],["99.0","1"]],"asks":[["100.5","3"]]}"#).unwrap();
+        let d = parse_depth(
+            r#"{"lastUpdateId":1,"bids":[["99.5","2"],["99.0","1"]],"asks":[["100.5","3"]]}"#,
+        )
+        .unwrap();
         assert_eq!(d.bids[0], [99.5, 2.0]);
         assert_eq!(d.asks[0], [100.5, 3.0]);
 

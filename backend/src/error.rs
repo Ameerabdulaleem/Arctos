@@ -46,11 +46,17 @@ impl IntoResponse for AppError {
             ),
             AppError::Upstream(m) => {
                 tracing::warn!("upstream failure: {m}");
-                (StatusCode::BAD_GATEWAY, "The upstream data provider is not responding right now.".to_string())
+                (
+                    StatusCode::BAD_GATEWAY,
+                    "The upstream data provider is not responding right now.".to_string(),
+                )
             }
             AppError::Internal(m) => {
                 tracing::error!("internal error: {m}");
-                (StatusCode::INTERNAL_SERVER_ERROR, "Something went wrong on our side.".to_string())
+                (
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    "Something went wrong on our side.".to_string(),
+                )
             }
         };
         (status, Json(json!({ "error": message }))).into_response()

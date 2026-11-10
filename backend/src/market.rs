@@ -223,20 +223,68 @@ pub fn parse_fng(raw: &str) -> Option<FearGreed> {
     let mut points: Vec<FngPoint> = env
         .data
         .iter()
-        .filter_map(|r| Some(FngPoint { t: r.timestamp.parse().ok()?, value: r.value.parse().ok()? }))
+        .filter_map(|r| {
+            Some(FngPoint {
+                t: r.timestamp.parse().ok()?,
+                value: r.value.parse().ok()?,
+            })
+        })
         .collect();
     // The API returns newest first; the UI wants oldest first.
     points.sort_by_key(|p| p.t);
     let latest = env.data.first()?;
-    Some(FearGreed { value: latest.value.parse().ok()?, label: latest.value_classification.clone(), history: points })
+    Some(FearGreed {
+        value: latest.value.parse().ok()?,
+        label: latest.value_classification.clone(),
+        history: points,
+    })
 }
 
 fn is_stable_or_wrapped(c: &Coin) -> bool {
     const EXCLUDED: &[&str] = &[
-        "USDT", "USDC", "DAI", "USDE", "FDUSD", "TUSD", "USDD", "PYUSD", "USDS", "USD1", "SUSDE", "SUSDS", "STETH",
-        "WSTETH", "WETH", "WBTC", "WEETH", "CBBTC", "RETH", "WBETH", "BSC-USD", "USDT0", "BUIDL", "USDY", "GUSD",
-        "USDG", "BFUSD", "XAUT", "PAXG", "JITOSOL", "METH", "SOLVBTC", "LBTC", "TBTC", "WSOL", "BNSOL", "EZETH",
-        "RSETH", "USDTB", "USDF", "SYRUPUSDC", "WBNB", "WTRX",
+        "USDT",
+        "USDC",
+        "DAI",
+        "USDE",
+        "FDUSD",
+        "TUSD",
+        "USDD",
+        "PYUSD",
+        "USDS",
+        "USD1",
+        "SUSDE",
+        "SUSDS",
+        "STETH",
+        "WSTETH",
+        "WETH",
+        "WBTC",
+        "WEETH",
+        "CBBTC",
+        "RETH",
+        "WBETH",
+        "BSC-USD",
+        "USDT0",
+        "BUIDL",
+        "USDY",
+        "GUSD",
+        "USDG",
+        "BFUSD",
+        "XAUT",
+        "PAXG",
+        "JITOSOL",
+        "METH",
+        "SOLVBTC",
+        "LBTC",
+        "TBTC",
+        "WSOL",
+        "BNSOL",
+        "EZETH",
+        "RSETH",
+        "USDTB",
+        "USDF",
+        "SYRUPUSDC",
+        "WBNB",
+        "WTRX",
     ];
     let s = c.symbol.as_str();
     EXCLUDED.contains(&s) || s.starts_with("USD") || s.ends_with("USD")
@@ -247,7 +295,10 @@ pub fn compute_altseason(coins: &[Coin]) -> Option<Altseason> {
     let btc = coins.iter().find(|c| c.id == "bitcoin")?.change_30d?;
     let mut total = 0u32;
     let mut outperformers = 0u32;
-    for c in coins.iter().filter(|c| c.id != "bitcoin" && !is_stable_or_wrapped(c)) {
+    for c in coins
+        .iter()
+        .filter(|c| c.id != "bitcoin" && !is_stable_or_wrapped(c))
+    {
         if total >= 50 {
             break;
         }
@@ -321,10 +372,18 @@ async fn refresh_coingecko(state: &Arc<AppState>) -> bool {
     let mut ok = true;
 
     let global_url = format!("{base}/global");
-    match state.up.get_json_with::<serde_json::Value>("coingecko", &global_url, &[], &headers).await {
+    match state
+        .up
+        .get_json_with::<serde_json::Value>("coingecko", &global_url, &[], &headers)
+        .await
+    {
         Ok(v) => {
             if let Some(g) = parse_global(&v.to_string()) {
-                let mut ov = state.market.overview.write().unwrap_or_else(|e| e.into_inner());
+                let mut ov = state
+                    .market
+                    .overview
+                    .write()
+                    .unwrap_or_else(|e| e.into_inner());
                 ov.global = Some(g);
                 ov.updated_at = Some(Utc::now());
             }
@@ -344,19 +403,35 @@ async fn refresh_coingecko(state: &Arc<AppState>) -> bool {
         ("sparkline", "true".to_string()),
         ("price_change_percentage", "24h,7d,30d".to_string()),
     ];
-    match state.up.get_json_with::<serde_json::Value>("coingecko", &coins_url, &query, &headers).await {
+    match state
+        .up
+        .get_json_with::<serde_json::Value>("coingecko", &coins_url, &query, &headers)
+        .await
+    {
         Ok(v) => {
             if let Some(coins) = parse_coins(&v.to_string()) {
                 let alt = compute_altseason(&coins);
                 let trend = compute_market_cap_trend(&coins);
                 {
-                    let mut ov = state.market.overview.write().unwrap_or_else(|e| e.into_inner());
+                    let mut ov = state
+                        .market
+                        .overview
+                        .write()
+                        .unwrap_or_else(|e| e.into_inner());
                     ov.altseason = alt;
                     ov.market_cap_trend = trend;
                     ov.updated_at = Some(Utc::now());
                 }
-                *state.market.coins.write().unwrap_or_else(|e| e.into_inner()) = coins;
-                *state.market.coins_updated_at.write().unwrap_or_else(|e| e.into_inner()) = Some(Utc::now());
+                *state
+                    .market
+                    .coins
+                    .write()
+                    .unwrap_or_else(|e| e.into_inner()) = coins;
+                *state
+                    .market
+                    .coins_updated_at
+                    .write()
+                    .unwrap_or_else(|e| e.into_inner()) = Some(Utc::now());
             }
         }
         Err(e) => {
@@ -369,10 +444,18 @@ async fn refresh_coingecko(state: &Arc<AppState>) -> bool {
 
 async fn refresh_fng(state: &Arc<AppState>) {
     let url = format!("{}?limit=30", state.config.fng_url);
-    match state.up.get_json::<serde_json::Value>("fear-greed", &url).await {
+    match state
+        .up
+        .get_json::<serde_json::Value>("fear-greed", &url)
+        .await
+    {
         Ok(v) => {
             if let Some(f) = parse_fng(&v.to_string()) {
-                let mut ov = state.market.overview.write().unwrap_or_else(|e| e.into_inner());
+                let mut ov = state
+                    .market
+                    .overview
+                    .write()
+                    .unwrap_or_else(|e| e.into_inner());
                 ov.fear_greed = Some(f);
                 ov.updated_at = Some(Utc::now());
             }
@@ -388,7 +471,11 @@ pub fn spawn_pollers(state: Arc<AppState>) {
         let mut wait = Duration::from_secs(60);
         loop {
             let ok = refresh_coingecko(&s).await;
-            wait = if ok { Duration::from_secs(60) } else { (wait * 2).min(Duration::from_secs(300)) };
+            wait = if ok {
+                Duration::from_secs(60)
+            } else {
+                (wait * 2).min(Duration::from_secs(300))
+            };
             tokio::time::sleep(wait).await;
         }
     });
@@ -404,7 +491,14 @@ pub fn spawn_pollers(state: Arc<AppState>) {
 // ── HTTP handlers ────────────────────────────────────────────────────────────
 
 pub async fn get_overview(State(state): State<Arc<AppState>>) -> Json<Overview> {
-    Json(state.market.overview.read().unwrap_or_else(|e| e.into_inner()).clone())
+    Json(
+        state
+            .market
+            .overview
+            .read()
+            .unwrap_or_else(|e| e.into_inner())
+            .clone(),
+    )
 }
 
 #[derive(Deserialize)]
@@ -419,10 +513,25 @@ pub struct CoinsResponse {
     updated_at: Option<DateTime<Utc>>,
 }
 
-pub async fn get_coins(State(state): State<Arc<AppState>>, Query(q): Query<CoinsQuery>) -> Result<Json<CoinsResponse>> {
+pub async fn get_coins(
+    State(state): State<Arc<AppState>>,
+    Query(q): Query<CoinsQuery>,
+) -> Result<Json<CoinsResponse>> {
     let limit = q.limit.unwrap_or(100).clamp(1, 100);
-    let coins: Vec<Coin> = state.market.coins.read().unwrap_or_else(|e| e.into_inner()).iter().take(limit).cloned().collect();
-    let updated_at = *state.market.coins_updated_at.read().unwrap_or_else(|e| e.into_inner());
+    let coins: Vec<Coin> = state
+        .market
+        .coins
+        .read()
+        .unwrap_or_else(|e| e.into_inner())
+        .iter()
+        .take(limit)
+        .cloned()
+        .collect();
+    let updated_at = *state
+        .market
+        .coins_updated_at
+        .read()
+        .unwrap_or_else(|e| e.into_inner());
     Ok(Json(CoinsResponse { coins, updated_at }))
 }
 
@@ -442,19 +551,36 @@ mod tests {
         assert_eq!(g.market_cap_change_24h_pct, -1.23);
         let sum: f64 = g.dominance.values().sum();
         assert!((sum - 100.0).abs() < 0.05, "sum was {sum}");
-        assert_eq!(g.dominance["OTHERS"], round2(100.0 - (58.4 + 12.1 + 4.9 + 3.2 + 2.8)));
+        assert_eq!(
+            g.dominance["OTHERS"],
+            round2(100.0 - (58.4 + 12.1 + 4.9 + 3.2 + 2.8))
+        );
     }
 
     fn coin(id: &str, sym: &str, ch30: Option<f64>) -> Coin {
-        Coin { id: id.into(), symbol: sym.into(), price: 1.0, market_cap: 1.0, change_30d: ch30, ..Default::default() }
+        Coin {
+            id: id.into(),
+            symbol: sym.into(),
+            price: 1.0,
+            market_cap: 1.0,
+            change_30d: ch30,
+            ..Default::default()
+        }
     }
 
     #[test]
     fn altseason_counts_only_real_altcoins() {
-        let mut coins = vec![coin("bitcoin", "BTC", Some(5.0)), coin("tether", "USDT", Some(0.0))];
+        let mut coins = vec![
+            coin("bitcoin", "BTC", Some(5.0)),
+            coin("tether", "USDT", Some(0.0)),
+        ];
         for i in 0..20 {
             // Half of them beat BTC (10 > 5), half do not (1 < 5).
-            coins.push(coin(&format!("a{i}"), &format!("A{i}"), Some(if i % 2 == 0 { 10.0 } else { 1.0 })));
+            coins.push(coin(
+                &format!("a{i}"),
+                &format!("A{i}"),
+                Some(if i % 2 == 0 { 10.0 } else { 1.0 }),
+            ));
         }
         let a = compute_altseason(&coins).unwrap();
         assert_eq!(a.total, 20, "stablecoins and BTC are excluded");
@@ -476,7 +602,10 @@ mod tests {
         let f = parse_fng(raw).unwrap();
         assert_eq!(f.value, 72);
         assert_eq!(f.label, "Greed");
-        assert_eq!(f.history.iter().map(|p| p.t).collect::<Vec<_>>(), vec![100, 200, 300]);
+        assert_eq!(
+            f.history.iter().map(|p| p.t).collect::<Vec<_>>(),
+            vec![100, 200, 300]
+        );
     }
 
     #[test]

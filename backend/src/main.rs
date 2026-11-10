@@ -24,13 +24,21 @@ async fn main() {
     spawn_background(Arc::clone(&state));
     let app = build_router(Arc::clone(&state));
 
-    let listener = TcpListener::bind(addr).await.unwrap_or_else(|e| panic!("cannot bind {addr}: {e}"));
-    info!("Arctos data service listening on http://{}", listener.local_addr().unwrap_or(addr));
-
-    axum::serve(listener, app.into_make_service_with_connect_info::<SocketAddr>())
-        .with_graceful_shutdown(shutdown_signal())
+    let listener = TcpListener::bind(addr)
         .await
-        .expect("server error");
+        .unwrap_or_else(|e| panic!("cannot bind {addr}: {e}"));
+    info!(
+        "Arctos data service listening on http://{}",
+        listener.local_addr().unwrap_or(addr)
+    );
+
+    axum::serve(
+        listener,
+        app.into_make_service_with_connect_info::<SocketAddr>(),
+    )
+    .with_graceful_shutdown(shutdown_signal())
+    .await
+    .expect("server error");
 }
 
 async fn shutdown_signal() {
@@ -39,7 +47,8 @@ async fn shutdown_signal() {
     };
     #[cfg(unix)]
     let terminate = async {
-        if let Ok(mut s) = tokio::signal::unix::signal(tokio::signal::unix::SignalKind::terminate()) {
+        if let Ok(mut s) = tokio::signal::unix::signal(tokio::signal::unix::SignalKind::terminate())
+        {
             s.recv().await;
         }
     };

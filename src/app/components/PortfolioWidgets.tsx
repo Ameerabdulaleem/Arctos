@@ -27,7 +27,7 @@ function Widget({ title, icon, children, footer }: { title: string; icon: ReactN
   );
 }
 
-const Skeleton = () => <div className="h-7 w-24 rounded bg-zinc-800 animate-pulse" aria-label="Loading" />;
+const Skeleton = () => <span className="inline-block h-6 w-24 rounded bg-zinc-800 animate-pulse align-middle" role="status" aria-label="Loading" />;
 
 function Spark({ series, color }: { series: number[]; color: string }) {
   const path = sparklinePath(series);

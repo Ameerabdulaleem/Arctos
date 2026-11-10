@@ -60,7 +60,10 @@ pub struct Config {
 }
 
 fn var(key: &str) -> Option<String> {
-    env::var(key).ok().map(|v| v.trim().to_string()).filter(|v| !v.is_empty())
+    env::var(key)
+        .ok()
+        .map(|v| v.trim().to_string())
+        .filter(|v| !v.is_empty())
 }
 
 fn var_or(key: &str, default: &str) -> String {
@@ -69,17 +72,27 @@ fn var_or(key: &str, default: &str) -> String {
 
 fn list(key: &str, default: &[&str]) -> Vec<String> {
     match var(key) {
-        Some(v) => v.split(',').map(|s| s.trim().to_string()).filter(|s| !s.is_empty()).collect(),
+        Some(v) => v
+            .split(',')
+            .map(|s| s.trim().to_string())
+            .filter(|s| !s.is_empty())
+            .collect(),
         None => default.iter().map(|s| s.to_string()).collect(),
     }
 }
 
 fn truthy(key: &str) -> bool {
-    matches!(var(key).as_deref().map(str::to_ascii_lowercase).as_deref(), Some("1" | "true" | "yes"))
+    matches!(
+        var(key).as_deref().map(str::to_ascii_lowercase).as_deref(),
+        Some("1" | "true" | "yes")
+    )
 }
 
 const DEFAULT_FEEDS: &[(&str, &str)] = &[
-    ("CoinDesk", "https://www.coindesk.com/arc/outboundfeeds/rss/"),
+    (
+        "CoinDesk",
+        "https://www.coindesk.com/arc/outboundfeeds/rss/",
+    ),
     ("Cointelegraph", "https://cointelegraph.com/rss"),
     ("Decrypt", "https://decrypt.co/feed"),
     ("The Block", "https://www.theblock.co/rss.xml"),
@@ -100,7 +113,10 @@ impl Config {
                     Some((name.trim().to_string(), url.trim().to_string()))
                 })
                 .collect(),
-            None => DEFAULT_FEEDS.iter().map(|(n, u)| (n.to_string(), u.to_string())).collect(),
+            None => DEFAULT_FEEDS
+                .iter()
+                .map(|(n, u)| (n.to_string(), u.to_string()))
+                .collect(),
         };
 
         Self {
@@ -129,10 +145,16 @@ impl Config {
                 "BINANCE_REST_BASES",
                 &["https://data-api.binance.vision", "https://api.binance.com"],
             ),
-            binance_ws_url: var_or("BINANCE_WS_URL", "wss://stream.binance.com:9443/ws/!miniTicker@arr"),
+            binance_ws_url: var_or(
+                "BINANCE_WS_URL",
+                "wss://stream.binance.com:9443/ws/!miniTicker@arr",
+            ),
             fng_url: var_or("FNG_URL", "https://api.alternative.me/fng/"),
             dexscreener_base: var_or("DEXSCREENER_BASE", "https://api.dexscreener.com"),
-            geckoterminal_base: var_or("GECKOTERMINAL_BASE", "https://api.geckoterminal.com/api/v2"),
+            geckoterminal_base: var_or(
+                "GECKOTERMINAL_BASE",
+                "https://api.geckoterminal.com/api/v2",
+            ),
             goplus_base: var_or("GOPLUS_BASE", "https://api.gopluslabs.io/api/v1"),
             blockchair_base: var_or("BLOCKCHAIR_BASE", "https://api.blockchair.com"),
             blockchair_api_key: var("BLOCKCHAIR_API_KEY"),
@@ -140,24 +162,32 @@ impl Config {
             eth_rpc: var_or("ETH_RPC_URL", "https://ethereum-rpc.publicnode.com"),
             bsc_rpc: var_or("BSC_RPC_URL", "https://bsc-rpc.publicnode.com"),
             base_rpc: var_or("BASE_RPC_URL", "https://base-rpc.publicnode.com"),
-            arbitrum_rpc: var_or("ARBITRUM_RPC_URL", "https://arbitrum-one-rpc.publicnode.com"),
+            arbitrum_rpc: var_or(
+                "ARBITRUM_RPC_URL",
+                "https://arbitrum-one-rpc.publicnode.com",
+            ),
             solana_rpc: var_or("SOLANA_RPC_URL", "https://api.mainnet-beta.solana.com"),
 
             tracked_symbols: list(
                 "TRACKED_SYMBOLS",
                 &[
-                    "BTC", "ETH", "BNB", "SOL", "XRP", "DOGE", "ADA", "AVAX", "LINK", "ARB", "TON", "TRX", "DOT",
-                    "LTC", "NEAR", "SUI",
+                    "BTC", "ETH", "BNB", "SOL", "XRP", "DOGE", "ADA", "AVAX", "LINK", "ARB", "TON",
+                    "TRX", "DOT", "LTC", "NEAR", "SUI",
                 ],
             )
             .into_iter()
             .map(|s| s.to_ascii_uppercase())
             .collect(),
-            whale_min_usd: var("WHALE_MIN_USD").and_then(|v| v.parse().ok()).unwrap_or(100_000.0),
+            whale_min_usd: var("WHALE_MIN_USD")
+                .and_then(|v| v.parse().ok())
+                .unwrap_or(100_000.0),
             news_feeds,
             stock_watchlist: list(
                 "STOCK_WATCHLIST",
-                &["COIN", "MSTR", "HOOD", "CRCL", "MARA", "RIOT", "GLXY", "NVDA", "TSLA", "AAPL", "MSFT", "META"],
+                &[
+                    "COIN", "MSTR", "HOOD", "CRCL", "MARA", "RIOT", "GLXY", "NVDA", "TSLA", "AAPL",
+                    "MSFT", "META",
+                ],
             )
             .into_iter()
             .map(|s| s.to_ascii_uppercase())
@@ -201,6 +231,9 @@ mod tests {
         c.frontend_origins = vec!["https://app.example".into()];
         assert!(c.origin_allowed(Some("https://app.example")));
         assert!(!c.origin_allowed(Some("https://evil.example")));
-        assert!(!c.origin_allowed(None), "a configured allow list rejects missing Origin");
+        assert!(
+            !c.origin_allowed(None),
+            "a configured allow list rejects missing Origin"
+        );
     }
 }

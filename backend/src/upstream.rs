@@ -60,7 +60,10 @@ impl Upstream {
             .gzip(true)
             .build()
             .expect("failed to build HTTP client");
-        Self { client, health: Arc::new(RwLock::new(HashMap::new())) }
+        Self {
+            client,
+            health: Arc::new(RwLock::new(HashMap::new())),
+        }
     }
 
     pub fn client(&self) -> &reqwest::Client {
@@ -69,15 +72,17 @@ impl Upstream {
 
     fn record(&self, source: &str, latency: Duration, outcome: Result<(), &UpstreamError>) {
         let mut map = self.health.write().unwrap_or_else(|e| e.into_inner());
-        let entry = map.entry(source.to_string()).or_insert_with(|| SourceHealth {
-            name: source.to_string(),
-            ok: false,
-            last_success: None,
-            last_attempt: None,
-            last_error: None,
-            latency_ms: None,
-            failures: 0,
-        });
+        let entry = map
+            .entry(source.to_string())
+            .or_insert_with(|| SourceHealth {
+                name: source.to_string(),
+                ok: false,
+                last_success: None,
+                last_attempt: None,
+                last_error: None,
+                latency_ms: None,
+                failures: 0,
+            });
         entry.last_attempt = Some(Utc::now());
         entry.latency_ms = Some(latency.as_millis() as u64);
         match outcome {
@@ -102,7 +107,11 @@ impl Upstream {
     pub fn note(&self, source: &str, outcome: Result<(), String>) {
         match outcome {
             Ok(()) => self.record(source, Duration::from_millis(0), Ok(())),
-            Err(m) => self.record(source, Duration::from_millis(0), Err(&UpstreamError::Network(m))),
+            Err(m) => self.record(
+                source,
+                Duration::from_millis(0),
+                Err(&UpstreamError::Network(m)),
+            ),
         }
     }
 
@@ -113,23 +122,36 @@ impl Upstream {
         v
     }
 
-    async fn send(&self, source: &str, req: reqwest::RequestBuilder) -> Result<bytes_like::Body, UpstreamError> {
+    async fn send(
+        &self,
+        source: &str,
+        req: reqwest::RequestBuilder,
+    ) -> Result<bytes_like::Body, UpstreamError> {
         let started = Instant::now();
         let result = async {
-            let resp = req.send().await.map_err(|e| UpstreamError::Network(strip_url(&e)))?;
+            let resp = req
+                .send()
+                .await
+                .map_err(|e| UpstreamError::Network(strip_url(&e)))?;
             let status = resp.status();
             if let Some(len) = resp.content_length() {
                 if len > MAX_BODY_BYTES {
                     return Err(UpstreamError::TooLarge);
                 }
             }
-            let bytes = resp.bytes().await.map_err(|e| UpstreamError::Network(strip_url(&e)))?;
+            let bytes = resp
+                .bytes()
+                .await
+                .map_err(|e| UpstreamError::Network(strip_url(&e)))?;
             if bytes.len() as u64 > MAX_BODY_BYTES {
                 return Err(UpstreamError::TooLarge);
             }
             if !status.is_success() {
                 let snippet: String = String::from_utf8_lossy(&bytes).chars().take(160).collect();
-                return Err(UpstreamError::Http { status: status.as_u16(), snippet });
+                return Err(UpstreamError::Http {
+                    status: status.as_u16(),
+                    snippet,
+                });
             }
             Ok(bytes_like::Body(bytes.to_vec()))
         }
@@ -141,7 +163,11 @@ impl Upstream {
         result
     }
 
-    pub async fn get_json<T: DeserializeOwned>(&self, source: &str, url: &str) -> Result<T, UpstreamError> {
+    pub async fn get_json<T: DeserializeOwned>(
+        &self,
+        source: &str,
+        url: &str,
+    ) -> Result<T, UpstreamError> {
         self.get_json_with(source, url, &[], &[]).await
     }
 
@@ -222,7 +248,11 @@ pub struct KeyedCache<V: Clone> {
 
 impl<V: Clone> KeyedCache<V> {
     pub fn new(ttl: Duration, stale_for: Duration) -> Self {
-        Self { ttl, stale_for, slots: Mutex::new(HashMap::new()) }
+        Self {
+            ttl,
+            stale_for,
+            slots: Mutex::new(HashMap::new()),
+        }
     }
 
     pub async fn get_or_fetch<F, Fut, E>(&self, key: &str, fetch: F) -> Result<V, E>
@@ -263,7 +293,8 @@ mod tests {
 
     #[tokio::test]
     async fn cache_shares_one_fetch_and_serves_stale_on_error() {
-        let cache: KeyedCache<u32> = KeyedCache::new(Duration::from_millis(30), Duration::from_secs(5));
+        let cache: KeyedCache<u32> =
+            KeyedCache::new(Duration::from_millis(30), Duration::from_secs(5));
         let calls = Arc::new(AtomicUsize::new(0));
 
         let c = calls.clone();
@@ -290,11 +321,16 @@ mod tests {
 
         // Expired and the refresh fails: stale value wins.
         tokio::time::sleep(Duration::from_millis(40)).await;
-        let v = cache.get_or_fetch::<_, _, String>("k", || async { Err("boom".to_string()) }).await.unwrap();
+        let v = cache
+            .get_or_fetch::<_, _, String>("k", || async { Err("boom".to_string()) })
+            .await
+            .unwrap();
         assert_eq!(v, 7);
 
         // A key that never succeeded surfaces the error.
-        let err = cache.get_or_fetch::<_, _, String>("other", || async { Err("boom".to_string()) }).await;
+        let err = cache
+            .get_or_fetch::<_, _, String>("other", || async { Err("boom".to_string()) })
+            .await;
         assert!(err.is_err());
     }
 

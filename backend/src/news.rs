@@ -61,7 +61,13 @@ pub struct NewsStore {
 impl NewsStore {
     /// The newest `n` articles.
     pub fn top(&self, n: usize) -> Vec<Article> {
-        self.articles.read().unwrap_or_else(|e| e.into_inner()).iter().take(n).cloned().collect()
+        self.articles
+            .read()
+            .unwrap_or_else(|e| e.into_inner())
+            .iter()
+            .take(n)
+            .cloned()
+            .collect()
     }
 }
 
@@ -78,7 +84,11 @@ struct RawItem {
 }
 
 fn attr(e: &BytesStart, key: &[u8]) -> Option<String> {
-    e.attributes().flatten().find(|a| a.key.as_ref() == key).and_then(|a| a.unescape_value().ok()).map(|v| v.into_owned())
+    e.attributes()
+        .flatten()
+        .find(|a| a.key.as_ref() == key)
+        .and_then(|a| a.unescape_value().ok())
+        .map(|v| v.into_owned())
 }
 
 fn parse_items(xml: &str) -> Vec<RawItem> {
@@ -102,7 +112,11 @@ fn parse_items(xml: &str) -> Vec<RawItem> {
                             }
                         }
                     }
-                    if (name == b"media:content" || name == b"media:thumbnail" || name == b"enclosure") && item.image.is_none() {
+                    if (name == b"media:content"
+                        || name == b"media:thumbnail"
+                        || name == b"enclosure")
+                        && item.image.is_none()
+                    {
                         item.image = attr(&e, b"url");
                     }
                     tag = name;
@@ -116,7 +130,11 @@ fn parse_items(xml: &str) -> Vec<RawItem> {
                             item.link = h;
                         }
                     }
-                    if (name == b"media:content" || name == b"media:thumbnail" || name == b"enclosure") && item.image.is_none() {
+                    if (name == b"media:content"
+                        || name == b"media:thumbnail"
+                        || name == b"enclosure")
+                        && item.image.is_none()
+                    {
                         item.image = attr(&e, b"url");
                     }
                 }
@@ -186,7 +204,13 @@ pub fn clean_text(input: &str, max_chars: usize) -> String {
     let collapsed: Vec<&str> = decoded.split_whitespace().collect();
     let mut text = collapsed.join(" ");
     if text.chars().count() > max_chars {
-        text = text.chars().take(max_chars.saturating_sub(1)).collect::<String>().trim_end().to_string() + "…";
+        text = text
+            .chars()
+            .take(max_chars.saturating_sub(1))
+            .collect::<String>()
+            .trim_end()
+            .to_string()
+            + "…";
     }
     text
 }
@@ -207,9 +231,13 @@ fn decode_entities(s: &str) -> String {
                 "apos" => Some('\''),
                 "nbsp" => Some(' '),
                 _ if entity.starts_with("#x") || entity.starts_with("#X") => {
-                    u32::from_str_radix(&entity[2..], 16).ok().and_then(char::from_u32)
+                    u32::from_str_radix(&entity[2..], 16)
+                        .ok()
+                        .and_then(char::from_u32)
                 }
-                _ if entity.starts_with('#') => entity[1..].parse::<u32>().ok().and_then(char::from_u32),
+                _ if entity.starts_with('#') => {
+                    entity[1..].parse::<u32>().ok().and_then(char::from_u32)
+                }
                 _ => None,
             };
             if let Some(c) = decoded {
@@ -234,8 +262,12 @@ fn words(text: &str) -> HashSet<String> {
 }
 
 fn padded(text: &str) -> String {
-    let joined: Vec<String> =
-        text.to_lowercase().split(|c: char| !c.is_alphanumeric()).filter(|w| !w.is_empty()).map(String::from).collect();
+    let joined: Vec<String> = text
+        .to_lowercase()
+        .split(|c: char| !c.is_alphanumeric())
+        .filter(|w| !w.is_empty())
+        .map(String::from)
+        .collect();
     format!(" {} ", joined.join(" "))
 }
 
@@ -245,9 +277,44 @@ fn any_word(set: &HashSet<String>, list: &[&str]) -> bool {
 
 pub fn categorize(text: &str) -> &'static str {
     let w = words(text);
-    if any_word(&w, &["hack", "hacked", "hacker", "hackers", "exploit", "exploited", "drained", "breach", "phishing", "rug", "scam"]) {
+    if any_word(
+        &w,
+        &[
+            "hack",
+            "hacked",
+            "hacker",
+            "hackers",
+            "exploit",
+            "exploited",
+            "drained",
+            "breach",
+            "phishing",
+            "rug",
+            "scam",
+        ],
+    ) {
         "Security"
-    } else if any_word(&w, &["sec", "regulation", "regulations", "regulator", "regulators", "regulatory", "lawsuit", "court", "ban", "banned", "congress", "senate", "cftc", "mica", "legislation", "lawmakers"]) {
+    } else if any_word(
+        &w,
+        &[
+            "sec",
+            "regulation",
+            "regulations",
+            "regulator",
+            "regulators",
+            "regulatory",
+            "lawsuit",
+            "court",
+            "ban",
+            "banned",
+            "congress",
+            "senate",
+            "cftc",
+            "mica",
+            "legislation",
+            "lawmakers",
+        ],
+    ) {
         "Regulation"
     } else if any_word(&w, &["etf", "etfs"]) {
         "ETF"
@@ -257,15 +324,62 @@ pub fn categorize(text: &str) -> &'static str {
         "Ethereum"
     } else if any_word(&w, &["solana", "sol"]) {
         "Solana"
-    } else if any_word(&w, &["stablecoin", "stablecoins", "usdt", "usdc", "tether", "circle"]) {
+    } else if any_word(
+        &w,
+        &[
+            "stablecoin",
+            "stablecoins",
+            "usdt",
+            "usdc",
+            "tether",
+            "circle",
+        ],
+    ) {
         "Stablecoins"
-    } else if any_word(&w, &["defi", "dex", "yield", "liquidity", "staking", "lending", "amm"]) {
+    } else if any_word(
+        &w,
+        &[
+            "defi",
+            "dex",
+            "yield",
+            "liquidity",
+            "staking",
+            "lending",
+            "amm",
+        ],
+    ) {
         "DeFi"
     } else if any_word(&w, &["nft", "nfts"]) {
         "NFT"
-    } else if any_word(&w, &["binance", "coinbase", "kraken", "okx", "bybit", "exchange", "exchanges"]) {
+    } else if any_word(
+        &w,
+        &[
+            "binance",
+            "coinbase",
+            "kraken",
+            "okx",
+            "bybit",
+            "exchange",
+            "exchanges",
+        ],
+    ) {
         "Exchange"
-    } else if any_word(&w, &["fed", "inflation", "rates", "cpi", "fomc", "tariff", "tariffs", "economy", "treasury", "dollar", "recession"]) {
+    } else if any_word(
+        &w,
+        &[
+            "fed",
+            "inflation",
+            "rates",
+            "cpi",
+            "fomc",
+            "tariff",
+            "tariffs",
+            "economy",
+            "treasury",
+            "dollar",
+            "recession",
+        ],
+    ) {
         "Macro"
     } else {
         "Market"
@@ -276,16 +390,64 @@ pub fn impact_of(text: &str) -> &'static str {
     let w = words(text);
     let p = padded(text);
     const HIGH: &[&str] = &[
-        "hack", "hacked", "exploit", "exploited", "drained", "breach", "lawsuit", "sues", "sued", "ban", "banned",
-        "bankruptcy", "insolvent", "liquidations", "liquidated", "crash", "crashes", "plunge", "plunges", "collapse",
-        "sec", "etf", "approval", "approves", "approved", "halving", "sanctions", "seized", "arrested",
+        "hack",
+        "hacked",
+        "exploit",
+        "exploited",
+        "drained",
+        "breach",
+        "lawsuit",
+        "sues",
+        "sued",
+        "ban",
+        "banned",
+        "bankruptcy",
+        "insolvent",
+        "liquidations",
+        "liquidated",
+        "crash",
+        "crashes",
+        "plunge",
+        "plunges",
+        "collapse",
+        "sec",
+        "etf",
+        "approval",
+        "approves",
+        "approved",
+        "halving",
+        "sanctions",
+        "seized",
+        "arrested",
     ];
     const MEDIUM: &[&str] = &[
-        "launch", "launches", "partnership", "upgrade", "integration", "mainnet", "airdrop", "listing", "lists",
-        "surge", "surges", "rally", "rallies", "soars", "jumps", "tumbles", "acquires", "acquisition", "raises",
-        "funding", "adoption",
+        "launch",
+        "launches",
+        "partnership",
+        "upgrade",
+        "integration",
+        "mainnet",
+        "airdrop",
+        "listing",
+        "lists",
+        "surge",
+        "surges",
+        "rally",
+        "rallies",
+        "soars",
+        "jumps",
+        "tumbles",
+        "acquires",
+        "acquisition",
+        "raises",
+        "funding",
+        "adoption",
     ];
-    if any_word(&w, HIGH) || p.contains(" rate cut ") || p.contains(" rate hike ") || p.contains(" all time high ") {
+    if any_word(&w, HIGH)
+        || p.contains(" rate cut ")
+        || p.contains(" rate hike ")
+        || p.contains(" all time high ")
+    {
         "high"
     } else if any_word(&w, MEDIUM) {
         "medium"
@@ -325,7 +487,10 @@ fn fnv_hex(s: &str) -> String {
 
 fn parse_date(s: &str) -> Option<DateTime<Utc>> {
     let s = s.trim();
-    DateTime::parse_from_rfc2822(s).or_else(|_| DateTime::parse_from_rfc3339(s)).ok().map(|d| d.with_timezone(&Utc))
+    DateTime::parse_from_rfc2822(s)
+        .or_else(|_| DateTime::parse_from_rfc3339(s))
+        .ok()
+        .map(|d| d.with_timezone(&Utc))
 }
 
 fn http_url(u: &str) -> Option<String> {
@@ -342,11 +507,17 @@ pub fn articles_from_feed(source_name: &str, xml: &str, now: DateTime<Utc>) -> V
             if title.is_empty() {
                 return None;
             }
-            let body = if item.description.trim().is_empty() { &item.content } else { &item.description };
+            let body = if item.description.trim().is_empty() {
+                &item.content
+            } else {
+                &item.description
+            };
             let excerpt = clean_text(body, 280);
             // Feeds without a date would otherwise look brand new every poll, so skip them.
             let published = parse_date(&item.pub_date)?;
-            if published > now + chrono::Duration::hours(1) || now.signed_duration_since(published) > chrono::Duration::days(7) {
+            if published > now + chrono::Duration::hours(1)
+                || now.signed_duration_since(published) > chrono::Duration::days(7)
+            {
                 return None;
             }
             let text = format!("{title} {excerpt}");
@@ -358,7 +529,10 @@ pub fn articles_from_feed(source_name: &str, xml: &str, now: DateTime<Utc>) -> V
                 impact,
                 trending: is_trending(published, impact, &text, now),
                 excerpt,
-                source: Source { name: source_name.to_string(), color: source_color(source_name) },
+                source: Source {
+                    name: source_name.to_string(),
+                    color: source_color(source_name),
+                },
                 published_at: published,
                 image_url: item.image.as_deref().and_then(http_url),
                 url,
@@ -368,11 +542,16 @@ pub fn articles_from_feed(source_name: &str, xml: &str, now: DateTime<Utc>) -> V
 }
 
 fn dedupe_key(a: &Article) -> String {
-    a.title.to_lowercase().chars().filter(|c| c.is_alphanumeric()).take(80).collect()
+    a.title
+        .to_lowercase()
+        .chars()
+        .filter(|c| c.is_alphanumeric())
+        .take(80)
+        .collect()
 }
 
 pub fn merge_articles(mut all: Vec<Article>) -> Vec<Article> {
-    all.sort_by(|a, b| b.published_at.cmp(&a.published_at));
+    all.sort_by_key(|a| std::cmp::Reverse(a.published_at));
     let mut seen_title: HashSet<String> = HashSet::new();
     let mut seen_url: HashSet<String> = HashSet::new();
     all.retain(|a| seen_url.insert(a.url.clone()) && seen_title.insert(dedupe_key(a)));
@@ -400,15 +579,35 @@ async fn refresh(state: &Arc<AppState>) {
         match result {
             Ok(xml) => {
                 let items = articles_from_feed(&name, &xml, now);
-                statuses.push(FeedStatus { name, ok: !items.is_empty(), count: items.len(), error: items.is_empty().then(|| "feed had no usable items".to_string()) });
+                statuses.push(FeedStatus {
+                    name,
+                    ok: !items.is_empty(),
+                    count: items.len(),
+                    error: items
+                        .is_empty()
+                        .then(|| "feed had no usable items".to_string()),
+                });
                 all.extend(items);
             }
-            Err(e) => statuses.push(FeedStatus { name, ok: false, count: 0, error: Some(e.to_string().chars().take(120).collect()) }),
+            Err(e) => statuses.push(FeedStatus {
+                name,
+                ok: false,
+                count: 0,
+                error: Some(e.to_string().chars().take(120).collect()),
+            }),
         }
     }
     if !all.is_empty() {
-        *state.news.articles.write().unwrap_or_else(|e| e.into_inner()) = merge_articles(all);
-        *state.news.fetched_at.write().unwrap_or_else(|e| e.into_inner()) = Some(now);
+        *state
+            .news
+            .articles
+            .write()
+            .unwrap_or_else(|e| e.into_inner()) = merge_articles(all);
+        *state
+            .news
+            .fetched_at
+            .write()
+            .unwrap_or_else(|e| e.into_inner()) = Some(now);
     }
     *state.news.feeds.write().unwrap_or_else(|e| e.into_inner()) = statuses;
 }
@@ -437,13 +636,33 @@ pub struct NewsResponse {
     feeds: Vec<FeedStatus>,
 }
 
-pub async fn get_news(State(state): State<Arc<AppState>>, Query(q): Query<NewsQuery>) -> Json<NewsResponse> {
+pub async fn get_news(
+    State(state): State<Arc<AppState>>,
+    Query(q): Query<NewsQuery>,
+) -> Json<NewsResponse> {
     let limit = q.limit.unwrap_or(100).clamp(1, 150);
-    let articles: Vec<Article> = state.news.articles.read().unwrap_or_else(|e| e.into_inner()).iter().take(limit).cloned().collect();
+    let articles: Vec<Article> = state
+        .news
+        .articles
+        .read()
+        .unwrap_or_else(|e| e.into_inner())
+        .iter()
+        .take(limit)
+        .cloned()
+        .collect();
     Json(NewsResponse {
         articles,
-        fetched_at: *state.news.fetched_at.read().unwrap_or_else(|e| e.into_inner()),
-        feeds: state.news.feeds.read().unwrap_or_else(|e| e.into_inner()).clone(),
+        fetched_at: *state
+            .news
+            .fetched_at
+            .read()
+            .unwrap_or_else(|e| e.into_inner()),
+        feeds: state
+            .news
+            .feeds
+            .read()
+            .unwrap_or_else(|e| e.into_inner())
+            .clone(),
     })
 }
 
@@ -487,7 +706,10 @@ mod tests {
         let a = articles_from_feed("CoinDesk", FEED, now());
         assert_eq!(a.len(), 1);
         assert_eq!(a[0].title, "SEC approves new Bitcoin ETF & options");
-        assert_eq!(a[0].excerpt, "The regulator signed off today. alert(1)", "tags are stripped, text kept");
+        assert_eq!(
+            a[0].excerpt, "The regulator signed off today. alert(1)",
+            "tags are stripped, text kept"
+        );
         assert!(!a[0].excerpt.contains('<'));
         assert_eq!(a[0].url, "https://example.com/a");
         assert_eq!(a[0].image_url.as_deref(), Some("https://example.com/a.jpg"));
@@ -499,23 +721,40 @@ mod tests {
 
     #[test]
     fn word_matching_avoids_substring_false_positives() {
-        assert_eq!(categorize("A new solution for together we grow"), "Market", "sol/eth inside words must not match");
+        assert_eq!(
+            categorize("A new solution for together we grow"),
+            "Market",
+            "sol/eth inside words must not match"
+        );
         assert_eq!(categorize("Solana validators upgrade"), "Solana");
         assert_eq!(categorize("Ether staking yields rise"), "Ethereum");
-        assert_eq!(impact_of("Second quarter second look"), "low", "'sec' must not match 'second'");
+        assert_eq!(
+            impact_of("Second quarter second look"),
+            "low",
+            "'sec' must not match 'second'"
+        );
         assert_eq!(impact_of("Fed signals a rate cut"), "high");
         assert_eq!(impact_of("Exchange announces new listing"), "medium");
-        assert_eq!(categorize("Exploit drains $10M from lending protocol"), "Security");
+        assert_eq!(
+            categorize("Exploit drains $10M from lending protocol"),
+            "Security"
+        );
     }
 
     #[test]
     fn clean_text_handles_entities_and_truncation() {
-        assert_eq!(clean_text("Tom &amp; Jerry &#8217;s &lt;b&gt; &#x41;", 100), "Tom & Jerry ’s <b> A");
+        assert_eq!(
+            clean_text("Tom &amp; Jerry &#8217;s &lt;b&gt; &#x41;", 100),
+            "Tom & Jerry ’s <b> A"
+        );
         assert_eq!(clean_text("  a   b\n c ", 100), "a b c");
         let long = "word ".repeat(100);
         let c = clean_text(&long, 20);
         assert!(c.chars().count() <= 20 && c.ends_with('…'));
-        assert_eq!(clean_text("broken &entity; and & alone", 100), "broken &entity; and & alone");
+        assert_eq!(
+            clean_text("broken &entity; and & alone", 100),
+            "broken &entity; and & alone"
+        );
     }
 
     #[test]
@@ -524,7 +763,10 @@ mod tests {
             id: fnv_hex(url),
             title: title.into(),
             excerpt: String::new(),
-            source: Source { name: "x".into(), color: "#000" },
+            source: Source {
+                name: "x".into(),
+                color: "#000",
+            },
             category: "Market",
             impact: "low",
             published_at: now() - chrono::Duration::minutes(mins),
@@ -539,8 +781,14 @@ mod tests {
             mk("Different story again", "https://a/3", 5), // same URL
         ]);
         assert_eq!(merged.len(), 2);
-        assert_eq!(merged[0].title, "Different story again", "newest first, and the older copy with the same URL is dropped");
-        assert_eq!(merged[1].url, "https://b/2", "the newest copy of the duplicated headline survives");
+        assert_eq!(
+            merged[0].title, "Different story again",
+            "newest first, and the older copy with the same URL is dropped"
+        );
+        assert_eq!(
+            merged[1].url, "https://b/2",
+            "the newest copy of the duplicated headline survives"
+        );
     }
 
     #[test]

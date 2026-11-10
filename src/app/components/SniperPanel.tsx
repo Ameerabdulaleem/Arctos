@@ -15,6 +15,7 @@ const FILTERS_KEY = 'arctos_sniper_filters';
 const TRACKED_KEY = 'arctos_sniper_tracked';
 const AUTO_KEY = 'arctos_sniper_auto_done';
 const MAX_AUTO_POSITIONS = 5;
+const NO_RISK_DATA: Security = { available: false, riskScore: 0, riskLevel: 'unknown', flags: [], buyTaxPct: null, sellTaxPct: null, holders: null, isHoneypot: null, source: 'GoPlus' };
 
 function readJson<T>(key: string, fallback: T): T {
   try {
@@ -171,11 +172,13 @@ export function SniperPanel() {
     return tracked.map((t) => fresh.get(t.id) ?? t);
   }, [tracked, trackedLive.data]);
 
-  useEffect(() => writeJson(FILTERS_KEY, filters), [filters]);
-  useEffect(() => writeJson(TRACKED_KEY, tracked), [tracked]);
+  useEffect(() => { writeJson(FILTERS_KEY, filters); }, [filters]);
+  useEffect(() => { writeJson(TRACKED_KEY, tracked); }, [tracked]);
 
-  // Contract risk checks for what is on screen, at most a few at a time.
+  // Contract risk checks for what is on screen, a few at a time. A failed check is remembered as
+  // "no risk data" instead of being retried on every render.
   const visible = tab === 'new' ? newTokens.slice(0, 15) : trackedTokens;
+  const visibleKey = visible.map((t) => t.id).join(',');
   useEffect(() => {
     const todo = visible.filter((t) => !requested.current.has(t.id)).slice(0, 4);
     for (const t of todo) {
@@ -184,12 +187,10 @@ export function SniperPanel() {
       sniperService
         .security(t.chain, t.address)
         .then((s) => setSecurity((prev) => ({ ...prev, [t.id]: s })))
-        .catch(() => {
-          requested.current.delete(t.id);
-          setSecurity((prev) => Object.fromEntries(Object.entries(prev).filter(([id]) => id !== t.id)));
-        });
+        .catch(() => setSecurity((prev) => ({ ...prev, [t.id]: NO_RISK_DATA })));
     }
-  }, [visible]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [visibleKey, security]);
 
   const sniperPositions = paper.positions.filter((p) => p.source === 'sniper');
 

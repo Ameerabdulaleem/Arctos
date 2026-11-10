@@ -7,7 +7,10 @@
     "dev": "vite",
     "build": "tsc -b && vite build",
     "lint": "eslint .",
-    "preview": "vite preview"
+    "preview": "vite preview",
+    "test": "vitest run",
+    "fixtures": "node scripts/dev-fixtures/server.mjs",
+    "e2e": "node scripts/e2e/walkthrough.cjs"
   },
   "dependencies": {
     "@radix-ui/react-dialog": "^1.1.15",

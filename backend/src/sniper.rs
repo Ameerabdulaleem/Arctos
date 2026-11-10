@@ -36,11 +36,36 @@ pub struct ChainInfo {
 }
 
 pub const CHAINS: &[ChainInfo] = &[
-    ChainInfo { key: "solana", gecko_network: "solana", dex_chain: "solana", goplus_id: None },
-    ChainInfo { key: "ethereum", gecko_network: "eth", dex_chain: "ethereum", goplus_id: Some("1") },
-    ChainInfo { key: "bsc", gecko_network: "bsc", dex_chain: "bsc", goplus_id: Some("56") },
-    ChainInfo { key: "base", gecko_network: "base", dex_chain: "base", goplus_id: Some("8453") },
-    ChainInfo { key: "arbitrum", gecko_network: "arbitrum", dex_chain: "arbitrum", goplus_id: Some("42161") },
+    ChainInfo {
+        key: "solana",
+        gecko_network: "solana",
+        dex_chain: "solana",
+        goplus_id: None,
+    },
+    ChainInfo {
+        key: "ethereum",
+        gecko_network: "eth",
+        dex_chain: "ethereum",
+        goplus_id: Some("1"),
+    },
+    ChainInfo {
+        key: "bsc",
+        gecko_network: "bsc",
+        dex_chain: "bsc",
+        goplus_id: Some("56"),
+    },
+    ChainInfo {
+        key: "base",
+        gecko_network: "base",
+        dex_chain: "base",
+        goplus_id: Some("8453"),
+    },
+    ChainInfo {
+        key: "arbitrum",
+        gecko_network: "arbitrum",
+        dex_chain: "arbitrum",
+        goplus_id: Some("42161"),
+    },
 ];
 
 pub fn chain_info(key: &str) -> Option<ChainInfo> {
@@ -141,7 +166,8 @@ pub fn valid_evm_address(a: &str) -> bool {
 
 pub fn valid_solana_address(a: &str) -> bool {
     (32..=44).contains(&a.len())
-        && a.bytes().all(|b| b.is_ascii_alphanumeric() && b != b'0' && b != b'O' && b != b'I' && b != b'l')
+        && a.bytes()
+            .all(|b| b.is_ascii_alphanumeric() && b != b'0' && b != b'O' && b != b'I' && b != b'l')
 }
 
 pub fn valid_address_for(chain: &str, a: &str) -> bool {
@@ -177,40 +203,88 @@ fn token_id(chain: &str, address: &str) -> String {
 
 /// DexScreener pair list to tokens, keeping the most liquid pool per token.
 pub fn parse_dexscreener(raw: &str, only_chain: Option<&str>) -> Vec<SniperToken> {
-    let Ok(v) = serde_json::from_str::<Value>(raw) else { return vec![] };
-    let Some(pairs) = v.get("pairs").and_then(|p| p.as_array()) else { return vec![] };
+    let Ok(v) = serde_json::from_str::<Value>(raw) else {
+        return vec![];
+    };
+    let Some(pairs) = v.get("pairs").and_then(|p| p.as_array()) else {
+        return vec![];
+    };
     let mut best: HashMap<String, SniperToken> = HashMap::new();
     for p in pairs {
-        let Some(chain_id) = p.get("chainId").and_then(|c| c.as_str()) else { continue };
-        let Some(chain) = CHAINS.iter().find(|c| c.dex_chain == chain_id) else { continue };
-        if only_chain.map_or(false, |oc| oc != chain.key) {
+        let Some(chain_id) = p.get("chainId").and_then(|c| c.as_str()) else {
+            continue;
+        };
+        let Some(chain) = CHAINS.iter().find(|c| c.dex_chain == chain_id) else {
+            continue;
+        };
+        if only_chain.is_some_and(|oc| oc != chain.key) {
             continue;
         }
         let base = p.get("baseToken");
-        let Some(address) = base.and_then(|b| b.get("address")).and_then(|a| a.as_str()) else { continue };
-        let Some(price) = num(p.get("priceUsd")) else { continue };
+        let Some(address) = base.and_then(|b| b.get("address")).and_then(|a| a.as_str()) else {
+            continue;
+        };
+        let Some(price) = num(p.get("priceUsd")) else {
+            continue;
+        };
         let liquidity = num(p.get("liquidity").and_then(|l| l.get("usd"))).unwrap_or(0.0);
         let id = token_id(chain.key, address);
         let token = SniperToken {
             id: id.clone(),
-            symbol: base.and_then(|b| b.get("symbol")).and_then(|s| s.as_str()).unwrap_or("?").chars().take(20).collect(),
-            name: base.and_then(|b| b.get("name")).and_then(|s| s.as_str()).unwrap_or("Unknown").chars().take(60).collect(),
+            symbol: base
+                .and_then(|b| b.get("symbol"))
+                .and_then(|s| s.as_str())
+                .unwrap_or("?")
+                .chars()
+                .take(20)
+                .collect(),
+            name: base
+                .and_then(|b| b.get("name"))
+                .and_then(|s| s.as_str())
+                .unwrap_or("Unknown")
+                .chars()
+                .take(60)
+                .collect(),
             address: address.to_string(),
             chain: chain.key.to_string(),
-            pair_address: p.get("pairAddress").and_then(|a| a.as_str()).unwrap_or_default().to_string(),
-            dex: p.get("dexId").and_then(|a| a.as_str()).unwrap_or_default().to_string(),
+            pair_address: p
+                .get("pairAddress")
+                .and_then(|a| a.as_str())
+                .unwrap_or_default()
+                .to_string(),
+            dex: p
+                .get("dexId")
+                .and_then(|a| a.as_str())
+                .unwrap_or_default()
+                .to_string(),
             price_usd: price,
             liquidity_usd: liquidity,
-            market_cap_usd: num(p.get("marketCap")).or_else(|| num(p.get("fdv"))).unwrap_or(0.0),
+            market_cap_usd: num(p.get("marketCap"))
+                .or_else(|| num(p.get("fdv")))
+                .unwrap_or(0.0),
             volume_24h_usd: num(p.get("volume").and_then(|x| x.get("h24"))).unwrap_or(0.0),
             change_5m: num(p.get("priceChange").and_then(|x| x.get("m5"))),
             change_1h: num(p.get("priceChange").and_then(|x| x.get("h1"))),
             change_24h: num(p.get("priceChange").and_then(|x| x.get("h24"))),
-            buys_24h: p.get("txns").and_then(|t| t.get("h24")).and_then(|h| h.get("buys")).and_then(|b| b.as_u64()).unwrap_or(0),
-            sells_24h: p.get("txns").and_then(|t| t.get("h24")).and_then(|h| h.get("sells")).and_then(|b| b.as_u64()).unwrap_or(0),
+            buys_24h: p
+                .get("txns")
+                .and_then(|t| t.get("h24"))
+                .and_then(|h| h.get("buys"))
+                .and_then(|b| b.as_u64())
+                .unwrap_or(0),
+            sells_24h: p
+                .get("txns")
+                .and_then(|t| t.get("h24"))
+                .and_then(|h| h.get("sells"))
+                .and_then(|b| b.as_u64())
+                .unwrap_or(0),
             created_at: p.get("pairCreatedAt").and_then(|c| c.as_i64()),
             url: safe_http_url(p.get("url").and_then(|u| u.as_str())).unwrap_or_default(),
-            image_url: safe_http_url(p.get("info").and_then(|i| i.get("imageUrl")).and_then(|u| u.as_str())),
+            image_url: safe_http_url(
+                p.get("info")
+                    .and_then(|i| i.get("imageUrl"))
+                    .and_then(|u| u.as_str()),
+            ),
         };
         match best.get(&id) {
             Some(existing) if existing.liquidity_usd >= token.liquidity_usd => {}
@@ -220,18 +294,30 @@ pub fn parse_dexscreener(raw: &str, only_chain: Option<&str>) -> Vec<SniperToken
         }
     }
     let mut out: Vec<SniperToken> = best.into_values().collect();
-    out.sort_by(|a, b| b.liquidity_usd.partial_cmp(&a.liquidity_usd).unwrap_or(std::cmp::Ordering::Equal));
+    out.sort_by(|a, b| {
+        b.liquidity_usd
+            .partial_cmp(&a.liquidity_usd)
+            .unwrap_or(std::cmp::Ordering::Equal)
+    });
     out
 }
 
 /// GeckoTerminal new pools response to tokens.
 pub fn parse_new_pools(raw: &str, chain: &ChainInfo) -> Vec<SniperToken> {
-    let Ok(v) = serde_json::from_str::<Value>(raw) else { return vec![] };
-    let Some(data) = v.get("data").and_then(|d| d.as_array()) else { return vec![] };
+    let Ok(v) = serde_json::from_str::<Value>(raw) else {
+        return vec![];
+    };
+    let Some(data) = v.get("data").and_then(|d| d.as_array()) else {
+        return vec![];
+    };
     let included: HashMap<String, &Value> = v
         .get("included")
         .and_then(|i| i.as_array())
-        .map(|arr| arr.iter().filter_map(|x| Some((x.get("id")?.as_str()?.to_string(), x))).collect())
+        .map(|arr| {
+            arr.iter()
+                .filter_map(|x| Some((x.get("id")?.as_str()?.to_string(), x)))
+                .collect()
+        })
         .unwrap_or_default();
     let prefix = format!("{}_", chain.gecko_network);
 
@@ -242,12 +328,19 @@ pub fn parse_new_pools(raw: &str, chain: &ChainInfo) -> Vec<SniperToken> {
             let base_id = rel.get("base_token")?.get("data")?.get("id")?.as_str()?;
             let address = base_id.strip_prefix(&prefix).unwrap_or(base_id).to_string();
             let tok_attrs = included.get(base_id).and_then(|t| t.get("attributes"));
-            let pool_name = attrs.get("name").and_then(|n| n.as_str()).unwrap_or_default();
+            let pool_name = attrs
+                .get("name")
+                .and_then(|n| n.as_str())
+                .unwrap_or_default();
             let fallback_symbol = pool_name.split(" / ").next().unwrap_or("?");
             let price = num(attrs.get("base_token_price_usd"))?;
             let pc = attrs.get("price_change_percentage");
             let tx24 = attrs.get("transactions").and_then(|t| t.get("h24"));
-            let pair_address = attrs.get("address").and_then(|a| a.as_str()).unwrap_or_default().to_string();
+            let pair_address = attrs
+                .get("address")
+                .and_then(|a| a.as_str())
+                .unwrap_or_default()
+                .to_string();
             let dex = rel
                 .get("dex")
                 .and_then(|d| d.get("data"))
@@ -284,15 +377,28 @@ pub fn parse_new_pools(raw: &str, chain: &ChainInfo) -> Vec<SniperToken> {
                 dex,
                 price_usd: price,
                 liquidity_usd: num(attrs.get("reserve_in_usd")).unwrap_or(0.0),
-                market_cap_usd: num(attrs.get("market_cap_usd")).or_else(|| num(attrs.get("fdv_usd"))).unwrap_or(0.0),
-                volume_24h_usd: num(attrs.get("volume_usd").and_then(|x| x.get("h24"))).unwrap_or(0.0),
+                market_cap_usd: num(attrs.get("market_cap_usd"))
+                    .or_else(|| num(attrs.get("fdv_usd")))
+                    .unwrap_or(0.0),
+                volume_24h_usd: num(attrs.get("volume_usd").and_then(|x| x.get("h24")))
+                    .unwrap_or(0.0),
                 change_5m: num(pc.and_then(|x| x.get("m5"))),
                 change_1h: num(pc.and_then(|x| x.get("h1"))),
                 change_24h: num(pc.and_then(|x| x.get("h24"))),
-                buys_24h: tx24.and_then(|h| h.get("buys")).and_then(|b| b.as_u64()).unwrap_or(0),
-                sells_24h: tx24.and_then(|h| h.get("sells")).and_then(|b| b.as_u64()).unwrap_or(0),
+                buys_24h: tx24
+                    .and_then(|h| h.get("buys"))
+                    .and_then(|b| b.as_u64())
+                    .unwrap_or(0),
+                sells_24h: tx24
+                    .and_then(|h| h.get("sells"))
+                    .and_then(|b| b.as_u64())
+                    .unwrap_or(0),
                 created_at,
-                image_url: safe_http_url(tok_attrs.and_then(|t| t.get("image_url")).and_then(|u| u.as_str())),
+                image_url: safe_http_url(
+                    tok_attrs
+                        .and_then(|t| t.get("image_url"))
+                        .and_then(|u| u.as_str()),
+                ),
             })
         })
         .collect()
@@ -367,7 +473,10 @@ pub fn score_evm(entry: &Value) -> Security {
     if flag(entry.get("slippage_modifiable")) {
         add(20, "Tax can be changed by the owner");
     }
-    let holders = entry.get("holder_count").and_then(|h| h.as_str()).and_then(|h| h.parse::<u64>().ok());
+    let holders = entry
+        .get("holder_count")
+        .and_then(|h| h.as_str())
+        .and_then(|h| h.parse::<u64>().ok());
     if matches!(holders, Some(h) if h < 50) {
         add(10, "Very few holders");
     }
@@ -387,7 +496,13 @@ pub fn score_evm(entry: &Value) -> Security {
 
 /// Scores one Solana token entry from GoPlus.
 pub fn score_solana(entry: &Value) -> Security {
-    let status = |key: &str| entry.get(key).and_then(|v| v.get("status")).and_then(|s| s.as_str()) == Some("1");
+    let status = |key: &str| {
+        entry
+            .get(key)
+            .and_then(|v| v.get("status"))
+            .and_then(|s| s.as_str())
+            == Some("1")
+    };
     let mut score = 0u32;
     let mut flags: Vec<String> = Vec::new();
     let mut add = |points: u32, text: &str| {
@@ -406,13 +521,20 @@ pub fn score_solana(entry: &Value) -> Security {
     if status("balance_mutable_authority") {
         add(30, "Authority can change balances");
     }
-    if entry.get("transfer_fee").and_then(|t| t.as_object()).map_or(false, |o| !o.is_empty()) {
+    if entry
+        .get("transfer_fee")
+        .and_then(|t| t.as_object())
+        .is_some_and(|o| !o.is_empty())
+    {
         add(10, "Transfer fee is configured");
     }
     if entry.get("non_transferable").and_then(|v| v.as_str()) == Some("1") {
         add(100, "Token is non transferable");
     }
-    let holders = entry.get("holder_count").and_then(|h| h.as_str()).and_then(|h| h.parse::<u64>().ok());
+    let holders = entry
+        .get("holder_count")
+        .and_then(|h| h.as_str())
+        .and_then(|h| h.parse::<u64>().ok());
     if matches!(holders, Some(h) if h < 50) {
         add(10, "Very few holders");
     }
@@ -432,7 +554,11 @@ pub fn score_solana(entry: &Value) -> Security {
 
 // ── Upstream calls ───────────────────────────────────────────────────────────
 
-async fn fetch_security(state: &AppState, chain: &ChainInfo, address: &str) -> std::result::Result<Security, UpstreamError> {
+async fn fetch_security(
+    state: &AppState,
+    chain: &ChainInfo,
+    address: &str,
+) -> std::result::Result<Security, UpstreamError> {
     let base = &state.config.goplus_base;
     let url = match chain.goplus_id {
         Some(id) => format!("{base}/token_security/{id}"),
@@ -447,7 +573,7 @@ async fn fetch_security(state: &AppState, chain: &ChainInfo, address: &str) -> s
             .or_else(|| r.as_object().and_then(|o| o.values().next()))
     });
     Ok(match entry {
-        Some(e) if e.is_object() && !e.as_object().map_or(true, |o| o.is_empty()) => {
+        Some(e) if e.is_object() && !e.as_object().is_none_or(|o| o.is_empty()) => {
             if chain.goplus_id.is_some() {
                 score_evm(e)
             } else {
@@ -458,12 +584,26 @@ async fn fetch_security(state: &AppState, chain: &ChainInfo, address: &str) -> s
     })
 }
 
-async fn fetch_new_pools(state: &AppState, chain: &ChainInfo) -> std::result::Result<Vec<SniperToken>, UpstreamError> {
-    let url = format!("{}/networks/{}/new_pools", state.config.geckoterminal_base, chain.gecko_network);
-    let query = [("include", "base_token,quote_token,dex".to_string()), ("page", "1".to_string())];
+async fn fetch_new_pools(
+    state: &AppState,
+    chain: &ChainInfo,
+) -> std::result::Result<Vec<SniperToken>, UpstreamError> {
+    let url = format!(
+        "{}/networks/{}/new_pools",
+        state.config.geckoterminal_base, chain.gecko_network
+    );
+    let query = [
+        ("include", "base_token,quote_token,dex".to_string()),
+        ("page", "1".to_string()),
+    ];
     let v: Value = state
         .up
-        .get_json_with("geckoterminal", &url, &query, &[("accept", "application/json;version=20230302")])
+        .get_json_with(
+            "geckoterminal",
+            &url,
+            &query,
+            &[("accept", "application/json;version=20230302")],
+        )
         .await?;
     Ok(parse_new_pools(&v.to_string(), chain))
 }
@@ -476,14 +616,23 @@ pub fn spawn_pollers(state: Arc<AppState>) {
                 match fetch_new_pools(&state, chain).await {
                     Ok(tokens) if !tokens.is_empty() => {
                         let fresh: Vec<SniperToken> = {
-                            let mut seen = state.sniper.seen.lock().unwrap_or_else(|e| e.into_inner());
+                            let mut seen =
+                                state.sniper.seen.lock().unwrap_or_else(|e| e.into_inner());
                             if seen.len() > 5000 {
                                 seen.clear();
                             }
-                            tokens.iter().filter(|t| seen.insert(t.pair_address.clone())).cloned().collect()
+                            tokens
+                                .iter()
+                                .filter(|t| seen.insert(t.pair_address.clone()))
+                                .cloned()
+                                .collect()
                         };
                         {
-                            let mut latest = state.sniper.latest.write().unwrap_or_else(|e| e.into_inner());
+                            let mut latest = state
+                                .sniper
+                                .latest
+                                .write()
+                                .unwrap_or_else(|e| e.into_inner());
                             let entry = latest.entry(chain.key.to_string()).or_default();
                             let mut merged: Vec<SniperToken> = tokens.clone();
                             for old in entry.iter() {
@@ -491,13 +640,21 @@ pub fn spawn_pollers(state: Arc<AppState>) {
                                     merged.push(old.clone());
                                 }
                             }
-                            merged.sort_by(|a, b| b.created_at.cmp(&a.created_at));
+                            merged.sort_by_key(|t| std::cmp::Reverse(t.created_at));
                             merged.truncate(40);
                             *entry = merged;
                         }
-                        state.sniper.updated_at.write().unwrap_or_else(|e| e.into_inner()).insert(chain.key.to_string(), Utc::now());
+                        state
+                            .sniper
+                            .updated_at
+                            .write()
+                            .unwrap_or_else(|e| e.into_inner())
+                            .insert(chain.key.to_string(), Utc::now());
                         if !first_cycle && !fresh.is_empty() {
-                            let _ = state.sniper.tx.send(json!({ "type": "new_pairs", "chain": chain.key, "tokens": fresh }).to_string());
+                            let _ = state.sniper.tx.send(
+                                json!({ "type": "new_pairs", "chain": chain.key, "tokens": fresh })
+                                    .to_string(),
+                            );
                         }
                     }
                     Ok(_) => {}
@@ -527,21 +684,51 @@ pub struct TokensResponse {
     updated_at: Option<DateTime<Utc>>,
 }
 
-pub async fn get_new(State(state): State<Arc<AppState>>, Query(q): Query<NewQuery>) -> Result<Json<TokensResponse>> {
-    let chain = chain_info(&q.chain).ok_or_else(|| AppError::BadRequest("unsupported chain".into()))?;
-    let have = state.sniper.latest.read().unwrap_or_else(|e| e.into_inner()).get(chain.key).cloned();
+pub async fn get_new(
+    State(state): State<Arc<AppState>>,
+    Query(q): Query<NewQuery>,
+) -> Result<Json<TokensResponse>> {
+    let chain =
+        chain_info(&q.chain).ok_or_else(|| AppError::BadRequest("unsupported chain".into()))?;
+    let have = state
+        .sniper
+        .latest
+        .read()
+        .unwrap_or_else(|e| e.into_inner())
+        .get(chain.key)
+        .cloned();
     let tokens = match have {
         Some(t) if !t.is_empty() => t,
         _ => {
             // Cold start: fetch once on demand so the first visitor does not see an empty page.
             let t = fetch_new_pools(&state, &chain).await?;
-            state.sniper.latest.write().unwrap_or_else(|e| e.into_inner()).insert(chain.key.to_string(), t.clone());
-            state.sniper.updated_at.write().unwrap_or_else(|e| e.into_inner()).insert(chain.key.to_string(), Utc::now());
+            state
+                .sniper
+                .latest
+                .write()
+                .unwrap_or_else(|e| e.into_inner())
+                .insert(chain.key.to_string(), t.clone());
+            state
+                .sniper
+                .updated_at
+                .write()
+                .unwrap_or_else(|e| e.into_inner())
+                .insert(chain.key.to_string(), Utc::now());
             t
         }
     };
-    let updated_at = state.sniper.updated_at.read().unwrap_or_else(|e| e.into_inner()).get(chain.key).copied();
-    Ok(Json(TokensResponse { chain: chain.key.to_string(), tokens, updated_at }))
+    let updated_at = state
+        .sniper
+        .updated_at
+        .read()
+        .unwrap_or_else(|e| e.into_inner())
+        .get(chain.key)
+        .copied();
+    Ok(Json(TokensResponse {
+        chain: chain.key.to_string(),
+        tokens,
+        updated_at,
+    }))
 }
 
 #[derive(Deserialize)]
@@ -550,24 +737,36 @@ pub struct SearchQuery {
     chain: Option<String>,
 }
 
-pub async fn search(State(state): State<Arc<AppState>>, Query(q): Query<SearchQuery>) -> Result<Json<Vec<SniperToken>>> {
+pub async fn search(
+    State(state): State<Arc<AppState>>,
+    Query(q): Query<SearchQuery>,
+) -> Result<Json<Vec<SniperToken>>> {
     let term = q.q.trim().to_string();
     if term.is_empty() || term.len() > 64 || term.chars().any(|c| c.is_control()) {
-        return Err(AppError::BadRequest("enter a token name, symbol or contract address".into()));
+        return Err(AppError::BadRequest(
+            "enter a token name, symbol or contract address".into(),
+        ));
     }
     let only = match q.chain.as_deref() {
         Some(c) if chain_info(c).is_some() => Some(c.to_string()),
         Some(_) => return Err(AppError::BadRequest("unsupported chain".into())),
         None => None,
     };
-    let key = format!("{}|{}", term.to_ascii_lowercase(), only.clone().unwrap_or_default());
+    let key = format!(
+        "{}|{}",
+        term.to_ascii_lowercase(),
+        only.clone().unwrap_or_default()
+    );
     let st = state.clone();
     let tokens = state
         .sniper
         .search
         .get_or_fetch(&key, || async move {
             let url = format!("{}/latest/dex/search", st.config.dexscreener_base);
-            let v: Value = st.up.get_json_with("dexscreener", &url, &[("q", term)], &[]).await?;
+            let v: Value = st
+                .up
+                .get_json_with("dexscreener", &url, &[("q", term)], &[])
+                .await?;
             let mut t = parse_dexscreener(&v.to_string(), only.as_deref());
             t.truncate(8);
             Ok::<_, UpstreamError>(t)
@@ -582,16 +781,24 @@ pub struct IdsQuery {
 }
 
 /// Refreshes live prices for tracked tokens. `ids` is `chain:address` pairs separated by commas.
-pub async fn refresh_tokens(State(state): State<Arc<AppState>>, Query(q): Query<IdsQuery>) -> Result<Json<Vec<SniperToken>>> {
+pub async fn refresh_tokens(
+    State(state): State<Arc<AppState>>,
+    Query(q): Query<IdsQuery>,
+) -> Result<Json<Vec<SniperToken>>> {
     let mut by_chain: HashMap<String, Vec<String>> = HashMap::new();
     for item in q.ids.split(',').take(30) {
         let Some((chain, address)) = item.split_once(':') else {
-            return Err(AppError::BadRequest("ids must look like chain:address".into()));
+            return Err(AppError::BadRequest(
+                "ids must look like chain:address".into(),
+            ));
         };
         if chain_info(chain).is_none() || !valid_address_for(chain, address) {
             return Err(AppError::BadRequest("invalid token id".into()));
         }
-        by_chain.entry(chain.to_string()).or_default().push(address.to_string());
+        by_chain
+            .entry(chain.to_string())
+            .or_default()
+            .push(address.to_string());
     }
     let mut out: Vec<SniperToken> = Vec::new();
     for (chain, addresses) in by_chain {
@@ -602,7 +809,11 @@ pub async fn refresh_tokens(State(state): State<Arc<AppState>>, Query(q): Query<
             .sniper
             .refresh
             .get_or_fetch(&key, || async move {
-                let url = format!("{}/latest/dex/tokens/{}", st.config.dexscreener_base, addresses.join(","));
+                let url = format!(
+                    "{}/latest/dex/tokens/{}",
+                    st.config.dexscreener_base,
+                    addresses.join(",")
+                );
                 let v: Value = st.up.get_json("dexscreener", &url).await?;
                 Ok::<_, UpstreamError>(parse_dexscreener(&v.to_string(), Some(&only)))
             })
@@ -618,8 +829,12 @@ pub struct SecurityQuery {
     address: String,
 }
 
-pub async fn security(State(state): State<Arc<AppState>>, Query(q): Query<SecurityQuery>) -> Result<Json<Security>> {
-    let chain = chain_info(&q.chain).ok_or_else(|| AppError::BadRequest("unsupported chain".into()))?;
+pub async fn security(
+    State(state): State<Arc<AppState>>,
+    Query(q): Query<SecurityQuery>,
+) -> Result<Json<Security>> {
+    let chain =
+        chain_info(&q.chain).ok_or_else(|| AppError::BadRequest("unsupported chain".into()))?;
     if !valid_address_for(chain.key, &q.address) {
         return Err(AppError::BadRequest("invalid contract address".into()));
     }
@@ -629,7 +844,9 @@ pub async fn security(State(state): State<Arc<AppState>>, Query(q): Query<Securi
     let result = state
         .sniper
         .security
-        .get_or_fetch(&key, || async move { fetch_security(&st, &chain, &address).await })
+        .get_or_fetch(&key, || async move {
+            fetch_security(&st, &chain, &address).await
+        })
         .await;
     // A failed risk lookup must never look like "safe": report it as unavailable.
     Ok(Json(result.unwrap_or_else(|_| Security::unavailable())))
@@ -641,11 +858,20 @@ mod tests {
 
     #[test]
     fn address_validation() {
-        assert!(valid_evm_address("0x6982508145454Ce325dDbE47a25d4ec3d2311933"));
+        assert!(valid_evm_address(
+            "0x6982508145454Ce325dDbE47a25d4ec3d2311933"
+        ));
         assert!(!valid_evm_address("0x123"));
-        assert!(!valid_evm_address("6982508145454Ce325dDbE47a25d4ec3d2311933aa"));
-        assert!(valid_solana_address("DezXAZ8z7PnrnRJjz3wXBoRgixCa6xjnB7YaB1pPB263"));
-        assert!(!valid_solana_address("0xDezXAZ8z7PnrnRJjz3wXBoRgixCa6xjnB7YaB1pPB26"), "0 is not base58");
+        assert!(!valid_evm_address(
+            "6982508145454Ce325dDbE47a25d4ec3d2311933aa"
+        ));
+        assert!(valid_solana_address(
+            "DezXAZ8z7PnrnRJjz3wXBoRgixCa6xjnB7YaB1pPB263"
+        ));
+        assert!(
+            !valid_solana_address("0xDezXAZ8z7PnrnRJjz3wXBoRgixCa6xjnB7YaB1pPB26"),
+            "0 is not base58"
+        );
         assert!(!valid_solana_address("short"));
     }
 
@@ -664,11 +890,18 @@ mod tests {
           {"chainId":"someotherchain","pairAddress":"x","baseToken":{"address":"0x1","name":"N","symbol":"N"},"priceUsd":"1"}
         ]}"#;
         let all = parse_dexscreener(raw, None);
-        assert_eq!(all.len(), 2, "unknown chains are dropped, duplicate token merged");
+        assert_eq!(
+            all.len(),
+            2,
+            "unknown chains are dropped, duplicate token merged"
+        );
         assert_eq!(all[0].symbol, "ALP");
         assert_eq!(all[0].pair_address, "0xp2", "most liquid pool wins");
         assert_eq!(all[0].market_cap_usd, 7000.0);
-        assert_eq!(all[0].id, "ethereum:0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa");
+        assert_eq!(
+            all[0].id,
+            "ethereum:0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+        );
 
         let eth = parse_dexscreener(raw, Some("ethereum"));
         assert_eq!(eth.len(), 1);
@@ -689,7 +922,10 @@ mod tests {
         assert_eq!(t[0].name, "Moon Coin");
         assert_eq!(t[0].address, "0xtoken");
         assert_eq!(t[0].liquidity_usd, 15000.0);
-        assert_eq!(t[0].market_cap_usd, 250000.0, "falls back to FDV when market cap is null");
+        assert_eq!(
+            t[0].market_cap_usd, 250000.0,
+            "falls back to FDV when market cap is null"
+        );
         assert_eq!(t[0].change_24h, Some(30.0));
         assert_eq!(t[0].created_at, Some(1_767_323_045_000));
         assert_eq!(t[0].dex, "uniswap_v2");
@@ -720,10 +956,14 @@ mod tests {
 
     #[test]
     fn solana_risk_scoring() {
-        let s = score_solana(&json!({"mintable":{"status":"1"},"freezable":{"status":"1"},"closable":{"status":"0"},"holder_count":"900"}));
+        let s = score_solana(
+            &json!({"mintable":{"status":"1"},"freezable":{"status":"1"},"closable":{"status":"0"},"holder_count":"900"}),
+        );
         assert_eq!(s.risk_score, 50);
         assert_eq!(s.risk_level, "high");
-        let ok = score_solana(&json!({"mintable":{"status":"0"},"freezable":{"status":"0"},"transfer_fee":{}}));
+        let ok = score_solana(
+            &json!({"mintable":{"status":"0"},"freezable":{"status":"0"},"transfer_fee":{}}),
+        );
         assert_eq!(ok.risk_level, "low");
     }
 }

@@ -107,12 +107,14 @@ impl WhaleStore {
                 events.push_front(ev.clone());
             }
             let mut v: Vec<WhaleEvent> = events.drain(..).collect();
-            v.sort_by(|a, b| b.timestamp.cmp(&a.timestamp));
+            v.sort_by_key(|e| std::cmp::Reverse(e.timestamp));
             v.truncate(MAX_EVENTS);
             *events = v.into();
         }
         for ev in &fresh {
-            let _ = self.tx.send(json!({ "type": "whale", "data": ev }).to_string());
+            let _ = self
+                .tx
+                .send(json!({ "type": "whale", "data": ev }).to_string());
         }
         fresh.len()
     }
@@ -130,7 +132,10 @@ impl WhaleStore {
     }
 
     fn set_status(&self, s: ChainStatus) {
-        self.status.write().unwrap_or_else(|e| e.into_inner()).insert(s.chain.clone(), s);
+        self.status
+            .write()
+            .unwrap_or_else(|e| e.into_inner())
+            .insert(s.chain.clone(), s);
     }
 }
 
@@ -189,10 +194,16 @@ const EXCHANGES: &[(&str, &str)] = &[
 
 pub fn exchange_label(addr: &str) -> Option<&'static str> {
     let a = addr.to_ascii_lowercase();
-    EXCHANGES.iter().find(|(known, _)| *known == a).map(|(_, name)| *name)
+    EXCHANGES
+        .iter()
+        .find(|(known, _)| *known == a)
+        .map(|(_, name)| *name)
 }
 
-pub fn classify(from: Option<&str>, to: Option<&str>) -> (&'static str, Option<&'static str>, Option<&'static str>) {
+pub fn classify(
+    from: Option<&str>,
+    to: Option<&str>,
+) -> (&'static str, Option<&'static str>, Option<&'static str>) {
     let fl = from.and_then(exchange_label);
     let tl = to.and_then(exchange_label);
     let kind = match (fl, tl) {
@@ -230,34 +241,153 @@ pub(crate) struct ChainSpec {
 }
 
 const ETH_TOKENS: &[TokenSpec] = &[
-    TokenSpec { symbol: "USDT", address: "0xdac17f958d2ee523a2206206994597c13d831ec7", decimals: 6, price: PriceRef::Stable },
-    TokenSpec { symbol: "USDC", address: "0xa0b86991c6218b36c1d19d4a2e9eb0ce3606eb48", decimals: 6, price: PriceRef::Stable },
-    TokenSpec { symbol: "DAI", address: "0x6b175474e89094c44da98b954eedeac495271d0f", decimals: 18, price: PriceRef::Stable },
-    TokenSpec { symbol: "WETH", address: "0xc02aaa39b223fe8d0a0e5c4f27ead9083c756cc2", decimals: 18, price: PriceRef::Ticker("ETHUSDT") },
-    TokenSpec { symbol: "WBTC", address: "0x2260fac5e5542a773aa44fbcfedf7c193bc2c599", decimals: 8, price: PriceRef::Ticker("BTCUSDT") },
+    TokenSpec {
+        symbol: "USDT",
+        address: "0xdac17f958d2ee523a2206206994597c13d831ec7",
+        decimals: 6,
+        price: PriceRef::Stable,
+    },
+    TokenSpec {
+        symbol: "USDC",
+        address: "0xa0b86991c6218b36c1d19d4a2e9eb0ce3606eb48",
+        decimals: 6,
+        price: PriceRef::Stable,
+    },
+    TokenSpec {
+        symbol: "DAI",
+        address: "0x6b175474e89094c44da98b954eedeac495271d0f",
+        decimals: 18,
+        price: PriceRef::Stable,
+    },
+    TokenSpec {
+        symbol: "WETH",
+        address: "0xc02aaa39b223fe8d0a0e5c4f27ead9083c756cc2",
+        decimals: 18,
+        price: PriceRef::Ticker("ETHUSDT"),
+    },
+    TokenSpec {
+        symbol: "WBTC",
+        address: "0x2260fac5e5542a773aa44fbcfedf7c193bc2c599",
+        decimals: 8,
+        price: PriceRef::Ticker("BTCUSDT"),
+    },
 ];
 const BSC_TOKENS: &[TokenSpec] = &[
-    TokenSpec { symbol: "USDT", address: "0x55d398326f99059ff775485246999027b3197955", decimals: 18, price: PriceRef::Stable },
-    TokenSpec { symbol: "USDC", address: "0x8ac76a51cc950d9822d68b83fe1ad97b32cd580d", decimals: 18, price: PriceRef::Stable },
-    TokenSpec { symbol: "WBNB", address: "0xbb4cdb9cbd36b01bd1cbaebf2de08d9173bc095c", decimals: 18, price: PriceRef::Ticker("BNBUSDT") },
-    TokenSpec { symbol: "BTCB", address: "0x7130d2a12b9bcbfae4f2634d864a1ee1ce3ead9c", decimals: 18, price: PriceRef::Ticker("BTCUSDT") },
+    TokenSpec {
+        symbol: "USDT",
+        address: "0x55d398326f99059ff775485246999027b3197955",
+        decimals: 18,
+        price: PriceRef::Stable,
+    },
+    TokenSpec {
+        symbol: "USDC",
+        address: "0x8ac76a51cc950d9822d68b83fe1ad97b32cd580d",
+        decimals: 18,
+        price: PriceRef::Stable,
+    },
+    TokenSpec {
+        symbol: "WBNB",
+        address: "0xbb4cdb9cbd36b01bd1cbaebf2de08d9173bc095c",
+        decimals: 18,
+        price: PriceRef::Ticker("BNBUSDT"),
+    },
+    TokenSpec {
+        symbol: "BTCB",
+        address: "0x7130d2a12b9bcbfae4f2634d864a1ee1ce3ead9c",
+        decimals: 18,
+        price: PriceRef::Ticker("BTCUSDT"),
+    },
 ];
 const BASE_TOKENS: &[TokenSpec] = &[
-    TokenSpec { symbol: "USDC", address: "0x833589fcd6edb6e08f4c7c32d4f71b54bda02913", decimals: 6, price: PriceRef::Stable },
-    TokenSpec { symbol: "WETH", address: "0x4200000000000000000000000000000000000006", decimals: 18, price: PriceRef::Ticker("ETHUSDT") },
+    TokenSpec {
+        symbol: "USDC",
+        address: "0x833589fcd6edb6e08f4c7c32d4f71b54bda02913",
+        decimals: 6,
+        price: PriceRef::Stable,
+    },
+    TokenSpec {
+        symbol: "WETH",
+        address: "0x4200000000000000000000000000000000000006",
+        decimals: 18,
+        price: PriceRef::Ticker("ETHUSDT"),
+    },
 ];
 const ARB_TOKENS: &[TokenSpec] = &[
-    TokenSpec { symbol: "USDC", address: "0xaf88d065e77c8cc2239327c5edb3a432268e5831", decimals: 6, price: PriceRef::Stable },
-    TokenSpec { symbol: "USDT", address: "0xfd086bc7cd5c481dcc9c85ebe478a1c0b69fcbb9", decimals: 6, price: PriceRef::Stable },
-    TokenSpec { symbol: "WETH", address: "0x82af49447d8a07e3bd95bd0d56f35241523fbab1", decimals: 18, price: PriceRef::Ticker("ETHUSDT") },
-    TokenSpec { symbol: "WBTC", address: "0x2f2a2543b76a4166549f7aab2e75bef0aefc5b0f", decimals: 8, price: PriceRef::Ticker("BTCUSDT") },
+    TokenSpec {
+        symbol: "USDC",
+        address: "0xaf88d065e77c8cc2239327c5edb3a432268e5831",
+        decimals: 6,
+        price: PriceRef::Stable,
+    },
+    TokenSpec {
+        symbol: "USDT",
+        address: "0xfd086bc7cd5c481dcc9c85ebe478a1c0b69fcbb9",
+        decimals: 6,
+        price: PriceRef::Stable,
+    },
+    TokenSpec {
+        symbol: "WETH",
+        address: "0x82af49447d8a07e3bd95bd0d56f35241523fbab1",
+        decimals: 18,
+        price: PriceRef::Ticker("ETHUSDT"),
+    },
+    TokenSpec {
+        symbol: "WBTC",
+        address: "0x2f2a2543b76a4166549f7aab2e75bef0aefc5b0f",
+        decimals: 8,
+        price: PriceRef::Ticker("BTCUSDT"),
+    },
 ];
 
 pub(crate) const CHAINS: &[ChainSpec] = &[
-    ChainSpec { key: "ethereum", name: "Ethereum", native: "ETH", native_ticker: "ETHUSDT", explorer_tx: "https://etherscan.io/tx/", poll_secs: 15, native_blocks: 3, log_range: 40, lookback: 25, tokens: ETH_TOKENS },
-    ChainSpec { key: "bsc", name: "BNB Chain", native: "BNB", native_ticker: "BNBUSDT", explorer_tx: "https://bscscan.com/tx/", poll_secs: 15, native_blocks: 6, log_range: 200, lookback: 100, tokens: BSC_TOKENS },
-    ChainSpec { key: "base", name: "Base", native: "ETH", native_ticker: "ETHUSDT", explorer_tx: "https://basescan.org/tx/", poll_secs: 20, native_blocks: 0, log_range: 300, lookback: 150, tokens: BASE_TOKENS },
-    ChainSpec { key: "arbitrum", name: "Arbitrum", native: "ETH", native_ticker: "ETHUSDT", explorer_tx: "https://arbiscan.io/tx/", poll_secs: 20, native_blocks: 0, log_range: 1200, lookback: 600, tokens: ARB_TOKENS },
+    ChainSpec {
+        key: "ethereum",
+        name: "Ethereum",
+        native: "ETH",
+        native_ticker: "ETHUSDT",
+        explorer_tx: "https://etherscan.io/tx/",
+        poll_secs: 15,
+        native_blocks: 3,
+        log_range: 40,
+        lookback: 25,
+        tokens: ETH_TOKENS,
+    },
+    ChainSpec {
+        key: "bsc",
+        name: "BNB Chain",
+        native: "BNB",
+        native_ticker: "BNBUSDT",
+        explorer_tx: "https://bscscan.com/tx/",
+        poll_secs: 15,
+        native_blocks: 6,
+        log_range: 200,
+        lookback: 100,
+        tokens: BSC_TOKENS,
+    },
+    ChainSpec {
+        key: "base",
+        name: "Base",
+        native: "ETH",
+        native_ticker: "ETHUSDT",
+        explorer_tx: "https://basescan.org/tx/",
+        poll_secs: 20,
+        native_blocks: 0,
+        log_range: 300,
+        lookback: 150,
+        tokens: BASE_TOKENS,
+    },
+    ChainSpec {
+        key: "arbitrum",
+        name: "Arbitrum",
+        native: "ETH",
+        native_ticker: "ETHUSDT",
+        explorer_tx: "https://arbiscan.io/tx/",
+        poll_secs: 20,
+        native_blocks: 0,
+        log_range: 1200,
+        lookback: 600,
+        tokens: ARB_TOKENS,
+    },
 ];
 
 pub(crate) fn price_of(state: &AppState, p: PriceRef) -> Option<f64> {
@@ -280,7 +410,13 @@ pub(crate) fn rpc_url(state: &AppState, key: &str) -> String {
 }
 
 /// Decodes one ERC 20 Transfer log into an event (without timestamp yet).
-fn decode_transfer_log(spec: &ChainSpec, token: &TokenSpec, log: &Value, usd_price: f64, min_usd: f64) -> Option<WhaleEvent> {
+fn decode_transfer_log(
+    spec: &ChainSpec,
+    token: &TokenSpec,
+    log: &Value,
+    usd_price: f64,
+    min_usd: f64,
+) -> Option<WhaleEvent> {
     let topics = log.get("topics")?.as_array()?;
     if topics.len() != 3 || topics[0].as_str()? != TRANSFER_TOPIC {
         return None; // ERC 721 transfers have 4 topics and are ignored.
@@ -294,7 +430,11 @@ fn decode_transfer_log(spec: &ChainSpec, token: &TokenSpec, log: &Value, usd_pri
         return None;
     }
     let tx_hash = log.get("transactionHash")?.as_str()?.to_string();
-    let log_index = log.get("logIndex").and_then(|v| v.as_str()).and_then(hex_to_u64).unwrap_or(0);
+    let log_index = log
+        .get("logIndex")
+        .and_then(|v| v.as_str())
+        .and_then(hex_to_u64)
+        .unwrap_or(0);
     let (kind, fl, tl) = classify(Some(&from), Some(&to));
     Some(WhaleEvent {
         id: format!("{}:{}:{}", spec.key, tx_hash, log_index),
@@ -310,13 +450,23 @@ fn decode_transfer_log(spec: &ChainSpec, token: &TokenSpec, log: &Value, usd_pri
         kind,
         explorer_url: format!("{}{}", spec.explorer_tx, tx_hash),
         tx_hash,
-        block: log.get("blockNumber").and_then(|v| v.as_str()).and_then(hex_to_u64),
+        block: log
+            .get("blockNumber")
+            .and_then(|v| v.as_str())
+            .and_then(hex_to_u64),
         timestamp: 0,
     })
 }
 
 /// Decodes a plain native transfer (no calldata) from a full block transaction.
-fn decode_native_tx(spec: &ChainSpec, tx: &Value, block: u64, ts_ms: i64, usd_price: f64, min_usd: f64) -> Option<WhaleEvent> {
+fn decode_native_tx(
+    spec: &ChainSpec,
+    tx: &Value,
+    block: u64,
+    ts_ms: i64,
+    usd_price: f64,
+    min_usd: f64,
+) -> Option<WhaleEvent> {
     if tx.get("input")?.as_str()? != "0x" {
         return None;
     }
@@ -350,22 +500,46 @@ fn decode_native_tx(spec: &ChainSpec, tx: &Value, block: u64, ts_ms: i64, usd_pr
 
 // ── EVM polling ──────────────────────────────────────────────────────────────
 
-async fn rpc(state: &AppState, chain: &str, url: &str, method: &str, params: Value) -> std::result::Result<Value, String> {
+async fn rpc(
+    state: &AppState,
+    chain: &str,
+    url: &str,
+    method: &str,
+    params: Value,
+) -> std::result::Result<Value, String> {
     let body = json!({ "jsonrpc": "2.0", "id": 1, "method": method, "params": params });
     let v: Value = state
         .up
-        .post_json(&format!("rpc-{chain}"), url, &body, &[], Some(Duration::from_secs(15)))
+        .post_json(
+            &format!("rpc-{chain}"),
+            url,
+            &body,
+            &[],
+            Some(Duration::from_secs(15)),
+        )
         .await
         .map_err(|e| e.to_string())?;
     if let Some(err) = v.get("error") {
         return Err(err.to_string());
     }
-    v.get("result").cloned().ok_or_else(|| "empty rpc result".to_string())
+    v.get("result")
+        .cloned()
+        .ok_or_else(|| "empty rpc result".to_string())
 }
 
-async fn poll_evm_once(state: &Arc<AppState>, spec: &'static ChainSpec, last_block: &mut Option<u64>) -> std::result::Result<usize, String> {
+async fn poll_evm_once(
+    state: &Arc<AppState>,
+    spec: &'static ChainSpec,
+    last_block: &mut Option<u64>,
+) -> std::result::Result<usize, String> {
     let url = rpc_url(state, spec.key);
-    let latest = hex_to_u64(rpc(state, spec.key, &url, "eth_blockNumber", json!([])).await?.as_str().unwrap_or("0x0")).ok_or("bad block number")?;
+    let latest = hex_to_u64(
+        rpc(state, spec.key, &url, "eth_blockNumber", json!([]))
+            .await?
+            .as_str()
+            .unwrap_or("0x0"),
+    )
+    .ok_or("bad block number")?;
     let start = match *last_block {
         Some(l) if l >= latest => return Ok(0),
         Some(l) => l + 1,
@@ -385,9 +559,17 @@ async fn poll_evm_once(state: &Arc<AppState>, spec: &'static ChainSpec, last_blo
     }]);
     let logs = rpc(state, spec.key, &url, "eth_getLogs", filter).await?;
     for log in logs.as_array().cloned().unwrap_or_default() {
-        let addr = log.get("address").and_then(|a| a.as_str()).unwrap_or_default().to_ascii_lowercase();
-        let Some(token) = spec.tokens.iter().find(|t| t.address == addr) else { continue };
-        let Some(price) = price_of(state, token.price) else { continue };
+        let addr = log
+            .get("address")
+            .and_then(|a| a.as_str())
+            .unwrap_or_default()
+            .to_ascii_lowercase();
+        let Some(token) = spec.tokens.iter().find(|t| t.address == addr) else {
+            continue;
+        };
+        let Some(price) = price_of(state, token.price) else {
+            continue;
+        };
         if let Some(ev) = decode_transfer_log(spec, token, &log, price, min_usd) {
             events.push(ev);
         }
@@ -399,15 +581,30 @@ async fn poll_evm_once(state: &Arc<AppState>, spec: &'static ChainSpec, last_blo
         if block_ts.contains_key(&ev) {
             continue;
         }
-        if let Ok(b) = rpc(state, spec.key, &url, "eth_getBlockByNumber", json!([format!("0x{ev:x}"), false])).await {
-            if let Some(ts) = b.get("timestamp").and_then(|t| t.as_str()).and_then(hex_to_u64) {
+        if let Ok(b) = rpc(
+            state,
+            spec.key,
+            &url,
+            "eth_getBlockByNumber",
+            json!([format!("0x{ev:x}"), false]),
+        )
+        .await
+        {
+            if let Some(ts) = b
+                .get("timestamp")
+                .and_then(|t| t.as_str())
+                .and_then(hex_to_u64)
+            {
                 block_ts.insert(ev, ts as i64 * 1000);
             }
         }
     }
     let now = Utc::now().timestamp_millis();
     for ev in events.iter_mut() {
-        ev.timestamp = ev.block.and_then(|b| block_ts.get(&b).copied()).unwrap_or(now);
+        ev.timestamp = ev
+            .block
+            .and_then(|b| block_ts.get(&b).copied())
+            .unwrap_or(now);
     }
 
     // Native transfers.
@@ -415,9 +612,29 @@ async fn poll_evm_once(state: &Arc<AppState>, spec: &'static ChainSpec, last_blo
         if let Some(native_price) = price_of(state, PriceRef::Ticker(spec.native_ticker)) {
             let native_from = start.max(latest.saturating_sub(spec.native_blocks - 1));
             for n in native_from..=latest {
-                let Ok(block) = rpc(state, spec.key, &url, "eth_getBlockByNumber", json!([format!("0x{n:x}"), true])).await else { continue };
-                let ts = block.get("timestamp").and_then(|t| t.as_str()).and_then(hex_to_u64).map(|s| s as i64 * 1000).unwrap_or(now);
-                for tx in block.get("transactions").and_then(|t| t.as_array()).cloned().unwrap_or_default() {
+                let Ok(block) = rpc(
+                    state,
+                    spec.key,
+                    &url,
+                    "eth_getBlockByNumber",
+                    json!([format!("0x{n:x}"), true]),
+                )
+                .await
+                else {
+                    continue;
+                };
+                let ts = block
+                    .get("timestamp")
+                    .and_then(|t| t.as_str())
+                    .and_then(hex_to_u64)
+                    .map(|s| s as i64 * 1000)
+                    .unwrap_or(now);
+                for tx in block
+                    .get("transactions")
+                    .and_then(|t| t.as_array())
+                    .cloned()
+                    .unwrap_or_default()
+                {
                     if let Some(ev) = decode_native_tx(spec, &tx, n, ts, native_price, min_usd) {
                         events.push(ev);
                     }
@@ -434,7 +651,19 @@ async fn poll_evm_once(state: &Arc<AppState>, spec: &'static ChainSpec, last_blo
         ok: true,
         last_block: Some(latest),
         last_poll: Some(Utc::now()),
-        note: format!("ERC 20 transfers of {} plus {}", spec.tokens.iter().map(|t| t.symbol).collect::<Vec<_>>().join(", "), if spec.native_blocks > 0 { "native transfers" } else { "no native scan" }),
+        note: format!(
+            "ERC 20 transfers of {} plus {}",
+            spec.tokens
+                .iter()
+                .map(|t| t.symbol)
+                .collect::<Vec<_>>()
+                .join(", "),
+            if spec.native_blocks > 0 {
+                "native transfers"
+            } else {
+                "no native scan"
+            }
+        ),
     });
     Ok(state.whales.push(events))
 }
@@ -442,14 +671,21 @@ async fn poll_evm_once(state: &Arc<AppState>, spec: &'static ChainSpec, last_blo
 // ── Bitcoin (Blockchair) ─────────────────────────────────────────────────────
 
 pub fn parse_blockchair(raw: &str, btc_usd: f64, min_usd: f64) -> Vec<WhaleEvent> {
-    let Ok(v) = serde_json::from_str::<Value>(raw) else { return vec![] };
-    let Some(rows) = v.get("data").and_then(|d| d.as_array()) else { return vec![] };
+    let Ok(v) = serde_json::from_str::<Value>(raw) else {
+        return vec![];
+    };
+    let Some(rows) = v.get("data").and_then(|d| d.as_array()) else {
+        return vec![];
+    };
     rows.iter()
         .filter_map(|r| {
             let hash = r.get("hash")?.as_str()?.to_string();
             let sats = r.get("output_total")?.as_f64()?;
             let amount = sats / 1e8;
-            let value_usd = r.get("output_total_usd").and_then(|u| u.as_f64()).unwrap_or(amount * btc_usd);
+            let value_usd = r
+                .get("output_total_usd")
+                .and_then(|u| u.as_f64())
+                .unwrap_or(amount * btc_usd);
             if value_usd < min_usd {
                 return None;
             }
@@ -459,7 +695,11 @@ pub fn parse_blockchair(raw: &str, btc_usd: f64, min_usd: f64) -> Vec<WhaleEvent
                 .and_then(|t| NaiveDateTime::parse_from_str(t, "%Y-%m-%d %H:%M:%S").ok())
                 .map(|n| n.and_utc().timestamp_millis())
                 .unwrap_or_else(|| Utc::now().timestamp_millis());
-            let block = r.get("block_id").and_then(|b| b.as_i64()).filter(|b| *b > 0).map(|b| b as u64);
+            let block = r
+                .get("block_id")
+                .and_then(|b| b.as_i64())
+                .filter(|b| *b > 0)
+                .map(|b| b as u64);
             Some(WhaleEvent {
                 id: format!("bitcoin:{hash}"),
                 chain: "bitcoin".into(),
@@ -494,7 +734,11 @@ async fn poll_bitcoin_once(state: &Arc<AppState>) -> std::result::Result<usize, 
     if let Some(k) = &state.config.blockchair_api_key {
         query.push(("key", k.clone()));
     }
-    let v: Value = state.up.get_json_with("blockchair", &url, &query, &[]).await.map_err(|e| e.to_string())?;
+    let v: Value = state
+        .up
+        .get_json_with("blockchair", &url, &query, &[])
+        .await
+        .map_err(|e| e.to_string())?;
     let events = parse_blockchair(&v.to_string(), btc, min_usd);
     state.whales.set_status(ChainStatus {
         chain: "bitcoin".into(),
@@ -503,7 +747,9 @@ async fn poll_bitcoin_once(state: &Arc<AppState>) -> std::result::Result<usize, 
         ok: true,
         last_block: None,
         last_poll: Some(Utc::now()),
-        note: "Large transactions (total outputs) from Blockchair; wallet addresses are not included".into(),
+        note:
+            "Large transactions (total outputs) from Blockchair; wallet addresses are not included"
+                .into(),
     });
     Ok(state.whales.push(events))
 }
@@ -528,18 +774,28 @@ pub fn spawn_pollers(state: Arc<AppState>) {
             loop {
                 if let Err(e) = poll_evm_once(&st, spec, &mut last).await {
                     tracing::warn!("{} whale poll failed: {e}", spec.key);
-                    let mut status = st.whales.status.read().unwrap_or_else(|e| e.into_inner()).get(spec.key).cloned().unwrap_or(ChainStatus {
-                        chain: spec.key.into(),
-                        name: spec.name.into(),
-                        supported: true,
-                        ok: false,
-                        last_block: None,
-                        last_poll: None,
-                        note: String::new(),
-                    });
+                    let mut status = st
+                        .whales
+                        .status
+                        .read()
+                        .unwrap_or_else(|e| e.into_inner())
+                        .get(spec.key)
+                        .cloned()
+                        .unwrap_or(ChainStatus {
+                            chain: spec.key.into(),
+                            name: spec.name.into(),
+                            supported: true,
+                            ok: false,
+                            last_block: None,
+                            last_poll: None,
+                            note: String::new(),
+                        });
                     status.ok = false;
                     status.last_poll = Some(Utc::now());
-                    status.note = format!("Last poll failed: {}", e.chars().take(120).collect::<String>());
+                    status.note = format!(
+                        "Last poll failed: {}",
+                        e.chars().take(120).collect::<String>()
+                    );
                     st.whales.set_status(status);
                 }
                 tokio::time::sleep(Duration::from_secs(spec.poll_secs)).await;
@@ -553,18 +809,28 @@ pub fn spawn_pollers(state: Arc<AppState>) {
         loop {
             if let Err(e) = poll_bitcoin_once(&st).await {
                 tracing::warn!("bitcoin whale poll failed: {e}");
-                let mut s = st.whales.status.read().unwrap_or_else(|e| e.into_inner()).get("bitcoin").cloned().unwrap_or(ChainStatus {
-                    chain: "bitcoin".into(),
-                    name: "Bitcoin".into(),
-                    supported: true,
-                    ok: false,
-                    last_block: None,
-                    last_poll: None,
-                    note: String::new(),
-                });
+                let mut s = st
+                    .whales
+                    .status
+                    .read()
+                    .unwrap_or_else(|e| e.into_inner())
+                    .get("bitcoin")
+                    .cloned()
+                    .unwrap_or(ChainStatus {
+                        chain: "bitcoin".into(),
+                        name: "Bitcoin".into(),
+                        supported: true,
+                        ok: false,
+                        last_block: None,
+                        last_poll: None,
+                        note: String::new(),
+                    });
                 s.ok = false;
                 s.last_poll = Some(Utc::now());
-                s.note = format!("Last poll failed: {}", e.chars().take(120).collect::<String>());
+                s.note = format!(
+                    "Last poll failed: {}",
+                    e.chars().take(120).collect::<String>()
+                );
                 st.whales.set_status(s);
             }
             // The free Blockchair tier allows roughly one request a minute.
@@ -602,8 +868,14 @@ pub struct WhaleResponse {
     min_usd_floor: f64,
 }
 
-pub async fn get_whales(State(state): State<Arc<AppState>>, Query(q): Query<WhaleQuery>) -> Result<Json<WhaleResponse>> {
-    let min_usd = q.min_usd.unwrap_or(state.config.whale_min_usd).max(state.config.whale_min_usd);
+pub async fn get_whales(
+    State(state): State<Arc<AppState>>,
+    Query(q): Query<WhaleQuery>,
+) -> Result<Json<WhaleResponse>> {
+    let min_usd = q
+        .min_usd
+        .unwrap_or(state.config.whale_min_usd)
+        .max(state.config.whale_min_usd);
     let limit = q.limit.unwrap_or(150).clamp(1, 500);
     let address = q.address.map(|a| a.to_ascii_lowercase());
     let events: Vec<WhaleEvent> = state
@@ -613,11 +885,17 @@ pub async fn get_whales(State(state): State<Arc<AppState>>, Query(q): Query<Whal
         .unwrap_or_else(|e| e.into_inner())
         .iter()
         .filter(|e| e.value_usd >= min_usd)
-        .filter(|e| q.chain.as_deref().map_or(true, |c| c == e.chain))
+        .filter(|e| q.chain.as_deref().is_none_or(|c| c == e.chain))
         .filter(|e| {
-            address.as_deref().map_or(true, |a| {
-                e.from.as_deref().map(|f| f.eq_ignore_ascii_case(a)).unwrap_or(false)
-                    || e.to.as_deref().map(|t| t.eq_ignore_ascii_case(a)).unwrap_or(false)
+            address.as_deref().is_none_or(|a| {
+                e.from
+                    .as_deref()
+                    .map(|f| f.eq_ignore_ascii_case(a))
+                    .unwrap_or(false)
+                    || e.to
+                        .as_deref()
+                        .map(|t| t.eq_ignore_ascii_case(a))
+                        .unwrap_or(false)
             })
         })
         .take(limit)
@@ -628,11 +906,27 @@ pub async fn get_whales(State(state): State<Arc<AppState>>, Query(q): Query<Whal
         count: events.len(),
         largest_usd: events.iter().map(|e| e.value_usd).fold(0.0, f64::max),
         total_usd: total,
-        average_usd: if events.is_empty() { 0.0 } else { total / events.len() as f64 },
+        average_usd: if events.is_empty() {
+            0.0
+        } else {
+            total / events.len() as f64
+        },
     };
-    let mut chains: Vec<ChainStatus> = state.whales.status.read().unwrap_or_else(|e| e.into_inner()).values().cloned().collect();
+    let mut chains: Vec<ChainStatus> = state
+        .whales
+        .status
+        .read()
+        .unwrap_or_else(|e| e.into_inner())
+        .values()
+        .cloned()
+        .collect();
     chains.sort_by(|a, b| b.supported.cmp(&a.supported).then(a.name.cmp(&b.name)));
-    Ok(Json(WhaleResponse { events, stats, chains, min_usd_floor: state.config.whale_min_usd }))
+    Ok(Json(WhaleResponse {
+        events,
+        stats,
+        chains,
+        min_usd_floor: state.config.whale_min_usd,
+    }))
 }
 
 #[cfg(test)]
@@ -671,11 +965,17 @@ mod tests {
         assert_eq!(ev.asset, "USDC");
         assert!((ev.amount - 2_500_000.0).abs() < 1e-6);
         assert!((ev.value_usd - 2_500_000.0).abs() < 1e-6);
-        assert_eq!(ev.kind, "exchange_outflow", "from a known Binance wallet to an unknown one");
+        assert_eq!(
+            ev.kind, "exchange_outflow",
+            "from a known Binance wallet to an unknown one"
+        );
         assert_eq!(ev.from_label.as_deref(), Some("Binance"));
         assert_eq!(ev.id, "ethereum:0xabc:5");
         assert_eq!(ev.block, Some(0x1312d00));
-        assert_eq!(ev.to.as_deref(), Some("0x1111111111111111111111111111111111111111"));
+        assert_eq!(
+            ev.to.as_deref(),
+            Some("0x1111111111111111111111111111111111111111")
+        );
     }
 
     #[test]
@@ -733,13 +1033,31 @@ mod tests {
     fn store_dedupes_sorts_and_caps() {
         let store = WhaleStore::new();
         let mk = |id: &str, ts: i64| WhaleEvent {
-            id: id.into(), chain: "ethereum".into(), chain_name: "Ethereum".into(), asset: "USDC".into(), amount: 1.0,
-            value_usd: 1.0, from: None, to: None, from_label: None, to_label: None, kind: "transfer",
-            tx_hash: id.into(), block: None, timestamp: ts, explorer_url: String::new(),
+            id: id.into(),
+            chain: "ethereum".into(),
+            chain_name: "Ethereum".into(),
+            asset: "USDC".into(),
+            amount: 1.0,
+            value_usd: 1.0,
+            from: None,
+            to: None,
+            from_label: None,
+            to_label: None,
+            kind: "transfer",
+            tx_hash: id.into(),
+            block: None,
+            timestamp: ts,
+            explorer_url: String::new(),
         };
         assert_eq!(store.push(vec![mk("a", 10), mk("b", 30), mk("a", 10)]), 2);
         assert_eq!(store.push(vec![mk("b", 30), mk("c", 20)]), 1);
-        let ids: Vec<String> = store.events.read().unwrap().iter().map(|e| e.id.clone()).collect();
+        let ids: Vec<String> = store
+            .events
+            .read()
+            .unwrap()
+            .iter()
+            .map(|e| e.id.clone())
+            .collect();
         assert_eq!(ids, vec!["b", "c", "a"]);
     }
 }

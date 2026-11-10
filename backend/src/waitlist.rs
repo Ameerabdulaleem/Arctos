@@ -10,7 +10,10 @@ use lettre::{
     AsyncSmtpTransport, AsyncTransport, Message, Tokio1Executor,
 };
 use serde::{Deserialize, Serialize};
-use sqlx::{postgres::{PgConnectOptions, PgPoolOptions}, PgPool};
+use sqlx::{
+    postgres::{PgConnectOptions, PgPoolOptions},
+    PgPool,
+};
 
 use crate::{
     error::{AppError, Result},
@@ -41,10 +44,17 @@ pub async fn connect(database_url: Option<&str>) -> Option<PgPool> {
             return None;
         }
     };
-    let pool = match PgPoolOptions::new().max_connections(5).acquire_timeout(Duration::from_secs(8)).connect_with(options).await {
+    let pool = match PgPoolOptions::new()
+        .max_connections(5)
+        .acquire_timeout(Duration::from_secs(8))
+        .connect_with(options)
+        .await
+    {
         Ok(p) => p,
         Err(e) => {
-            tracing::error!("could not connect to PostgreSQL, waitlist will run without persistence: {e}");
+            tracing::error!(
+                "could not connect to PostgreSQL, waitlist will run without persistence: {e}"
+            );
             return None;
         }
     };
@@ -74,12 +84,26 @@ pub fn valid_email(email: &str) -> bool {
         return false;
     }
     let mut parts = email.split('@');
-    let (Some(local), Some(domain), None) = (parts.next(), parts.next(), parts.next()) else { return false };
-    if local.is_empty() || local.len() > 64 || local.starts_with('.') || local.ends_with('.') || local.contains("..") {
+    let (Some(local), Some(domain), None) = (parts.next(), parts.next(), parts.next()) else {
+        return false;
+    };
+    if local.is_empty()
+        || local.len() > 64
+        || local.starts_with('.')
+        || local.ends_with('.')
+        || local.contains("..")
+    {
         return false;
     }
-    let local_ok = local.bytes().all(|b| b.is_ascii_alphanumeric() || b".!#$%&'*+/=?^_`{|}~-".contains(&b));
-    if !local_ok || !domain.contains('.') || domain.starts_with('.') || domain.ends_with('.') || domain.contains("..") {
+    let local_ok = local
+        .bytes()
+        .all(|b| b.is_ascii_alphanumeric() || b".!#$%&'*+/=?^_`{|}~-".contains(&b));
+    if !local_ok
+        || !domain.contains('.')
+        || domain.starts_with('.')
+        || domain.ends_with('.')
+        || domain.contains("..")
+    {
         return false;
     }
     domain.split('.').all(|label| {
@@ -87,7 +111,9 @@ pub fn valid_email(email: &str) -> bool {
             && label.len() <= 63
             && !label.starts_with('-')
             && !label.ends_with('-')
-            && label.bytes().all(|b| b.is_ascii_alphanumeric() || b == b'-')
+            && label
+                .bytes()
+                .all(|b| b.is_ascii_alphanumeric() || b == b'-')
     })
 }
 
@@ -123,13 +149,25 @@ async fn send_welcome(state: Arc<AppState>, email: String, position: Option<i64>
     let (text, html) = welcome_email(&cfg.public_site_url, position);
     let built = (|| -> std::result::Result<Message, String> {
         Message::builder()
-            .from(format!("{} <{}>", cfg.mail_from_name, cfg.mail_from).parse().map_err(|e| format!("from address: {e}"))?)
+            .from(
+                format!("{} <{}>", cfg.mail_from_name, cfg.mail_from)
+                    .parse()
+                    .map_err(|e| format!("from address: {e}"))?,
+            )
             .to(email.parse().map_err(|e| format!("to address: {e}"))?)
             .subject("You're on the Arctos waitlist")
             .multipart(
                 MultiPart::alternative()
-                    .singlepart(SinglePart::builder().header(ContentType::TEXT_PLAIN).body(text))
-                    .singlepart(SinglePart::builder().header(ContentType::TEXT_HTML).body(html)),
+                    .singlepart(
+                        SinglePart::builder()
+                            .header(ContentType::TEXT_PLAIN)
+                            .body(text),
+                    )
+                    .singlepart(
+                        SinglePart::builder()
+                            .header(ContentType::TEXT_HTML)
+                            .body(html),
+                    ),
             )
             .map_err(|e| format!("message: {e}"))
     })();
@@ -146,7 +184,13 @@ async fn send_welcome(state: Arc<AppState>, email: String, position: Option<i64>
         AsyncSmtpTransport::<Tokio1Executor>::starttls_relay(&cfg.mail_host)
     };
     let mailer = match builder {
-        Ok(b) => b.port(cfg.mail_port).credentials(Credentials::new(cfg.mail_username.clone(), cfg.mail_password.clone())).build(),
+        Ok(b) => b
+            .port(cfg.mail_port)
+            .credentials(Credentials::new(
+                cfg.mail_username.clone(),
+                cfg.mail_password.clone(),
+            ))
+            .build(),
         Err(e) => {
             tracing::error!("SMTP setup failed: {e}");
             return;
@@ -171,30 +215,47 @@ pub struct JoinResponse {
     persisted: bool,
 }
 
-pub async fn join(State(state): State<Arc<AppState>>, headers: HeaderMap, Json(req): Json<JoinRequest>) -> Result<Json<JoinResponse>> {
+pub async fn join(
+    State(state): State<Arc<AppState>>,
+    headers: HeaderMap,
+    Json(req): Json<JoinRequest>,
+) -> Result<Json<JoinResponse>> {
     let origin = headers.get("origin").and_then(|v| v.to_str().ok());
     if !state.config.origin_allowed(origin) {
         return Err(AppError::Forbidden("origin not allowed".into()));
     }
     let email = req.email.trim().to_ascii_lowercase();
     if !valid_email(&email) {
-        return Err(AppError::BadRequest("Please enter a valid email address.".into()));
+        return Err(AppError::BadRequest(
+            "Please enter a valid email address.".into(),
+        ));
     }
 
     let Some(pool) = &state.db else {
         // Without a database we cannot give a real position, so we do not invent one.
-        let first_time = state.waitlist_mem.lock().unwrap_or_else(|e| e.into_inner()).insert(email.clone());
+        let first_time = state
+            .waitlist_mem
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .insert(email.clone());
         if first_time {
             tokio::spawn(send_welcome(state.clone(), email, None));
         }
-        return Ok(Json(JoinResponse { ok: true, position: None, already_joined: !first_time, persisted: false }));
+        return Ok(Json(JoinResponse {
+            ok: true,
+            position: None,
+            already_joined: !first_time,
+            persisted: false,
+        }));
     };
 
-    let inserted: Option<(i64,)> = sqlx::query_as("INSERT INTO waitlist (email) VALUES ($1) ON CONFLICT (email) DO NOTHING RETURNING id")
-        .bind(&email)
-        .fetch_optional(pool)
-        .await
-        .map_err(|e| AppError::Internal(format!("waitlist insert: {e}")))?;
+    let inserted: Option<(i64,)> = sqlx::query_as(
+        "INSERT INTO waitlist (email) VALUES ($1) ON CONFLICT (email) DO NOTHING RETURNING id",
+    )
+    .bind(&email)
+    .fetch_optional(pool)
+    .await
+    .map_err(|e| AppError::Internal(format!("waitlist insert: {e}")))?;
     let (id, already) = match inserted {
         Some((id,)) => (id, false),
         None => {
@@ -216,7 +277,12 @@ pub async fn join(State(state): State<Arc<AppState>>, headers: HeaderMap, Json(r
     if !already {
         tokio::spawn(send_welcome(state.clone(), email, Some(position)));
     }
-    Ok(Json(JoinResponse { ok: true, position: Some(position), already_joined: already, persisted: true }))
+    Ok(Json(JoinResponse {
+        ok: true,
+        position: Some(position),
+        already_joined: already,
+        persisted: true,
+    }))
 }
 
 #[derive(Serialize)]
@@ -225,11 +291,16 @@ pub struct CountResponse {
 }
 
 pub async fn count(State(state): State<Arc<AppState>>) -> Result<Json<CountResponse>> {
-    let Some(pool) = state.db.clone() else { return Ok(Json(CountResponse { count: None })) };
+    let Some(pool) = state.db.clone() else {
+        return Ok(Json(CountResponse { count: None }));
+    };
     let count = state
         .waitlist_count
         .get_or_fetch("count", || async move {
-            let row: (i64,) = sqlx::query_as("SELECT COUNT(*) FROM waitlist").fetch_one(&pool).await.map_err(|e| e.to_string())?;
+            let row: (i64,) = sqlx::query_as("SELECT COUNT(*) FROM waitlist")
+                .fetch_one(&pool)
+                .await
+                .map_err(|e| e.to_string())?;
             Ok::<_, String>(row.0)
         })
         .await
@@ -247,9 +318,21 @@ mod tests {
             assert!(valid_email(ok), "{ok} should be valid");
         }
         for bad in [
-            "plain", "a@b", "@example.com", "a@@example.com", "a b@example.com", "a@exa mple.com",
-            "a@example.com\r\nBcc: victim@example.com", "a\n@example.com", ".a@example.com", "a..b@example.com",
-            "a@-example.com", "a@example..com", "<script>@example.com", "\"quoted\"@example.com", "a,b@example.com",
+            "plain",
+            "a@b",
+            "@example.com",
+            "a@@example.com",
+            "a b@example.com",
+            "a@exa mple.com",
+            "a@example.com\r\nBcc: victim@example.com",
+            "a\n@example.com",
+            ".a@example.com",
+            "a..b@example.com",
+            "a@-example.com",
+            "a@example..com",
+            "<script>@example.com",
+            "\"quoted\"@example.com",
+            "a,b@example.com",
         ] {
             assert!(!valid_email(bad), "{bad:?} should be rejected");
         }
@@ -262,8 +345,12 @@ mod tests {
             normalize_database_url("postgres://u:p@db.example.supabase.co:5432/postgres"),
             "postgresql://u:p@db.example.supabase.co:5432/postgres?sslmode=require"
         );
-        assert!(normalize_database_url("postgresql://u:p@h/db?options=x").ends_with("options=x&sslmode=require"));
-        assert_eq!(normalize_database_url("postgresql://h/db?sslmode=disable"), "postgresql://h/db?sslmode=disable");
+        assert!(normalize_database_url("postgresql://u:p@h/db?options=x")
+            .ends_with("options=x&sslmode=require"));
+        assert_eq!(
+            normalize_database_url("postgresql://h/db?sslmode=disable"),
+            "postgresql://h/db?sslmode=disable"
+        );
     }
 
     #[test]

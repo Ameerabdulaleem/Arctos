@@ -254,7 +254,7 @@ export default function TradingViewChart({
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const volumeSeriesRef = useRef<any>(null);
   const candlesRef = useRef<CandlestickData<Time>[]>([]);
-  const shownRef = useRef<{ first: Time | null; length: number }>({ first: null, length: 0 });
+  const shownRef = useRef<{ last: Time | null }>({ last: null });
   const [crosshairPrice, setCrosshairPrice] = useState<number | null>(null);
 
   // AI drawing state
@@ -537,7 +537,7 @@ export default function TradingViewChart({
     });
 
     candlesRef.current = [];
-    shownRef.current = { first: null, length: 0 };
+    shownRef.current = { last: null };
 
     /* Crosshair move → hover price */
     chart.subscribeCrosshairMove((param) => {
@@ -569,23 +569,23 @@ export default function TradingViewChart({
     // Candle data is applied by the effect below, so the chart is only rebuilt for a new pair or interval.
   }, [symbol, interval, handleResize]);
 
-  /* Apply candles. A new pair or interval replaces everything; a refresh of the same window only
-     touches the newest candles so the chart keeps the user's zoom and scroll position. */
+  /* Apply candles. A new pair or interval replaces everything; a refresh of the same series only
+     updates the newest candles, so the chart keeps the user's zoom and scroll position and the
+     chart library never receives data older than what it already shows. */
   useEffect(() => {
     const candleSeries = candleSeriesRef.current;
     const volumeSeries = volumeSeriesRef.current;
     if (!candleSeries || !volumeSeries || !liveCandles || liveCandles.length === 0) return;
-    const shown = shownRef.current;
-    const sameWindow = shown.first === liveCandles[0].time && liveCandles.length >= shown.length && liveCandles.length - shown.length <= 2;
-    if (sameWindow) {
-      for (const c of liveCandles.slice(-3)) candleSeries.update(c);
-      for (const v of (liveVolume ?? []).slice(-3)) volumeSeries.update(v);
-    } else {
+    const lastShown = shownRef.current.last;
+    if (lastShown === null) {
       candleSeries.setData(liveCandles);
       volumeSeries.setData(liveVolume ?? []);
       chartRef.current?.timeScale().fitContent();
+    } else {
+      for (const c of liveCandles) if ((c.time as number) >= (lastShown as number)) candleSeries.update(c);
+      for (const v of liveVolume ?? []) if ((v.time as number) >= (lastShown as number)) volumeSeries.update(v);
     }
-    shownRef.current = { first: liveCandles[0].time, length: liveCandles.length };
+    shownRef.current = { last: liveCandles[liveCandles.length - 1].time };
     candlesRef.current = liveCandles;
   }, [liveCandles, liveVolume, symbol, interval]);
 

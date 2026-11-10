@@ -32,7 +32,9 @@ pub struct Quote {
 }
 
 pub fn valid_symbol(s: &str) -> bool {
-    (1..=10).contains(&s.len()) && s.bytes().all(|b| b.is_ascii_uppercase() || b.is_ascii_digit() || b == b'.' || b == b'-')
+    (1..=10).contains(&s.len())
+        && s.bytes()
+            .all(|b| b.is_ascii_uppercase() || b.is_ascii_digit() || b == b'.' || b == b'-')
 }
 
 pub fn parse_chart(raw: &str, symbol: &str) -> Option<Quote> {
@@ -70,9 +72,20 @@ pub fn parse_chart(raw: &str, symbol: &str) -> Option<Quote> {
         previous_close: previous,
         change: price - previous,
         change_pct: (price - previous) / previous * 100.0,
-        currency: meta.get("currency").and_then(|c| c.as_str()).unwrap_or("USD").to_string(),
-        exchange: meta.get("exchangeName").and_then(|c| c.as_str()).unwrap_or_default().to_string(),
-        updated_at: meta.get("regularMarketTime").and_then(|t| t.as_i64()).unwrap_or(0),
+        currency: meta
+            .get("currency")
+            .and_then(|c| c.as_str())
+            .unwrap_or("USD")
+            .to_string(),
+        exchange: meta
+            .get("exchangeName")
+            .and_then(|c| c.as_str())
+            .unwrap_or_default()
+            .to_string(),
+        updated_at: meta
+            .get("regularMarketTime")
+            .and_then(|t| t.as_i64())
+            .unwrap_or(0),
         sparkline,
     })
 }
@@ -80,8 +93,12 @@ pub fn parse_chart(raw: &str, symbol: &str) -> Option<Quote> {
 async fn fetch_quote(state: &AppState, symbol: &str) -> std::result::Result<Quote, UpstreamError> {
     let url = format!("{}/v8/finance/chart/{}", state.config.yahoo_base, symbol);
     let query = [("range", "1d".to_string()), ("interval", "5m".to_string())];
-    let v: Value = state.up.get_json_with("yahoo-finance", &url, &query, &[]).await?;
-    parse_chart(&v.to_string(), symbol).ok_or_else(|| UpstreamError::Parse(format!("no quote for {symbol}")))
+    let v: Value = state
+        .up
+        .get_json_with("yahoo-finance", &url, &query, &[])
+        .await?;
+    parse_chart(&v.to_string(), symbol)
+        .ok_or_else(|| UpstreamError::Parse(format!("no quote for {symbol}")))
 }
 
 #[derive(Deserialize)]
@@ -95,9 +112,17 @@ pub struct StocksResponse {
     failed: Vec<String>,
 }
 
-pub async fn get_quotes(State(state): State<Arc<AppState>>, Query(q): Query<StocksQuery>) -> Result<Json<StocksResponse>> {
+pub async fn get_quotes(
+    State(state): State<Arc<AppState>>,
+    Query(q): Query<StocksQuery>,
+) -> Result<Json<StocksResponse>> {
     let symbols: Vec<String> = match q.symbols.as_deref() {
-        Some(s) if !s.trim().is_empty() => s.split(',').map(|x| x.trim().to_ascii_uppercase()).filter(|x| !x.is_empty()).take(20).collect(),
+        Some(s) if !s.trim().is_empty() => s
+            .split(',')
+            .map(|x| x.trim().to_ascii_uppercase())
+            .filter(|x| !x.is_empty())
+            .take(20)
+            .collect(),
         _ => state.config.stock_watchlist.clone(),
     };
     if symbols.iter().any(|s| !valid_symbol(s)) {
@@ -109,7 +134,10 @@ pub async fn get_quotes(State(state): State<Arc<AppState>>, Query(q): Query<Stoc
         async move {
             let st2 = st.clone();
             let s2 = sym.clone();
-            let r = st.stock_cache.get_or_fetch(&sym, || async move { fetch_quote(&st2, &s2).await }).await;
+            let r = st
+                .stock_cache
+                .get_or_fetch(&sym, || async move { fetch_quote(&st2, &s2).await })
+                .await;
             (sym, r)
         }
     });
@@ -142,13 +170,21 @@ mod tests {
         let q = parse_chart(raw, "COIN").unwrap();
         assert_eq!(q.name, "Coinbase Global, Inc.");
         assert!((q.change_pct - 10.2).abs() < 1e-9);
-        assert_eq!(q.sparkline, vec![270.0, 272.5, 275.5], "null gaps are dropped");
+        assert_eq!(
+            q.sparkline,
+            vec![270.0, 272.5, 275.5],
+            "null gaps are dropped"
+        );
         assert_eq!(q.exchange, "NMS");
     }
 
     #[test]
     fn rejects_bad_payloads_and_symbols() {
-        assert!(parse_chart(r#"{"chart":{"result":null,"error":{"code":"Not Found"}}}"#, "X").is_none());
+        assert!(parse_chart(
+            r#"{"chart":{"result":null,"error":{"code":"Not Found"}}}"#,
+            "X"
+        )
+        .is_none());
         assert!(parse_chart(r#"{"chart":{"result":[{"meta":{"regularMarketPrice":1.0,"chartPreviousClose":0.0}}]}}"#, "X").is_none());
         assert!(valid_symbol("BRK-B"));
         assert!(valid_symbol("BF.B"));

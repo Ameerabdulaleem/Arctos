@@ -149,12 +149,31 @@ async fn status(State(state): State<Arc<AppState>>) -> Json<StatusResponse> {
         started_at: state.started_at,
         uptime_secs: state.started.elapsed().as_secs(),
         sources: state.up.snapshot(),
-        database: DbStatus { configured: state.config.database_url.is_some(), connected: state.db.is_some() },
-        ai: AiStatus { configured: state.config.anthropic_api_key.is_some() },
+        database: DbStatus {
+            configured: state.config.database_url.is_some(),
+            connected: state.db.is_some(),
+        },
+        ai: AiStatus {
+            configured: state.config.anthropic_api_key.is_some(),
+        },
         data: DataCounts {
-            tickers: state.binance.tickers.read().unwrap_or_else(|e| e.into_inner()).len(),
-            tickers_source: *state.binance.tickers_source.read().unwrap_or_else(|e| e.into_inner()),
-            coins: state.market.coins.read().unwrap_or_else(|e| e.into_inner()).len(),
+            tickers: state
+                .binance
+                .tickers
+                .read()
+                .unwrap_or_else(|e| e.into_inner())
+                .len(),
+            tickers_source: *state
+                .binance
+                .tickers_source
+                .read()
+                .unwrap_or_else(|e| e.into_inner()),
+            coins: state
+                .market
+                .coins
+                .read()
+                .unwrap_or_else(|e| e.into_inner())
+                .len(),
             news_articles: state.news.top(1000).len(),
             whale_events: state.whales.recent(1000, 0.0).len(),
         },
@@ -165,8 +184,28 @@ async fn health() -> &'static str {
     "ok"
 }
 
-fn ws_handler(channel: ws::Channel) -> impl Fn(WebSocketUpgrade, HeaderMap, State<Arc<AppState>>) -> std::pin::Pin<Box<dyn std::future::Future<Output = Response> + Send>> + Clone {
-    move |upgrade, headers, State(state)| Box::pin(ws::upgrade(upgrade, headers, state, channel))
+async fn ws_market(
+    upgrade: WebSocketUpgrade,
+    headers: HeaderMap,
+    State(state): State<Arc<AppState>>,
+) -> Response {
+    ws::upgrade(upgrade, headers, state, ws::Channel::Market).await
+}
+
+async fn ws_whales(
+    upgrade: WebSocketUpgrade,
+    headers: HeaderMap,
+    State(state): State<Arc<AppState>>,
+) -> Response {
+    ws::upgrade(upgrade, headers, state, ws::Channel::Whales).await
+}
+
+async fn ws_sniper(
+    upgrade: WebSocketUpgrade,
+    headers: HeaderMap,
+    State(state): State<Arc<AppState>>,
+) -> Response {
+    ws::upgrade(upgrade, headers, state, ws::Channel::Sniper).await
 }
 
 fn cors_layer(config: &Config) -> CorsLayer {
@@ -178,7 +217,11 @@ fn cors_layer(config: &Config) -> CorsLayer {
         tracing::warn!("FRONTEND_ORIGINS is not set: accepting any origin. Set it in production.");
         return base.allow_origin(AllowOrigin::any());
     }
-    let origins: Vec<HeaderValue> = config.frontend_origins.iter().filter_map(|o| o.parse().ok()).collect();
+    let origins: Vec<HeaderValue> = config
+        .frontend_origins
+        .iter()
+        .filter_map(|o| o.parse().ok())
+        .collect();
     base.allow_origin(origins)
 }
 
@@ -206,25 +249,37 @@ pub fn build_router(state: Arc<AppState>) -> Router {
         .route("/api/stocks", get(stocks::get_quotes))
         // AI and waitlist
         .route("/api/ai/status", get(ai::status))
-        .route("/api/ai/chat", post(ai::chat).layer(DefaultBodyLimit::max(48 * 1024)))
+        .route(
+            "/api/ai/chat",
+            post(ai::chat).layer(DefaultBodyLimit::max(48 * 1024)),
+        )
         .route("/api/waitlist", post(waitlist::join))
         .route("/api/waitlist/count", get(waitlist::count))
         // Live streams
-        .route("/ws/market", get(ws_handler(ws::Channel::Market)))
-        .route("/ws/whales", get(ws_handler(ws::Channel::Whales)))
-        .route("/ws/sniper", get(ws_handler(ws::Channel::Sniper)));
+        .route("/ws/market", get(ws_market))
+        .route("/ws/whales", get(ws_whales))
+        .route("/ws/sniper", get(ws_sniper));
 
     let static_header = |name: &'static str, value: &'static str| {
-        SetResponseHeaderLayer::if_not_present(HeaderName::from_static(name), HeaderValue::from_static(value))
+        SetResponseHeaderLayer::if_not_present(
+            HeaderName::from_static(name),
+            HeaderValue::from_static(value),
+        )
     };
 
     api.layer(DefaultBodyLimit::max(8 * 1024))
-        .layer(middleware::from_fn_with_state(state.clone(), ratelimit::middleware))
+        .layer(middleware::from_fn_with_state(
+            state.clone(),
+            ratelimit::middleware,
+        ))
         .layer(cors_layer(&state.config))
         .layer(static_header("x-content-type-options", "nosniff"))
         .layer(static_header("referrer-policy", "no-referrer"))
         .layer(static_header("cache-control", "no-store"))
-        .layer(static_header("content-security-policy", "default-src 'none'; frame-ancestors 'none'"))
+        .layer(static_header(
+            "content-security-policy",
+            "default-src 'none'; frame-ancestors 'none'",
+        ))
         .layer(CompressionLayer::new())
         .layer(TimeoutLayer::new(Duration::from_secs(100)))
         .layer(TraceLayer::new_for_http())

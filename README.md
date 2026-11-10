@@ -1,201 +1,142 @@
-# ARCTOS
+# Arctos
 
-Arctos is a multi-chain trading platform interface focused on AI-assisted workflows, whale activity awareness, waitlist onboarding, and wallet-first user access.
+Arctos is a crypto trading workspace that puts live market data, whale tracking, new token discovery, fundamental news, public stock quotes and an AI assistant in one place.
 
-This repository contains:
-- A React + TypeScript + Vite frontend app
-- Serverless API routes for waitlist and email delivery
-- A Rust backend scaffold (`backend/`) for future real-time/data services
+Everything you see on screen comes from a live source. When a source is down, Arctos says so instead of showing made up numbers.
 
-## Current Status
-
-This is an actively evolving public build. Some modules are production-ready UI/UX, while some backend-intensive features are currently scaffolded or mocked.
-
-## Features
-
-- Landing/home experience with waitlist funnel
-- Waitlist submission flow with email confirmation support
-- Wallet connection support for:
-  - MetaMask
-  - Phantom
-  - Rabby
-  - OKX
-- Application sections for:
-  - Dashboard
-  - Trading Terminal
-  - Sniper Panel
-  - Whale Alerts
-  - AI Chat
-  - Trade Book
-  - Fundamental News
-  - Settings
-- Theme-aware UI (dark/light)
-- Toast notifications and modal-driven onboarding
-
-## Tech Stack
-
-- Frontend: React 19, TypeScript, Vite
-- Styling: Tailwind CSS
-- Forms/validation: React Hook Form + Zod
-- Charts: Recharts
-- Notifications: Sonner
-- Serverless API: Vercel Functions (Node.js)
-- Email transport: Nodemailer (via Brevo SMTP)
-- Optional backend scaffold: Rust (Axum + Tokio)
-
-## Project Structure
+## How it is built
 
 ```text
-.
-├─ src/
-│  ├─ app/
-│  │  ├─ components/
-│  │  ├─ contexts/
-│  │  └─ services/
-│  ├─ styles/
-│  └─ main.tsx
-├─ api/
-│  ├─ waitlist.js
-│  └─ brevo.js
-├─ backend/
-│  └─ src/main.rs
-└─ .github/
-   ├─ workflows/
-   └─ PROJECT_SPECIFICATIONS.md
+Browser (React + Vite, hosted on Vercel)
+   |  REST and WebSocket
+   v
+Arctos data service (Rust, Axum + Tokio)   <-- this is where the speed comes from
+   |  keeps everything hot in memory, caches, rate limits, health checks
+   v
+CoinGecko, Binance, Alternative.me, DexScreener, GeckoTerminal, GoPlus, Blockchair,
+public chain RPC (Ethereum, BNB Chain, Base, Arbitrum, Solana), crypto RSS feeds,
+Yahoo Finance, Anthropic (AI)
 ```
 
-## Local Development
+The Rust service does all the heavy work: it polls providers on a schedule, shares one upstream call between many visitors, relays the live price stream over a WebSocket, scans chains for large transfers, and serves the AI assistant so the API key never reaches the browser.
 
-### 1) Prerequisites
+## What is live
 
-- Node.js 18+
-- npm 9+
+| Page | Data | Source |
+| --- | --- | --- |
+| Homepage | Prices, market cap, volume, dominance, Fear and Greed | Binance stream, CoinGecko, Alternative.me |
+| Dashboard | Market widgets, altseason index, top movers, headlines, whale feed, wallet balances | All of the above plus chain RPC |
+| Trading Terminal | Candles, order book, recent trades, live prices | Binance (public market data) |
+| Sniper Engine | New liquidity pools on 5 chains, token search, contract risk checks | GeckoTerminal, DexScreener, GoPlus |
+| Whale Alerts | Large transfers on Ethereum, BNB Chain, Base, Arbitrum and Bitcoin | Chain RPC, Blockchair |
+| Fundamental News | Headlines scored by impact | 8 crypto RSS feeds |
+| Stocks & PRE-IPO | Public stock quotes | Yahoo Finance |
+| AI Chat | Answers grounded in the live data above and your own portfolio | Anthropic API, called by the server |
 
-### 2) Install dependencies
+Two numbers are computed by the service from real coin data, not copied from somewhere: the **altseason index** (share of the top 50 coins that beat Bitcoin over 30 days) and the **market cap trend** (top 10 coins over 7 days).
+
+## What is simulated, and what is not covered
+
+Be clear about these before you rely on the app:
+
+* **Trading is paper trading.** Orders in the terminal and the sniper are simulated against the real order book and real prices, with a 0.1 percent fee, limit orders, take profit and stop loss. No real funds move and no wallet signature is ever requested. Real execution through a DEX aggregator needs a signing flow that deserves its own careful build and testing.
+* **PRE-IPO cards are static.** Private companies have no free live price feed. The listings and valuations in `src/app/data/preIpoListings.ts` are maintained by hand and are labelled as possibly out of date. Update them when you refresh the cards.
+* **Solana whale alerts are not available yet.** A reliable Solana feed needs a dedicated RPC provider. The page says so.
+* **DeFi positions and NFTs are not read.** Wallet balances cover native coins and major tokens (stablecoins, wrapped ETH, BNB and BTC). Positions need an indexer.
+* **Whale direction labels** only appear for a short built in list of well known exchange wallets. Everything else is shown as a plain transfer.
+* **Accounts are local to the browser.** Email sign in stores a salted PBKDF2 hash on the device. There is no cloud account system yet. Wallet connection is read only.
+
+## Run it locally
+
+You need Node 22 and Rust (stable).
 
 ```bash
-npm install
-```
-
-### 3) Create local environment file
-
-Create a `.env` file in the project root with placeholders like this:
-
-```env
-VITE_APP_URL=http://localhost:5173
-VITE_APP_ENV=development
-VITE_APP_MOCK_MODE=true
-VITE_APP_WALLET_CONNECTION_MOCK=true
-VITE_API_BASE=
-
-# Brevo / SMTP (set real values only in hosting provider for production)
-BREVO_SMTP_LOGIN=your-smtp-login@smtp-brevo.com
-BREVO_SMTP_PASSWORD=your-smtp-password
-BREVO_FROM_EMAIL=your-verified-sender@example.com
-BREVO_FROM_NAME=ARCTOS Team
-BREVO_HOST=smtp-relay.brevo.com
-BREVO_PORT=587
-
-# Backward-compat variables accepted by the current serverless handler:
-# VITE_BREVO_SMTP_LOGIN=
-# VITE_BREVO_SMTP_PASSWORD=
-# VITE_BREVO_FROM_EMAIL=
-# VITE_BREVO_FROM_NAME=
-# VITE_BREVO_HOST=
-# VITE_BREVO_PORT=
-```
-
-### 4) Run the app
-
-```bash
-npm run dev
-```
-
-App default URL: `http://localhost:5173`
-
-## Scripts
-
-- `npm run dev` — start Vite dev server
-- `npm run build` — type-check + production build
-- `npm run preview` — preview built app locally
-- `npm run lint` — run ESLint
-
-## API Routes
-
-### `POST /api/waitlist`
-
-Stateless waitlist endpoint that validates an email and returns success for frontend flow control.
-
-### `POST /api/brevo`
-
-Sends onboarding/welcome emails using SMTP credentials from environment variables.
-
-## Environment Variables
-
-### Frontend
-
-- `VITE_APP_URL`
-- `VITE_APP_ENV`
-- `VITE_APP_MOCK_MODE`
-- `VITE_APP_WALLET_CONNECTION_MOCK`
-- `VITE_API_BASE`
-
-### Serverless email (`api/brevo.js`)
-
-Preferred variable names:
-- `BREVO_SMTP_LOGIN`
-- `BREVO_SMTP_PASSWORD`
-- `BREVO_FROM_EMAIL`
-- `BREVO_FROM_NAME`
-- `BREVO_HOST`
-- `BREVO_PORT`
-- `BREVO_REPLY_TO` (optional)
-
-Backward compatibility currently exists for matching `VITE_BREVO_*` names to avoid breaking existing Vercel setups.
-
-## Security Notes (Important)
-
-- Never commit real credentials to git
-- Keep `.env` local only
-- Store production secrets in Vercel environment variables
-- Rotate SMTP/API credentials immediately if they were ever exposed
-
-Repository ignore rules already cover `.env*` while allowing `.env.example`.
-
-## Deployment
-
-The project is configured for Vercel:
-- Build command: `npm run build`
-- Output directory: `dist`
-
-A GitHub Actions workflow exists at `.github/workflows/deploy-vercel.yml` to deploy on `main` and update `VITE_API_BASE` in Vercel.
-
-## Rust Backend Scaffold (Optional)
-
-The `backend/` directory contains an Axum/Tokio starter service (`http://127.0.0.1:4000`) intended for future data, websocket, and chain integrations.
-
-Run locally:
-
-```bash
+# 1. The data service (port 4000). Copy backend/.env.example to backend/.env first if you want AI, email or a database.
 cd backend
-cargo build
 cargo run
 ```
 
-## Key Docs
+```bash
+# 2. The web app (port 5173). Vite proxies /api and /ws to the service.
+npm install
+npm run dev
+```
 
-- Product and implementation roadmap: `.github/PROJECT_SPECIFICATIONS.md`
-- Rust dependency notes: `.github/RUST_DEPENDENCIES.md`
-- Production deployment checklist: `PRODUCTION_SETUP_CHECKLIST.md`
-- Email diagnostics: `EMAIL_DELIVERY_DIAGNOSTIC.md`
+Open http://localhost:5173. Add `ANTHROPIC_API_KEY` to `backend/.env` to switch on the AI assistant.
 
-## Contributing
+### Running without internet access to the providers
 
-1. Fork the repo
-2. Create a feature branch
-3. Run lint/build before opening a PR
-4. Keep secrets out of commits
+Some networks block the public APIs. `scripts/dev-fixtures` serves canned responses shaped like the real ones, so you can run and test the whole stack offline. This is test tooling only and is never part of the site.
+
+```bash
+npm run fixtures                          # fake upstream on :4999
+./scripts/dev-fixtures/run-backend.sh     # Rust service pointed at it
+npm run dev                               # web app
+npm run e2e                               # optional browser walkthrough, needs Playwright
+```
+
+## Configuration
+
+Web app (`.env.example`):
+
+| Variable | Purpose |
+| --- | --- |
+| `VITE_RUST_BACKEND_URL` | Public URL of the deployed data service. Required for production builds. |
+| `VITE_APP_WAITLIST_GATE` | `true` sends "Launch app" to the waitlist form instead of opening the app. |
+| `VITE_SOCIAL_X`, `VITE_SOCIAL_TELEGRAM`, `VITE_SOCIAL_GITHUB` | Optional footer links. |
+
+Data service (`backend/.env.example`):
+
+| Variable | Purpose |
+| --- | --- |
+| `FRONTEND_ORIGINS` | Comma separated site origins allowed to call the service. Set this in production. |
+| `TRUST_PROXY` | `true` behind your own proxy so rate limits see the real client IP. |
+| `ANTHROPIC_API_KEY`, `ANTHROPIC_MODEL`, `ANTHROPIC_EFFORT` | AI assistant. The default model is `claude-opus-5-5`. |
+| `DATABASE_URL` | PostgreSQL for real waitlist positions (optional). |
+| `MAIL_*`, `PUBLIC_SITE_URL` | SMTP settings for the welcome email (optional). |
+| `COINGECKO_API_KEY`, `BLOCKCHAIR_API_KEY` | Optional keys that raise provider limits. |
+| `*_RPC_URL`, `TRACKED_SYMBOLS`, `WHALE_MIN_USD`, `STOCK_WATCHLIST`, `NEWS_FEEDS` | Optional tuning. |
+
+Every provider base URL can also be overridden, which is how the fixtures work.
+
+## Deploy
+
+1. **Data service.** Build and run `backend/Dockerfile` on any container host (Fly.io, Render, Railway, a VPS). Set `FRONTEND_ORIGINS`, `TRUST_PROXY=true`, and your keys. Check `GET /api/status` after it starts; it lists every provider and whether it is reachable from that host.
+2. **Web app.** Deploy to Vercel with `VITE_RUST_BACKEND_URL` set to the service URL. `vercel.json` already adds a strict Content Security Policy and the other security headers.
+3. **CI.** `.github/workflows/ci.yml` runs lint, tests, the build and `cargo clippy` on every push. `deploy-vercel.yml` deploys `main` with the official Vercel CLI and needs `VERCEL_TOKEN`, `VERCEL_ORG_ID` and `VERCEL_PROJECT_ID` secrets.
+
+Some hosting regions are blocked by Binance. The service tries `data-api.binance.vision` first and `api.binance.com` second. If both are refused from your region, `/api/status` shows it and you can host the service somewhere else.
+
+## Security notes
+
+* The AI key lives only on the server. Requests are limited per client, origin checked, size capped, and the system prompt is built on the server, so the browser cannot change the assistant's rules.
+* External text (headlines, token names) is sanitised on the server and rendered as plain text. Links are only opened if they are http or https.
+* The waitlist sends one server templated email per new address. Clients cannot choose the subject or body, so the endpoint cannot be used as a mail relay.
+* The service enforces per client rate limits, a body size limit, timeouts, strict response headers, and an origin allow list for costly endpoints.
+* A failed contract risk check is shown as "no risk data", never as "safe".
+* Never commit `.env` files. Rotate any key that was ever exposed, including SMTP credentials from earlier versions of this project.
+
+## Tests
+
+```bash
+npm test                          # unit tests for the paper trading engine, formatting, trade book, password hashing
+npm run lint && npm run build
+cd backend && cargo test          # 46 unit tests and 5 end to end tests against a fake upstream
+cd backend && cargo clippy --all-targets -- -D warnings
+```
+
+Tests use fixtures shaped like the provider responses. They prove the code handles those shapes, not that a provider is reachable from your host. For that, open Settings and look at the Data sources panel, or call `/api/status`.
+
+## Repository layout
+
+```text
+src/app/            React app: components, services (API clients), contexts, hooks, lib (pure logic)
+backend/src/        Rust service: market, binance, whales, sniper, news, stocks, portfolio, ai, waitlist
+backend/tests/      End to end test with a fake upstream
+scripts/            Dev fixtures and the browser walkthrough
+.github/workflows/  CI and deploy
+```
 
 ## Disclaimer
 
-Arctos is under active development. Nothing in this repository is financial advice.
+Arctos is early software. Nothing in it is financial advice. Crypto assets are volatile and new tokens are often scams. Risk scores are automated and can be wrong.

@@ -44,7 +44,11 @@ pub async fn upgrade(
 }
 
 fn current_tickers_message(state: &AppState) -> Option<String> {
-    let map = state.binance.tickers.read().unwrap_or_else(|e| e.into_inner());
+    let map = state
+        .binance
+        .tickers
+        .read()
+        .unwrap_or_else(|e| e.into_inner());
     let data: Vec<_> = state
         .config
         .tracked_symbols
@@ -54,7 +58,11 @@ fn current_tickers_message(state: &AppState) -> Option<String> {
     if data.is_empty() {
         return None;
     }
-    let source = *state.binance.tickers_source.read().unwrap_or_else(|e| e.into_inner());
+    let source = *state
+        .binance
+        .tickers_source
+        .read()
+        .unwrap_or_else(|e| e.into_inner());
     Some(serde_json::json!({ "type": "tickers", "source": source, "data": data }).to_string())
 }
 
