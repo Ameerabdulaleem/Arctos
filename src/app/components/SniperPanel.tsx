@@ -1,542 +1,392 @@
-import { useEffect, useMemo, useState } from 'react';
-import {
-  Zap,
-  Play,
-  Pause,
-  Settings,
-  Plus,
-  Target,
-  Clock,
-  Search,
-  Loader2,
-  Info,
-} from 'lucide-react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { ExternalLink, Loader2, Play, Pause, Plus, Search, ShieldAlert, ShieldCheck, ShieldQuestion, Target, X } from 'lucide-react';
 import { toast } from 'sonner';
-import { useAuth } from '../contexts/AuthContext';
-import { WalletConnectionModal } from './WalletConnectionModal';
+import { Card, Empty, ErrorNotice, Loading, PaperBadge, Pill } from './ui/common';
+import { usePaper } from '../contexts/paper-context';
+import { usePolling } from '../hooks/usePolling';
+import { errorMessage, openSocket } from '../services/api';
 import {
-  sniperService,
-  type SniperToken,
-  type SniperConfig,
-  type SupportedChain,
-  type SniperExecution,
+  DEFAULT_FILTERS, SNIPER_CHAINS, chainLabel, passesFilters, sniperService,
+  type Security, type SniperChain, type SniperFilters, type SniperToken,
 } from '../services/sniperService';
+import { formatCompactUsd, formatNumber, formatPct, formatPrice, formatUsd, pnlClass, safeHref, timeAgo } from '../lib/format';
 
-const CHAINS: { value: SupportedChain; label: string }[] = [
-  { value: 'solana', label: 'Solana' },
-  { value: 'bnb', label: 'BNB Chain' },
-  { value: 'base', label: 'Base' },
-  { value: 'ethereum', label: 'Ethereum' },
-  { value: 'arbitrum', label: 'Arbitrum' },
-  { value: 'other', label: 'Other' },
+const FILTERS_KEY = 'arctos_sniper_filters';
+const TRACKED_KEY = 'arctos_sniper_tracked';
+const AUTO_KEY = 'arctos_sniper_auto_done';
+const MAX_AUTO_POSITIONS = 5;
+
+function readJson<T>(key: string, fallback: T): T {
+  try {
+    const raw = localStorage.getItem(key);
+    return raw ? (JSON.parse(raw) as T) : fallback;
+  } catch {
+    return fallback;
+  }
+}
+function writeJson(key: string, value: unknown) {
+  try {
+    localStorage.setItem(key, JSON.stringify(value));
+  } catch {
+    /* storage unavailable */
+  }
+}
+
+function loadFilters(): SniperFilters {
+  const stored = readJson<Partial<SniperFilters>>(FILTERS_KEY, {});
+  const out = { ...DEFAULT_FILTERS };
+  for (const k of Object.keys(out) as Array<keyof SniperFilters>) {
+    const v = stored[k];
+    if (typeof v === 'number' && Number.isFinite(v) && v >= 0) out[k] = v;
+  }
+  return out;
+}
+
+const FIELDS: Array<{ key: keyof SniperFilters; label: string; help: string; max: number }> = [
+  { key: 'minLiquidityUsd', label: 'Min liquidity ($)', help: 'Skip pools with less liquidity than this.', max: 1e9 },
+  { key: 'maxRiskScore', label: 'Max risk score (0 to 100)', help: 'From the contract risk check. Lower is safer.', max: 100 },
+  { key: 'maxTaxPct', label: 'Max buy or sell tax (%)', help: 'Reject tokens that tax trades above this.', max: 100 },
+  { key: 'maxPositionUsd', label: 'Position size ($)', help: 'Paper money spent per snipe.', max: 1e7 },
+  { key: 'takeProfitPct', label: 'Take profit (%)', help: 'Sell automatically at this gain. 0 turns it off.', max: 100000 },
+  { key: 'stopLossPct', label: 'Stop loss (%)', help: 'Sell automatically at this loss. 0 turns it off.', max: 100 },
 ];
 
-export function SniperPanel() {
-  const { isWalletConnected, user } = useAuth();
+function RiskBadge({ security }: { security: Security | 'loading' | undefined }) {
+  if (!security || security === 'loading') {
+    return <Pill tone="zinc"><Loader2 className="w-3 h-3 animate-spin" aria-hidden />Checking risk</Pill>;
+  }
+  if (!security.available) return <Pill tone="zinc"><ShieldQuestion className="w-3 h-3" aria-hidden />No risk data</Pill>;
+  if (security.riskLevel === 'low') return <Pill tone="green"><ShieldCheck className="w-3 h-3" aria-hidden />Low risk {security.riskScore}</Pill>;
+  if (security.riskLevel === 'medium') return <Pill tone="amber"><ShieldAlert className="w-3 h-3" aria-hidden />Medium risk {security.riskScore}</Pill>;
+  return <Pill tone="red"><ShieldAlert className="w-3 h-3" aria-hidden />High risk {security.riskScore}</Pill>;
+}
 
-  const [isActive, setIsActive] = useState(false);
-  const [tokens, setTokens] = useState<SniperToken[]>([]);
-  const [recentSnipes, setRecentSnipes] = useState<SniperExecution[]>([]);
-  const [selectedToken, setSelectedToken] = useState<SniperToken | null>(null);
-  const [walletModalOpen, setWalletModalOpen] = useState(false);
-
-  const [searchInput, setSearchInput] = useState('');
-  const [searchChain, setSearchChain] = useState<SupportedChain>('solana');
-  const [isSearching, setIsSearching] = useState(false);
-  const [isSavingConfig, setIsSavingConfig] = useState(false);
-  const [isTogglingBot, setIsTogglingBot] = useState(false);
-  const [isSnipingNow, setIsSnipingNow] = useState<string | null>(null);
-
-  const [config, setConfig] = useState<SniperConfig>(sniperService.getDefaultConfig());
-
-  useEffect(() => {
-    let mounted = true;
-
-    const loadTokens = async () => {
-      const list = await sniperService.getTrackedTokens();
-      if (mounted) {
-        setTokens(list);
-      }
-    };
-
-    void loadTokens();
-
-    const unsubscribe = sniperService.subscribeToUpdates((event) => {
-      if (event.type === 'token_update' && event.token) {
-        setTokens((previous) =>
-          previous.map((token) => (token.id === event.token?.id ? { ...token, ...event.token } : token)),
-        );
-      }
-
-      if (event.type === 'execution' && event.execution) {
-        const execution = event.execution;
-        setRecentSnipes((previous) => [execution, ...previous].slice(0, 20));
-      }
-    });
-
-    return () => {
-      mounted = false;
-      unsubscribe();
-    };
-  }, []);
-
-  const activeSnipes = useMemo(() => tokens.filter((token) => token.status === 'active').length, [tokens]);
-
-  const successRate = useMemo(() => {
-    if (!recentSnipes.length) return 0;
-    const successCount = recentSnipes.filter((entry) => entry.success).length;
-    return (successCount / recentSnipes.length) * 100;
-  }, [recentSnipes]);
-
-  const setConfigValue = <K extends keyof SniperConfig>(key: K, value: SniperConfig[K]) => {
-    setConfig((previous) => ({ ...previous, [key]: value }));
-  };
-
-  const handleAddToken = async () => {
-    const query = searchInput.trim();
-    if (!query) {
-      toast.error('Enter token name or contract address');
-      return;
-    }
-
-    setIsSearching(true);
-    try {
-      const token = await sniperService.searchToken(query, searchChain);
-      if (!token) {
-        toast.error('Token not found on selected chain');
-        return;
-      }
-
-      setTokens((previous) => {
-        const exists = previous.some((item) => item.address.toLowerCase() === token.address.toLowerCase());
-        if (exists) return previous;
-        return [token, ...previous];
-      });
-
-      setSearchInput('');
-      toast.success(`Added ${token.symbol} (${sniperService.formatChain(token.chain)}) to tracked tokens`);
-    } catch {
-      toast.error('Unable to fetch token now. Try again.');
-    } finally {
-      setIsSearching(false);
-    }
-  };
-
-  const handleSaveConfiguration = async () => {
-    setIsSavingConfig(true);
-    try {
-      const saved = await sniperService.saveConfig(config);
-      if (!saved) {
-        toast.error('Configuration save failed on backend');
-        return;
-      }
-      toast.success('Configuration saved');
-    } finally {
-      setIsSavingConfig(false);
-    }
-  };
-
-  const handleToggleBot = async () => {
-    if (!isWalletConnected) {
-      toast.error('Connect wallet before enabling sniper bot');
-      setWalletModalOpen(true);
-      return;
-    }
-
-    const nextState = !isActive;
-    setIsTogglingBot(true);
-
-    try {
-      const ok = await sniperService.setBotState(nextState, user?.walletAddress);
-      if (!ok) {
-        toast.error('Could not update bot status on backend');
-        return;
-      }
-
-      setIsActive(nextState);
-      toast.success(nextState ? 'Sniper bot activated' : 'Sniper bot paused');
-    } finally {
-      setIsTogglingBot(false);
-    }
-  };
-
-  const handleSnipe = async (token: SniperToken) => {
-    if (!isWalletConnected) {
-      toast.error('Connect wallet before sniping');
-      setWalletModalOpen(true);
-      return;
-    }
-
-    setSelectedToken(token);
-    setIsSnipingNow(token.id);
-
-    try {
-      const execution = await sniperService.snipeNow(token, user?.walletAddress);
-      if (!execution) {
-        toast.error('Snipe request failed');
-        return;
-      }
-
-      setRecentSnipes((previous) => [execution, ...previous].slice(0, 20));
-      setTokens((previous) =>
-        previous.map((item) => (item.id === token.id ? { ...item, status: 'triggered' } : item)),
-      );
-
-      if (execution.success) {
-        toast.success(`Snipe executed for ${token.symbol}`);
-      } else {
-        toast.error(`Snipe failed for ${token.symbol}`);
-      }
-    } finally {
-      setIsSnipingNow(null);
-    }
-  };
-
+function TokenCard({ token, security, filters, held, onSnipe, onTrack, tracked }: {
+  token: SniperToken; security: Security | 'loading' | undefined; filters: SniperFilters; held: boolean;
+  onSnipe: (t: SniperToken) => void; onTrack?: (t: SniperToken) => void; tracked?: boolean;
+}) {
+  const sec = security && security !== 'loading' ? security : undefined;
+  const verdict = passesFilters(token, sec, filters);
+  const link = safeHref(token.url);
   return (
-    <div className="h-full bg-black p-6 overflow-auto">
-      <div className="mb-6">
-        <div className="flex items-center justify-between mb-2">
-          <h1 className="text-2xl font-bold text-white flex items-center gap-3 tracking-tight">
-            <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-yellow-500 to-orange-600 flex items-center justify-center shadow-lg shadow-yellow-600/20">
-              <Zap className="w-5 h-5 text-white" />
-            </div>
-            Sniper Engine
-          </h1>
-          <div className="flex items-center gap-3">
-            {isActive && (
-              <span className="flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-green-500/10 border border-green-500/20 text-xs text-green-400 font-medium">
-                <span className="w-1.5 h-1.5 rounded-full bg-green-400 animate-pulse" />
-                Scanning
-              </span>
-            )}
-            <button
-              onClick={handleToggleBot}
-              disabled={isTogglingBot}
-              className={`flex items-center gap-2 px-5 py-2.5 rounded-lg font-medium text-sm transition-all shadow-lg ${
-                isActive
-                  ? 'bg-green-600 hover:bg-green-700 text-white shadow-green-600/20'
-                  : !isWalletConnected
-                  ? 'bg-blue-600 hover:bg-blue-700 text-white shadow-blue-600/20'
-                  : 'bg-zinc-800 hover:bg-zinc-700 text-zinc-300 shadow-none border border-zinc-700'
-              }`}
-            >
-              {isTogglingBot ? (
-                <Loader2 className="w-4 h-4 animate-spin" />
-              ) : isActive ? (
-                <Pause className="w-4 h-4" />
-              ) : !isWalletConnected ? (
-                <Plus className="w-4 h-4" />
-              ) : (
-                <Play className="w-4 h-4" />
-              )}
-              {isActive ? 'Active' : !isWalletConnected ? 'Connect Wallet' : 'Start Bot'}
-            </button>
+    <article className="p-4 bg-zinc-800/40 rounded-xl border border-zinc-700/50 hover:border-zinc-600/70 transition-colors">
+      <div className="flex items-start justify-between gap-3 mb-3">
+        <div className="min-w-0">
+          <div className="flex items-center gap-2 flex-wrap mb-1">
+            <h3 className="text-white font-bold text-lg truncate max-w-[10rem]">{token.symbol}</h3>
+            <Pill tone="zinc">{chainLabel(token.chain)}</Pill>
+            <RiskBadge security={security} />
+            {held && <Pill tone="blue">Holding</Pill>}
           </div>
+          <p className="text-zinc-400 text-sm truncate">{token.name}</p>
+          <p className="text-zinc-600 text-xs mt-0.5">{token.createdAt ? `Pool created ${timeAgo(token.createdAt)}` : 'Pool age unknown'}{token.dex ? ` on ${token.dex}` : ''}</p>
         </div>
-        <p className="text-zinc-500 text-sm">Cross-chain sniper engine with configurable filters and wallet-gated execution.</p>
-      </div>
-
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-        <div className="bg-zinc-900/80 border border-zinc-800/60 rounded-xl p-6">
-          <div className="flex items-center justify-between mb-6">
-            <h2 className="text-lg font-semibold text-white flex items-center gap-2 tracking-tight">
-              <Settings className="w-4 h-4 text-zinc-400" />
-              Configuration
-            </h2>
-          </div>
-
-          <div className="space-y-4">
-            <ConfigField
-              label="Min Liquidity ($K)"
-              help="Minimum pool liquidity allowed before bot can buy. Helps avoid illiquid traps."
-              value={config.minLiquidityUsdK}
-              onChange={(value) => setConfigValue('minLiquidityUsdK', value)}
-            />
-            <ConfigField
-              label="Max Buy Tax (%)"
-              help="Reject tokens if buy tax is above this percent."
-              value={config.maxBuyTaxPercent}
-              onChange={(value) => setConfigValue('maxBuyTaxPercent', value)}
-            />
-            <ConfigField
-              label="Max Sell Tax (%)"
-              help="Reject tokens if sell tax is above this percent."
-              value={config.maxSellTaxPercent}
-              onChange={(value) => setConfigValue('maxSellTaxPercent', value)}
-            />
-            <ConfigField
-              label="Gas Price (Gwei)"
-              help="Priority fee for EVM chains; higher means faster inclusion."
-              value={config.gasPriceGwei}
-              onChange={(value) => setConfigValue('gasPriceGwei', value)}
-            />
-            <ConfigField
-              label="Slippage (%)"
-              help="Max allowed execution slippage before transaction is canceled."
-              value={config.slippagePercent}
-              onChange={(value) => setConfigValue('slippagePercent', value)}
-            />
-            <ConfigField
-              label="Max Position ($)"
-              help="Maximum USD amount to spend for one snipe."
-              value={config.maxPositionUsd}
-              onChange={(value) => setConfigValue('maxPositionUsd', value)}
-            />
-            <ConfigField
-              label="Min Creator Win Rate (%)"
-              help="Minimum historical creator success rate required to allow buy."
-              value={config.minCreatorWinRate}
-              onChange={(value) => setConfigValue('minCreatorWinRate', value)}
-            />
-            <ConfigField
-              label="Max Risk Score"
-              help="Upper risk score threshold from your backend token-risk engine."
-              value={config.maxRiskScore}
-              onChange={(value) => setConfigValue('maxRiskScore', value)}
-            />
-            <ConfigField
-              label="Auto Take Profit (%)"
-              help="Automatically close profitable position at this gain."
-              value={config.autoTakeProfitPercent}
-              onChange={(value) => setConfigValue('autoTakeProfitPercent', value)}
-            />
-            <ConfigField
-              label="Auto Stop Loss (%)"
-              help="Automatically close losing position at this drawdown."
-              value={config.autoStopLossPercent}
-              onChange={(value) => setConfigValue('autoStopLossPercent', value)}
-            />
-
-            <button
-              onClick={handleSaveConfiguration}
-              disabled={isSavingConfig}
-              className="w-full py-3 bg-blue-600 text-white rounded-xl hover:bg-blue-700 transition-all font-medium disabled:opacity-70 shadow-lg shadow-blue-600/10 text-sm"
-            >
-              {isSavingConfig ? 'Saving...' : 'Save Configuration'}
-            </button>
-          </div>
-
-          <div className="mt-6 pt-6 border-t border-zinc-800">
-            <h3 className="text-white font-medium mb-3">Quick Stats</h3>
-            <div className="space-y-2 text-sm">
-              <StatRow label="Tokens Tracked" value={`${tokens.length}`} />
-              <StatRow label="Active Snipes" value={`${activeSnipes}`} valueClass="text-green-500" />
-              <StatRow label="Success Rate" value={`${successRate.toFixed(1)}%`} />
-            </div>
-          </div>
-        </div>
-
-        <div className="lg:col-span-2 bg-zinc-900/80 border border-zinc-800/60 rounded-xl p-6">
-          <div className="flex items-center justify-between mb-4 gap-3 flex-wrap">
-            <h2 className="text-lg font-semibold text-white tracking-tight">Tracked Tokens</h2>
-            <div className="flex items-center gap-2 flex-wrap">
-              <select
-                value={searchChain}
-                onChange={(event) => setSearchChain(event.target.value as SupportedChain)}
-                className="bg-zinc-800 text-zinc-200 px-3 py-2 rounded-lg border border-zinc-700 text-sm"
-              >
-                {CHAINS.map((chain) => (
-                  <option key={chain.value} value={chain.value}>
-                    {chain.label}
-                  </option>
-                ))}
-              </select>
-              <div className="relative">
-                <Search className="w-4 h-4 text-zinc-500 absolute left-3 top-1/2 -translate-y-1/2" />
-                <input
-                  value={searchInput}
-                  onChange={(event) => setSearchInput(event.target.value)}
-                  placeholder="Token symbol, name, or address"
-                  className="bg-zinc-800 text-zinc-100 pl-9 pr-3 py-2 rounded-lg border border-zinc-700 text-sm min-w-[220px]"
-                />
-              </div>
-              <button
-                onClick={handleAddToken}
-                disabled={isSearching}
-                className="flex items-center gap-2 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors disabled:opacity-70"
-              >
-                {isSearching ? <Loader2 className="w-4 h-4 animate-spin" /> : <Plus className="w-4 h-4" />}
-                Add Token
-              </button>
-            </div>
-          </div>
-
-          <p className="text-zinc-500 text-xs mb-5 flex items-center gap-2">
-            <Info className="w-3.5 h-3.5" />
-            Token search is backend-ready: when Rust token indexers are connected, newly created tokens are returned instantly.
-          </p>
-
-          <div className="space-y-3">
-            {tokens.map((token) => {
-              // Compute risk score based on config thresholds
-              const liquidityOk = token.liquidityUsd >= config.minLiquidityUsdK * 1000;
-              const holdersOk = token.holders >= 100;
-              const riskFactors = [!liquidityOk && 'Low liquidity', !holdersOk && 'Few holders'].filter(Boolean) as string[];
-              const riskLevel = riskFactors.length === 0 ? 'low' : riskFactors.length === 1 ? 'medium' : 'high';
-
-              return (
-                <div
-                  key={token.id}
-                  className="p-5 bg-zinc-800/40 rounded-xl border border-zinc-700/50 hover:border-zinc-600/70 transition-all"
-                >
-                  <div className="flex items-start justify-between mb-3">
-                    <div>
-                      <div className="flex items-center gap-2.5 mb-1.5">
-                        <h3 className="text-white font-bold text-lg">{token.symbol}</h3>
-                        <StatusBadge status={token.status} />
-                        <span className="text-[10px] px-2 py-0.5 rounded-full bg-zinc-700/60 text-zinc-400 uppercase tracking-wider font-medium">
-                          {sniperService.formatChain(token.chain)}
-                        </span>
-                        <span className={`text-[10px] px-2 py-0.5 rounded-full font-medium ${
-                          riskLevel === 'low' ? 'bg-green-500/15 text-green-400 border border-green-500/20' :
-                          riskLevel === 'medium' ? 'bg-amber-500/15 text-amber-400 border border-amber-500/20' :
-                          'bg-red-500/15 text-red-400 border border-red-500/20'
-                        }`}>
-                          {riskLevel === 'low' ? 'Safe' : riskLevel === 'medium' ? 'Caution' : 'High Risk'}
-                        </span>
-                      </div>
-                      <p className="text-zinc-400 text-sm">{token.name}</p>
-                      <p className="text-zinc-600 text-xs mt-1 font-mono">
-                        {token.address.slice(0, 10)}...{token.address.slice(-8)}
-                      </p>
-                    </div>
-                    <div className="text-right">
-                      <p className="text-white font-bold text-lg tabular-nums">{sniperService.formatCurrency(token.price)}</p>
-                      <p className={`text-sm font-medium tabular-nums ${token.change24h >= 0 ? 'text-green-400' : 'text-red-400'}`}>
-                        {token.change24h >= 0 ? '+' : ''}
-                        {token.change24h.toFixed(2)}%
-                      </p>
-                    </div>
-                  </div>
-
-                  {riskFactors.length > 0 && (
-                    <div className="flex flex-wrap gap-1.5 mb-3">
-                      {riskFactors.map((factor) => (
-                        <span key={factor} className="text-[10px] px-2 py-0.5 rounded bg-amber-500/10 text-amber-400 border border-amber-500/15">
-                          {factor}
-                        </span>
-                      ))}
-                    </div>
-                  )}
-
-                  <div className="grid grid-cols-3 gap-4 mb-4">
-                    <Metric label="Liquidity" value={sniperService.formatCompactCurrency(token.liquidityUsd)} />
-                    <Metric label="Market Cap" value={sniperService.formatCompactCurrency(token.marketCapUsd)} />
-                    <Metric label="Holders" value={token.holders.toLocaleString()} />
-                  </div>
-
-                  <div className="flex gap-2">
-                    <button
-                      onClick={() => handleSnipe(token)}
-                      disabled={isSnipingNow === token.id}
-                      className="flex-1 flex items-center justify-center gap-2 py-2.5 bg-green-600 text-white rounded-lg hover:bg-green-700 transition-colors text-sm font-medium disabled:opacity-70 shadow-lg shadow-green-600/10"
-                    >
-                      {isSnipingNow === token.id ? (
-                        <Loader2 className="w-4 h-4 animate-spin" />
-                      ) : (
-                        <Target className="w-4 h-4" />
-                      )}
-                      Snipe Now
-                    </button>
-                    <button className="flex items-center justify-center gap-2 px-4 py-2.5 bg-zinc-700/50 text-zinc-300 rounded-lg hover:bg-zinc-700 transition-colors text-sm border border-zinc-700/50">
-                      <Clock className="w-4 h-4" />
-                    </button>
-                    <button className="flex items-center justify-center gap-2 px-4 py-2.5 bg-zinc-700/50 text-zinc-300 rounded-lg hover:bg-zinc-700 transition-colors text-sm border border-zinc-700/50">
-                      <Settings className="w-4 h-4" />
-                    </button>
-                  </div>
-                </div>
-              );
-            })}
-          </div>
-
-          <div className="mt-6 pt-6 border-t border-zinc-800/60">
-            <h3 className="text-white font-semibold mb-4 tracking-tight">Recent Snipes</h3>
-            <div className="space-y-2">
-              {recentSnipes.length === 0 ? (
-                <div className="text-zinc-500 text-sm py-6 text-center">No snipes executed yet.</div>
-              ) : (
-                recentSnipes.slice(0, 8).map((snipe, index) => (
-                  <div key={`${snipe.token}-${index}`} className="flex items-center justify-between p-3 bg-zinc-800/40 rounded-lg text-sm border border-zinc-700/30 hover:border-zinc-700/50 transition-colors">
-                    <div className="flex items-center gap-3">
-                      <div className={`w-2 h-2 rounded-full ${snipe.success ? 'bg-green-400 shadow-sm shadow-green-400/50' : 'bg-red-400 shadow-sm shadow-red-400/50'}`} />
-                      <span className="text-white font-medium">{snipe.token}</span>
-                      <span className="text-zinc-400">{snipe.action}</span>
-                      <span className="text-zinc-500 tabular-nums">{snipe.amount}</span>
-                    </div>
-                    <div className="flex items-center gap-4">
-                      <span className="text-white font-medium tabular-nums">{sniperService.formatCurrency(snipe.valueUsd)}</span>
-                      <span className="text-zinc-500 text-xs">{snipe.time}</span>
-                    </div>
-                  </div>
-                ))
-              )}
-            </div>
-          </div>
+        <div className="text-right shrink-0">
+          <p className="text-white font-bold tabular-nums">{formatPrice(token.priceUsd)}</p>
+          <p className={`text-sm tabular-nums ${pnlClass(token.change24h)}`}>{formatPct(token.change24h)} 24h</p>
+          <p className="text-xs text-zinc-500 tabular-nums">{formatPct(token.change5m)} 5m &middot; {formatPct(token.change1h)} 1h</p>
         </div>
       </div>
 
-      {selectedToken && (
-        <p className="mt-4 text-xs text-zinc-500">
-          Last selected token: <span className="text-zinc-300">{selectedToken.symbol}</span>
+      <dl className="grid grid-cols-2 sm:grid-cols-4 gap-2 mb-3 text-xs">
+        {[
+          ['Liquidity', formatCompactUsd(token.liquidityUsd)], ['Market cap', formatCompactUsd(token.marketCapUsd)],
+          ['Volume 24h', formatCompactUsd(token.volume24hUsd)], ['Buys / sells', `${token.buys24h} / ${token.sells24h}`],
+        ].map(([k, v]) => (
+          <div key={k} className="bg-zinc-800/50 rounded-lg px-3 py-2"><dt className="text-zinc-500 text-[10px] uppercase tracking-wider">{k}</dt><dd className="text-white font-semibold tabular-nums">{v}</dd></div>
+        ))}
+      </dl>
+
+      {sec && sec.available && (
+        <p className="text-xs text-zinc-400 mb-2">
+          Buy tax {sec.buyTaxPct == null ? 'unknown' : `${sec.buyTaxPct}%`}, sell tax {sec.sellTaxPct == null ? 'unknown' : `${sec.sellTaxPct}%`}
+          {sec.holders != null && `, ${formatNumber(sec.holders, 0)} holders`}
         </p>
       )}
+      {sec && sec.flags.length > 0 && (
+        <ul className="flex flex-wrap gap-1.5 mb-3">
+          {sec.flags.slice(0, 5).map((f) => <li key={f} className="text-[10px] px-2 py-0.5 rounded bg-amber-500/10 text-amber-300 border border-amber-500/15">{f}</li>)}
+        </ul>
+      )}
+      {!verdict.ok && security !== 'loading' && <p className="text-xs text-zinc-500 mb-3">Does not match your filters: {verdict.reasons.join('; ')}.</p>}
 
-      <WalletConnectionModal open={walletModalOpen} onOpenChange={setWalletModalOpen} />
-    </div>
+      <div className="flex gap-2">
+        <button onClick={() => onSnipe(token)} className="flex-1 inline-flex items-center justify-center gap-2 py-2.5 bg-green-600 hover:bg-green-700 text-white rounded-lg text-sm font-medium">
+          <Target className="w-4 h-4" aria-hidden /> Paper snipe {formatUsd(filters.maxPositionUsd, 0)}
+        </button>
+        {onTrack && !tracked && (
+          <button onClick={() => onTrack(token)} className="px-3 py-2.5 bg-zinc-700/50 hover:bg-zinc-700 text-zinc-200 rounded-lg text-sm border border-zinc-700/50" aria-label={`Track ${token.symbol}`}><Plus className="w-4 h-4" /></button>
+        )}
+        {link && (
+          <a href={link} target="_blank" rel="noopener noreferrer" className="px-3 py-2.5 bg-zinc-700/50 hover:bg-zinc-700 text-zinc-200 rounded-lg text-sm border border-zinc-700/50 inline-flex items-center" aria-label={`Open ${token.symbol} on DexScreener`}>
+            <ExternalLink className="w-4 h-4" />
+          </a>
+        )}
+      </div>
+    </article>
   );
 }
 
-function ConfigField({
-  label,
-  help,
-  value,
-  onChange,
-}: {
-  label: string;
-  help: string;
-  value: number;
-  onChange: (value: number) => void;
-}) {
-  return (
-    <div>
-      <label className="text-zinc-300 text-xs font-medium mb-1.5 block tracking-wide uppercase">{label}</label>
-      <p className="text-[11px] text-zinc-500 mb-2 leading-relaxed">{help}</p>
-      <input
-        type="number"
-        value={value}
-        onChange={(event) => onChange(Number(event.target.value))}
-        className="w-full bg-zinc-800/60 text-white px-3.5 py-2.5 rounded-lg border border-zinc-700/50 focus:border-blue-500/60 focus:outline-none focus:ring-1 focus:ring-blue-500/20 text-sm tabular-nums transition-colors"
-      />
-    </div>
+export function SniperPanel() {
+  const paper = usePaper();
+  const [filters, setFilters] = useState<SniperFilters>(loadFilters);
+  const [chain, setChain] = useState<SniperChain>('solana');
+  const [tab, setTab] = useState<'new' | 'tracked'>('new');
+  const [auto, setAuto] = useState(false);
+  const [tracked, setTracked] = useState<SniperToken[]>(() => readJson<SniperToken[]>(TRACKED_KEY, []).filter((t) => t && typeof t.id === 'string'));
+  const [query, setQuery] = useState('');
+  const [searching, setSearching] = useState(false);
+  const [results, setResults] = useState<SniperToken[]>([]);
+  const [live, setLive] = useState<Record<string, SniperToken>>({});
+  const [security, setSecurity] = useState<Record<string, Security | 'loading'>>({});
+  const requested = useRef(new Set<string>());
+  const autoDone = useRef(new Set<string>(readJson<string[]>(AUTO_KEY, [])));
+
+  const feed = usePolling((s) => sniperService.newPairs(chain, s), 30_000, [chain]);
+  const trackedIds = useMemo(() => tracked.map((t) => t.id), [tracked]);
+  const trackedLive = usePolling((s) => sniperService.refresh(trackedIds, s), trackedIds.length ? 12_000 : null, [trackedIds.join(',')]);
+
+  // Pairs pushed by the server appear immediately without waiting for the next poll.
+  useEffect(() => {
+    return openSocket('/ws/sniper', (msg) => {
+      const m = msg as { type?: string; chain?: string; tokens?: SniperToken[] };
+      if (m.type !== 'new_pairs' || !Array.isArray(m.tokens)) return;
+      setLive((prev) => {
+        const next = { ...prev };
+        for (const t of m.tokens ?? []) next[t.id] = t;
+        return next;
+      });
+    });
+  }, []);
+
+  const newTokens = useMemo(() => {
+    const byId = new Map<string, SniperToken>();
+    for (const t of Object.values(live)) if (t.chain === chain) byId.set(t.id, t);
+    for (const t of feed.data?.tokens ?? []) byId.set(t.id, t);
+    return [...byId.values()].sort((a, b) => (b.createdAt ?? 0) - (a.createdAt ?? 0)).slice(0, 30);
+  }, [live, feed.data, chain]);
+
+  const trackedTokens = useMemo(() => {
+    const fresh = new Map((trackedLive.data ?? []).map((t) => [t.id, t]));
+    return tracked.map((t) => fresh.get(t.id) ?? t);
+  }, [tracked, trackedLive.data]);
+
+  useEffect(() => writeJson(FILTERS_KEY, filters), [filters]);
+  useEffect(() => writeJson(TRACKED_KEY, tracked), [tracked]);
+
+  // Contract risk checks for what is on screen, at most a few at a time.
+  const visible = tab === 'new' ? newTokens.slice(0, 15) : trackedTokens;
+  useEffect(() => {
+    const todo = visible.filter((t) => !requested.current.has(t.id)).slice(0, 4);
+    for (const t of todo) {
+      requested.current.add(t.id);
+      setSecurity((prev) => ({ ...prev, [t.id]: 'loading' }));
+      sniperService
+        .security(t.chain, t.address)
+        .then((s) => setSecurity((prev) => ({ ...prev, [t.id]: s })))
+        .catch(() => {
+          requested.current.delete(t.id);
+          setSecurity((prev) => Object.fromEntries(Object.entries(prev).filter(([id]) => id !== t.id)));
+        });
+    }
+  }, [visible]);
+
+  const sniperPositions = paper.positions.filter((p) => p.source === 'sniper');
+
+  const snipe = useCallback(
+    (token: SniperToken, automatic = false) => {
+      if (!token.priceUsd || token.priceUsd <= 0) return toast.error('No live price for this token.');
+      const sec = security[token.id];
+      if (!automatic && sec && sec !== 'loading' && sec.isHoneypot) {
+        toast.warning('This token is flagged as a honeypot. Paper trade only.');
+      }
+      const spend = Math.min(filters.maxPositionUsd, paper.availableCash);
+      const qty = spend / (token.priceUsd * 1.001);
+      const r = paper.buyMarket({ key: token.id, symbol: token.symbol, label: token.name, source: 'sniper' }, qty, token.priceUsd, {
+        takeProfitPct: filters.takeProfitPct || undefined,
+        stopLossPct: filters.stopLossPct || undefined,
+        note: automatic ? 'Auto snipe' : 'Paper snipe',
+      });
+      if (!r.ok) return toast.error(r.error);
+      toast.success(`${automatic ? 'Auto sniped' : 'Sniped'} ${token.symbol}`, { description: `${formatUsd(spend)} of paper money at ${formatPrice(token.priceUsd)}.` });
+    },
+    [filters, paper, security],
   );
-}
 
-function StatusBadge({ status }: { status: SniperToken['status'] }) {
-  const styles =
-    status === 'active'
-      ? 'bg-green-500/15 text-green-400 border border-green-500/20'
-      : status === 'paused'
-      ? 'bg-amber-500/15 text-amber-400 border border-amber-500/20'
-      : 'bg-blue-500/15 text-blue-400 border border-blue-500/20';
+  // Auto mode: buy tokens from the live feed that pass every filter. Runs only while this page is open.
+  useEffect(() => {
+    if (!auto) return;
+    for (const t of newTokens) {
+      if (autoDone.current.has(t.id) || paper.account.positions[t.id]) continue;
+      const sec = security[t.id];
+      if (!sec || sec === 'loading') continue;
+      if (sniperPositions.length >= MAX_AUTO_POSITIONS) break;
+      if (!passesFilters(t, sec, filters).ok) continue;
+      autoDone.current.add(t.id);
+      writeJson(AUTO_KEY, [...autoDone.current].slice(-300));
+      snipe(t, true);
+      break; // one at a time so cash checks stay accurate
+    }
+  }, [auto, newTokens, security, filters, paper.account.positions, sniperPositions.length, snipe]);
 
-  return <span className={`px-2 py-0.5 rounded-full text-[10px] font-medium ${styles}`}>{status}</span>;
-}
+  const runSearch = async () => {
+    const q = query.trim();
+    if (!q) return toast.error('Enter a token name, symbol or contract address.');
+    setSearching(true);
+    try {
+      const found = await sniperService.search(q, chain);
+      setResults(found);
+      if (found.length === 0) toast.info(`Nothing found on ${chainLabel(chain)}.`);
+    } catch (e) {
+      toast.error(errorMessage(e, 'Search failed.'));
+    } finally {
+      setSearching(false);
+    }
+  };
 
-function Metric({ label, value }: { label: string; value: string }) {
+  const track = (t: SniperToken) => {
+    setTracked((prev) => (prev.some((x) => x.id === t.id) ? prev : [t, ...prev].slice(0, 30)));
+    toast.success(`Tracking ${t.symbol}`);
+    setTab('tracked');
+  };
+
+  const setFilter = (key: keyof SniperFilters, raw: string, max: number) => {
+    const n = Number(raw);
+    setFilters((prev) => ({ ...prev, [key]: Number.isFinite(n) ? Math.min(max, Math.max(0, n)) : prev[key] }));
+  };
+
+  const matching = newTokens.filter((t) => {
+    const s = security[t.id];
+    return s && s !== 'loading' && passesFilters(t, s, filters).ok;
+  }).length;
+
   return (
-    <div className="bg-zinc-800/30 rounded-lg px-3 py-2">
-      <p className="text-zinc-500 text-[10px] uppercase tracking-wider mb-0.5">{label}</p>
-      <p className="text-white text-sm font-semibold tabular-nums">{value}</p>
-    </div>
-  );
-}
+    <div className="p-4 md:p-6 space-y-5 max-w-[1500px] mx-auto">
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+        <div>
+          <h1 className="text-2xl font-bold text-white tracking-tight flex items-center gap-3">
+            <span className="w-9 h-9 rounded-xl bg-gradient-to-br from-yellow-500 to-orange-600 flex items-center justify-center"><Target className="w-5 h-5 text-white" aria-hidden /></span>
+            Sniper Engine <PaperBadge />
+          </h1>
+          <p className="text-zinc-500 text-sm mt-1">Fresh liquidity pools with contract risk checks. Snipes are simulated at the live price.</p>
+        </div>
+        <button
+          onClick={() => setAuto((a) => !a)} aria-pressed={auto}
+          className={`inline-flex items-center gap-2 px-5 py-2.5 rounded-lg font-medium text-sm border ${auto ? 'bg-green-600 hover:bg-green-700 text-white border-transparent' : 'bg-zinc-800 hover:bg-zinc-700 text-zinc-200 border-zinc-700'}`}
+        >
+          {auto ? <Pause className="w-4 h-4" aria-hidden /> : <Play className="w-4 h-4" aria-hidden />}
+          {auto ? 'Auto sniping on' : 'Start auto sniping'}
+        </button>
+      </div>
+      {auto && <p role="status" className="text-xs text-emerald-300 bg-emerald-500/10 border border-emerald-500/20 rounded-lg px-3 py-2">Auto mode buys tokens that pass your filters, up to {MAX_AUTO_POSITIONS} open positions. It only runs while this page is open.</p>}
 
-function StatRow({ label, value, valueClass = 'text-white' }: { label: string; value: string; valueClass?: string }) {
-  return (
-    <div className="flex justify-between items-center">
-      <span className="text-zinc-500 text-xs">{label}</span>
-      <span className={`font-semibold text-sm tabular-nums ${valueClass}`}>{value}</span>
+      <div className="grid grid-cols-1 lg:grid-cols-3 gap-5">
+        <div className="space-y-5">
+          <Card className="p-5">
+            <h2 className="text-white font-semibold mb-4">Filters</h2>
+            <div className="space-y-4">
+              {FIELDS.map((f) => (
+                <label key={f.key} className="block">
+                  <span className="text-zinc-300 text-xs font-medium tracking-wide">{f.label}</span>
+                  <span className="block text-[11px] text-zinc-500 mb-1.5">{f.help}</span>
+                  <input type="number" inputMode="decimal" min={0} max={f.max} step="any" value={filters[f.key]} onChange={(e) => setFilter(f.key, e.target.value, f.max)}
+                    className="w-full bg-zinc-800/60 text-white px-3 py-2 rounded-lg border border-zinc-700/50 focus:border-blue-500/60 focus:outline-none text-sm tabular-nums" />
+                </label>
+              ))}
+              <button onClick={() => setFilters(DEFAULT_FILTERS)} className="text-xs text-zinc-400 hover:text-white">Reset to defaults</button>
+            </div>
+          </Card>
+
+          <Card className="p-5">
+            <h2 className="text-white font-semibold mb-3">Snapshot</h2>
+            <dl className="space-y-2 text-sm">
+              {[
+                ['New pools loaded', String(newTokens.length)], ['Passing your filters', String(matching)],
+                ['Open snipes', String(sniperPositions.length)], ['Paper cash', formatUsd(paper.availableCash)],
+              ].map(([k, v]) => <div key={k} className="flex justify-between"><dt className="text-zinc-500">{k}</dt><dd className="text-white font-semibold tabular-nums">{v}</dd></div>)}
+            </dl>
+          </Card>
+
+          {sniperPositions.length > 0 && (
+            <Card className="p-5">
+              <h2 className="text-white font-semibold mb-3">Open snipes</h2>
+              <ul className="space-y-3">
+                {sniperPositions.map((p) => (
+                  <li key={p.key} className="text-sm">
+                    <div className="flex justify-between items-center">
+                      <span className="text-white font-medium">{p.symbol}</span>
+                      <span className={`tabular-nums ${pnlClass(p.unrealizedPnl)}`}>{p.unrealizedPct == null ? 'Waiting for price' : formatPct(p.unrealizedPct)}</span>
+                    </div>
+                    <div className="flex justify-between items-center text-xs text-zinc-500">
+                      <span>{formatUsd(p.value)}</span>
+                      <button
+                        onClick={() => {
+                          if (!p.price) return toast.error('No live price yet.');
+                          const r = paper.sellMarket(p.key, p.qty, p.price);
+                          if (!r.ok) toast.error(r.error);
+                          else toast.success(`Sold ${p.symbol}`);
+                        }}
+                        className="text-red-400 hover:text-red-300"
+                      >Sell all</button>
+                    </div>
+                  </li>
+                ))}
+              </ul>
+            </Card>
+          )}
+        </div>
+
+        <Card className="lg:col-span-2 p-5">
+          <div className="flex flex-wrap items-center gap-3 mb-4">
+            <div role="tablist" aria-label="Token lists" className="flex gap-1 bg-zinc-800/60 rounded-lg p-1">
+              {([['new', 'New pools'], ['tracked', `Tracked (${tracked.length})`]] as const).map(([id, label]) => (
+                <button key={id} role="tab" aria-selected={tab === id} onClick={() => setTab(id)} className={`px-3 py-1.5 rounded-md text-sm ${tab === id ? 'bg-zinc-700 text-white' : 'text-zinc-400 hover:text-white'}`}>{label}</button>
+              ))}
+            </div>
+            <label className="sr-only" htmlFor="sniper-chain">Chain</label>
+            <select id="sniper-chain" value={chain} onChange={(e) => { setChain(e.target.value as SniperChain); setResults([]); }} className="bg-zinc-800 text-zinc-200 px-3 py-2 rounded-lg border border-zinc-700 text-sm">
+              {SNIPER_CHAINS.map((c) => <option key={c.value} value={c.value}>{c.label}</option>)}
+            </select>
+            <form onSubmit={(e) => { e.preventDefault(); void runSearch(); }} className="flex flex-1 min-w-[220px] gap-2">
+              <div className="relative flex-1">
+                <Search className="w-4 h-4 text-zinc-500 absolute left-3 top-1/2 -translate-y-1/2" aria-hidden />
+                <label className="sr-only" htmlFor="sniper-search">Search tokens</label>
+                <input id="sniper-search" value={query} onChange={(e) => setQuery(e.target.value)} placeholder={`Search ${chainLabel(chain)} by name, symbol or address`}
+                  className="w-full bg-zinc-800 text-zinc-100 pl-9 pr-3 py-2 rounded-lg border border-zinc-700 text-sm" maxLength={64} />
+              </div>
+              <button type="submit" disabled={searching} className="px-4 py-2 bg-blue-600 hover:bg-blue-700 disabled:opacity-70 text-white rounded-lg text-sm">{searching ? 'Searching...' : 'Search'}</button>
+            </form>
+          </div>
+
+          {results.length > 0 && (
+            <div className="mb-5 p-3 rounded-xl border border-blue-500/20 bg-blue-500/5">
+              <div className="flex justify-between items-center mb-2"><p className="text-sm text-blue-200 font-medium">Search results</p><button onClick={() => setResults([])} aria-label="Close results" className="text-zinc-400 hover:text-white"><X className="w-4 h-4" /></button></div>
+              <div className="space-y-3">
+                {results.map((t) => <TokenCard key={t.id} token={t} security={security[t.id]} filters={filters} held={Boolean(paper.account.positions[t.id])} onSnipe={snipe} onTrack={track} tracked={tracked.some((x) => x.id === t.id)} />)}
+              </div>
+            </div>
+          )}
+
+          {tab === 'new' ? (
+            feed.loading && !feed.data ? <Loading label="Scanning for new pools" />
+            : feed.error && newTokens.length === 0 ? <ErrorNotice message={feed.error} onRetry={feed.refresh} />
+            : newTokens.length === 0 ? <Empty title={`No new pools on ${chainLabel(chain)} yet`}>New launches show up here as soon as they are indexed.</Empty>
+            : <div className="space-y-3">{newTokens.map((t) => <TokenCard key={t.id} token={t} security={security[t.id]} filters={filters} held={Boolean(paper.account.positions[t.id])} onSnipe={snipe} onTrack={track} tracked={tracked.some((x) => x.id === t.id)} />)}</div>
+          ) : trackedTokens.length === 0 ? (
+            <Empty title="You are not tracking any tokens">Search for a token and press the plus button to follow its live price here.</Empty>
+          ) : (
+            <div className="space-y-3">
+              {trackedTokens.map((t) => (
+                <div key={t.id} className="relative">
+                  <TokenCard token={t} security={security[t.id]} filters={filters} held={Boolean(paper.account.positions[t.id])} onSnipe={snipe} tracked />
+                  <button onClick={() => setTracked((prev) => prev.filter((x) => x.id !== t.id))} className="absolute top-3 right-3 text-[11px] text-zinc-500 hover:text-red-400">Stop tracking</button>
+                </div>
+              ))}
+            </div>
+          )}
+          <p className="mt-5 text-[11px] text-zinc-500">Pools from GeckoTerminal and DexScreener. Risk checks from GoPlus. Automated checks can miss problems, and new tokens are often scams.</p>
+        </Card>
+      </div>
     </div>
   );
 }

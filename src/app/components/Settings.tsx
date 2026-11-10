@@ -1,279 +1,147 @@
-import { useState } from 'react';
-import { Settings as SettingsIcon, Globe, Moon, Sun, Bell, Shield, User, Palette } from 'lucide-react';
+import { useRef, useState } from 'react';
+import { CheckCircle2, Download, Settings as SettingsIcon, Trash2, Upload, Wallet, XCircle } from 'lucide-react';
+import { toast } from 'sonner';
+import { Card, ErrorNotice, Loading, PageHeader, Pill } from './ui/common';
+import { useAuth } from '../contexts/auth-context';
+import { usePaper } from '../contexts/paper-context';
+import { usePolling } from '../hooks/usePolling';
+import { statusService } from '../services/statusService';
+import { parseTrades, TRADEBOOK_KEY } from '../lib/tradebook';
+import { sanitizeAccount } from '../lib/paperTrading';
+import { formatUsd, shortAddress, timeAgo } from '../lib/format';
 
-interface SettingsProps {
-  theme: 'dark' | 'light';
-  setTheme: (theme: 'dark' | 'light') => void;
-  language: string;
-  setLanguage: (language: string) => void;
-}
+const DATA_KEYS = ['arctos_tradebook', 'arctos_paper_v1', 'arctos_whales', 'arctos_sniper_filters', 'arctos_sniper_tracked', 'arctos_sniper_auto_done', 'arctos_whale_notify'];
 
-export function Settings({ theme, setTheme, language, setLanguage }: SettingsProps) {
-  const [emailNotifications, setEmailNotifications] = useState(true);
-  const [pushNotifications, setPushNotifications] = useState(true);
-  const [tradeAlerts, setTradeAlerts] = useState(true);
+export function Settings({ onConnectWallet }: { onConnectWallet: () => void }) {
+  const { user, isAuthenticated, isWalletConnected, disconnectWallet, signOut } = useAuth();
+  const paper = usePaper();
+  const status = usePolling((s) => statusService.get(s), 30_000);
+  const fileRef = useRef<HTMLInputElement>(null);
+  const [confirmClear, setConfirmClear] = useState(false);
 
-  const isDark = theme === 'dark';
+  const exportData = () => {
+    const bundle: Record<string, unknown> = { exportedAt: new Date().toISOString(), app: 'arctos' };
+    for (const key of DATA_KEYS) {
+      try {
+        const raw = localStorage.getItem(key);
+        if (raw) bundle[key] = JSON.parse(raw);
+      } catch { /* skip unreadable entries */ }
+    }
+    const url = URL.createObjectURL(new Blob([JSON.stringify(bundle, null, 2)], { type: 'application/json' }));
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `arctos-backup-${new Date().toISOString().slice(0, 10)}.json`;
+    a.click();
+    URL.revokeObjectURL(url);
+  };
 
-  const languages = [
-    { code: 'en', name: 'English', flag: '🇺🇸' },
-    { code: 'es', name: 'Español', flag: '🇪🇸' },
-    { code: 'fr', name: 'Français', flag: '🇫🇷' },
-    { code: 'de', name: 'Deutsch', flag: '🇩🇪' },
-    { code: 'zh', name: '中文', flag: '🇨🇳' },
-    { code: 'ja', name: '日本語', flag: '🇯🇵' },
-    { code: 'ko', name: '한국어', flag: '🇰🇷' },
-    { code: 'pt', name: 'Português', flag: '🇵🇹' },
-    { code: 'ru', name: 'Русский', flag: '🇷🇺' },
-    { code: 'ar', name: 'العربية', flag: '🇸🇦' },
-  ];
+  const importData = async (file: File) => {
+    try {
+      if (file.size > 2_000_000) throw new Error('That file is too large.');
+      const data = JSON.parse(await file.text()) as Record<string, unknown>;
+      let restored = 0;
+      const trades = parseTrades(data[TRADEBOOK_KEY]);
+      if (trades.length) { localStorage.setItem(TRADEBOOK_KEY, JSON.stringify(trades)); restored++; }
+      const account = sanitizeAccount(data.arctos_paper_v1);
+      if (account) { localStorage.setItem('arctos_paper_v1', JSON.stringify(account)); restored++; }
+      if (Array.isArray(data.arctos_whales)) { localStorage.setItem('arctos_whales', JSON.stringify(data.arctos_whales)); restored++; }
+      if (restored === 0) throw new Error('No Arctos data was found in that file.');
+      toast.success('Backup restored. Reloading...');
+      setTimeout(() => window.location.reload(), 800);
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : 'Could not read that backup file.');
+    }
+  };
+
+  const clearAll = () => {
+    for (const k of DATA_KEYS) localStorage.removeItem(k);
+    toast.success('Local data cleared. Reloading...');
+    setTimeout(() => window.location.reload(), 600);
+  };
+
+  const btn = 'inline-flex items-center gap-2 px-4 py-2 rounded-lg border border-zinc-700 bg-zinc-800 hover:bg-zinc-700 text-sm text-white';
 
   return (
-    <div className={`h-full ${isDark ? 'bg-black' : 'bg-white'} p-6 overflow-auto`}>
-      {/* Header */}
-      <div className="mb-6">
-        <h1 className={`text-3xl font-bold ${isDark ? 'text-white' : 'text-gray-900'} mb-2 flex items-center gap-3`}>
-          <SettingsIcon className="w-8 h-8 text-blue-500" />
-          Settings
-        </h1>
-        <p className={isDark ? 'text-zinc-400' : 'text-gray-600'}>Customize your dashboard preferences</p>
-      </div>
+    <div className="p-4 md:p-6 max-w-4xl mx-auto space-y-6">
+      <PageHeader icon={<SettingsIcon className="w-5 h-5" />} title="Settings" subtitle="Data sources, account and local data" />
 
-      <div className="max-w-4xl space-y-6">
-        {/* Appearance Settings */}
-        <div className={`${isDark ? 'bg-zinc-900 border-zinc-800' : 'bg-gray-50 border-gray-200'} border rounded-xl p-6`}>
-          <div className="flex items-center gap-3 mb-6">
-            <Palette className="w-5 h-5 text-blue-500" />
-            <h2 className={`text-xl font-bold ${isDark ? 'text-white' : 'text-gray-900'}`}>Appearance</h2>
-          </div>
-
-          {/* Theme Toggle */}
-          <div className="mb-6">
-            <label className={`${isDark ? 'text-white' : 'text-gray-900'} font-medium mb-3 block`}>Theme</label>
-            <div className="grid grid-cols-2 gap-4">
-              <button
-                onClick={() => setTheme('dark')}
-                className={`p-4 rounded-lg border-2 transition-all ${
-                  theme === 'dark'
-                    ? 'border-blue-600 bg-blue-600/10'
-                    : isDark
-                      ? 'border-zinc-700 bg-zinc-800 hover:border-zinc-600'
-                      : 'border-gray-300 bg-white hover:border-gray-400'
-                }`}
-              >
-                <div className="flex items-center gap-3">
-                  <div className={`p-3 ${isDark ? 'bg-zinc-700' : 'bg-gray-200'} rounded-lg`}>
-                    <Moon className="w-6 h-6 text-blue-400" />
-                  </div>
-                  <div className="text-left">
-                    <p className={`${isDark ? 'text-white' : 'text-gray-900'} font-medium`}>Dark Mode</p>
-                    <p className={`${isDark ? 'text-zinc-400' : 'text-gray-600'} text-sm`}>Easy on the eyes</p>
-                  </div>
-                </div>
-                {theme === 'dark' && (
-                  <div className="mt-3 flex justify-end">
-                    <div className="w-5 h-5 bg-blue-600 rounded-full flex items-center justify-center">
-                      <svg className="w-3 h-3 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
-                      </svg>
-                    </div>
-                  </div>
-                )}
-              </button>
-
-              <button
-                onClick={() => setTheme('light')}
-                className={`p-4 rounded-lg border-2 transition-all ${
-                  theme === 'light'
-                    ? 'border-blue-600 bg-blue-600/10'
-                    : isDark
-                      ? 'border-zinc-700 bg-zinc-800 hover:border-zinc-600'
-                      : 'border-gray-300 bg-white hover:border-gray-400'
-                }`}
-              >
-                <div className="flex items-center gap-3">
-                  <div className={`p-3 ${isDark ? 'bg-zinc-700' : 'bg-gray-200'} rounded-lg`}>
-                    <Sun className="w-6 h-6 text-yellow-400" />
-                  </div>
-                  <div className="text-left">
-                    <p className={`${isDark ? 'text-white' : 'text-gray-900'} font-medium`}>Light Mode</p>
-                    <p className={`${isDark ? 'text-zinc-400' : 'text-gray-600'} text-sm`}>Bright and clear</p>
-                  </div>
-                </div>
-                {theme === 'light' && (
-                  <div className="mt-3 flex justify-end">
-                    <div className="w-5 h-5 bg-blue-600 rounded-full flex items-center justify-center">
-                      <svg className="w-3 h-3 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
-                      </svg>
-                    </div>
-                  </div>
-                )}
-              </button>
-            </div>
-          </div>
+      <Card className="p-6">
+        <div className="flex items-center justify-between mb-4 gap-3 flex-wrap">
+          <h2 className="text-lg font-bold text-white">Data sources</h2>
+          {status.data && <Pill tone="zinc">Service v{status.data.version}, up {Math.floor(status.data.uptimeSecs / 60)} min</Pill>}
         </div>
-
-        {/* Language Settings */}
-        <div className={`${isDark ? 'bg-zinc-900 border-zinc-800' : 'bg-gray-50 border-gray-200'} border rounded-xl p-6`}>
-          <div className="flex items-center gap-3 mb-6">
-            <Globe className="w-5 h-5 text-blue-500" />
-            <h2 className={`text-xl font-bold ${isDark ? 'text-white' : 'text-gray-900'}`}>Language & Region</h2>
-          </div>
-
-          <div>
-            <label className={`${isDark ? 'text-white' : 'text-gray-900'} font-medium mb-3 block`}>Display Language</label>
-            <div className="grid grid-cols-2 gap-3">
-              {languages.map((lang) => (
-                <button
-                  key={lang.code}
-                  onClick={() => setLanguage(lang.code)}
-                  className={`p-4 rounded-lg border transition-all text-left ${
-                    language === lang.code
-                      ? 'border-blue-600 bg-blue-600/10'
-                      : isDark
-                        ? 'border-zinc-700 bg-zinc-800 hover:border-zinc-600 hover:bg-zinc-750'
-                        : 'border-gray-300 bg-white hover:border-gray-400 hover:bg-gray-50'
-                  }`}
-                >
-                  <div className="flex items-center justify-between">
-                    <div className="flex items-center gap-3">
-                      <span className="text-2xl">{lang.flag}</span>
-                      <span className={`${isDark ? 'text-white' : 'text-gray-900'} font-medium`}>{lang.name}</span>
-                    </div>
-                    {language === lang.code && (
-                      <div className="w-5 h-5 bg-blue-600 rounded-full flex items-center justify-center">
-                        <svg className="w-3 h-3 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
-                        </svg>
-                      </div>
-                    )}
-                  </div>
-                </button>
+        {status.error && !status.data && <ErrorNotice message={status.error} onRetry={status.refresh} />}
+        {status.loading && !status.data && <Loading label="Checking data sources" />}
+        {status.data && (
+          <>
+            <ul className="divide-y divide-zinc-800/60">
+              {status.data.sources.filter((s) => !s.name.startsWith('news:')).map((s) => (
+                <li key={s.name} className="flex items-center justify-between gap-3 py-2.5 text-sm">
+                  <span className="flex items-center gap-2 min-w-0">
+                    {s.ok ? <CheckCircle2 className="w-4 h-4 text-emerald-400 shrink-0" aria-label="Working" /> : <XCircle className="w-4 h-4 text-red-400 shrink-0" aria-label="Failing" />}
+                    <span className="text-white font-medium">{s.name}</span>
+                  </span>
+                  <span className="text-xs text-zinc-500 text-right truncate">
+                    {s.ok ? `${s.latencyMs ?? 0} ms, ${s.lastSuccess ? timeAgo(s.lastSuccess) : 'no data yet'}` : s.lastError ?? 'Not responding'}
+                  </span>
+                </li>
               ))}
-            </div>
+              {status.data.sources.filter((s) => s.name.startsWith('news:')).length > 0 && (
+                <li className="py-2.5 text-sm flex justify-between"><span className="text-white font-medium">News feeds</span>
+                  <span className="text-xs text-zinc-500">{status.data.sources.filter((s) => s.name.startsWith('news:') && s.ok).length} of {status.data.sources.filter((s) => s.name.startsWith('news:')).length} responding</span></li>
+              )}
+            </ul>
+            <dl className="grid grid-cols-2 sm:grid-cols-4 gap-3 mt-4 text-xs">
+              {[['Live pairs', status.data.data.tickers], ['Coins', status.data.data.coins], ['Headlines', status.data.data.newsArticles], ['Whale transfers', status.data.data.whaleEvents]].map(([k, v]) => (
+                <div key={String(k)} className="bg-zinc-800/50 rounded-lg px-3 py-2"><dt className="text-zinc-500">{k}</dt><dd className="text-white font-semibold tabular-nums text-base">{v}</dd></div>
+              ))}
+            </dl>
+            <p className="mt-4 text-xs text-zinc-500">
+              AI assistant: {status.data.ai.configured ? 'configured' : 'not configured (set ANTHROPIC_API_KEY on the server)'}. Database: {status.data.database.connected ? 'connected' : status.data.database.configured ? 'configured but not reachable' : 'not configured (waitlist positions need it)'}.
+            </p>
+          </>
+        )}
+      </Card>
+
+      <Card className="p-6">
+        <h2 className="text-lg font-bold text-white mb-4">Account and wallet</h2>
+        {isAuthenticated ? (
+          <div className="flex items-center justify-between gap-3 flex-wrap">
+            <p className="text-sm text-zinc-300 flex items-center gap-2"><Wallet className="w-4 h-4 text-emerald-400" aria-hidden />
+              {isWalletConnected ? <>Wallet <span className="font-mono">{shortAddress(user?.walletAddress, 8, 6)}</span> {user?.chainId ? `(chain ${user.chainId})` : ''}</> : <>Signed in as {user?.email}</>}
+            </p>
+            <button onClick={() => { if (isWalletConnected) disconnectWallet(); else signOut(); }} className={btn}>{isWalletConnected ? 'Disconnect wallet' : 'Sign out'}</button>
           </div>
+        ) : (
+          <div className="flex items-center justify-between gap-3 flex-wrap"><p className="text-sm text-zinc-400">No wallet connected.</p><button onClick={onConnectWallet} className="px-4 py-2 rounded-lg bg-blue-600 hover:bg-blue-700 text-sm text-white">Connect wallet</button></div>
+        )}
+        <p className="text-xs text-zinc-500 mt-3">Arctos only reads your public address. It never asks for signatures, approvals or seed phrases.</p>
+      </Card>
+
+      <Card className="p-6">
+        <h2 className="text-lg font-bold text-white mb-1">Paper trading account</h2>
+        <p className="text-sm text-zinc-400 mb-4">Equity {formatUsd(paper.equity)}, started with {formatUsd(paper.account.startingBalance, 0)}, {paper.account.fills.length} fills.</p>
+        <button onClick={() => { paper.reset(); toast.success('Paper account reset to $10,000.'); }} className={btn}>Reset paper account</button>
+      </Card>
+
+      <Card className="p-6">
+        <h2 className="text-lg font-bold text-white mb-1">Your data</h2>
+        <p className="text-sm text-zinc-400 mb-4">Your trade book, paper account, tracked wallets and sniper filters live in this browser only. Back them up or move them to another device.</p>
+        <div className="flex flex-wrap gap-3">
+          <button onClick={exportData} className={btn}><Download className="w-4 h-4" aria-hidden /> Export backup</button>
+          <button onClick={() => fileRef.current?.click()} className={btn}><Upload className="w-4 h-4" aria-hidden /> Import backup</button>
+          <input ref={fileRef} type="file" accept="application/json,.json" className="hidden" onChange={(e) => { const f = e.target.files?.[0]; if (f) void importData(f); e.target.value = ''; }} />
+          {confirmClear ? (
+            <span className="inline-flex items-center gap-2 text-sm">
+              <span className="text-red-300">Delete everything saved here?</span>
+              <button onClick={clearAll} className="px-3 py-2 rounded-lg bg-red-600 hover:bg-red-700 text-white">Yes, delete</button>
+              <button onClick={() => setConfirmClear(false)} className="px-3 py-2 rounded-lg bg-zinc-800 text-zinc-300">Cancel</button>
+            </span>
+          ) : (
+            <button onClick={() => setConfirmClear(true)} className={`${btn} text-red-300`}><Trash2 className="w-4 h-4" aria-hidden /> Clear local data</button>
+          )}
         </div>
-
-        {/* Notification Settings */}
-        <div className={`${isDark ? 'bg-zinc-900 border-zinc-800' : 'bg-gray-50 border-gray-200'} border rounded-xl p-6`}>
-          <div className="flex items-center gap-3 mb-6">
-            <Bell className="w-5 h-5 text-blue-500" />
-            <h2 className={`text-xl font-bold ${isDark ? 'text-white' : 'text-gray-900'}`}>Notifications</h2>
-          </div>
-
-          <div className="space-y-4">
-            <div className={`flex items-center justify-between p-4 ${isDark ? 'bg-zinc-800' : 'bg-white border border-gray-200'} rounded-lg`}>
-              <div>
-                <p className={`${isDark ? 'text-white' : 'text-gray-900'} font-medium`}>Email Notifications</p>
-                <p className={`${isDark ? 'text-zinc-400' : 'text-gray-600'} text-sm`}>Receive updates via email</p>
-              </div>
-              <button
-                onClick={() => setEmailNotifications(!emailNotifications)}
-                className={`relative w-14 h-7 rounded-full transition-colors ${
-                  emailNotifications ? 'bg-blue-600' : isDark ? 'bg-zinc-600' : 'bg-gray-300'
-                }`}
-              >
-                <span
-                  className={`absolute top-1 left-1 w-5 h-5 bg-white rounded-full transition-transform ${
-                    emailNotifications ? 'translate-x-7' : ''
-                  }`}
-                ></span>
-              </button>
-            </div>
-
-            <div className={`flex items-center justify-between p-4 ${isDark ? 'bg-zinc-800' : 'bg-white border border-gray-200'} rounded-lg`}>
-              <div>
-                <p className={`${isDark ? 'text-white' : 'text-gray-900'} font-medium`}>Push Notifications</p>
-                <p className={`${isDark ? 'text-zinc-400' : 'text-gray-600'} text-sm`}>Get instant alerts</p>
-              </div>
-              <button
-                onClick={() => setPushNotifications(!pushNotifications)}
-                className={`relative w-14 h-7 rounded-full transition-colors ${
-                  pushNotifications ? 'bg-blue-600' : isDark ? 'bg-zinc-600' : 'bg-gray-300'
-                }`}
-              >
-                <span
-                  className={`absolute top-1 left-1 w-5 h-5 bg-white rounded-full transition-transform ${
-                    pushNotifications ? 'translate-x-7' : ''
-                  }`}
-                ></span>
-              </button>
-            </div>
-
-            <div className={`flex items-center justify-between p-4 ${isDark ? 'bg-zinc-800' : 'bg-white border border-gray-200'} rounded-lg`}>
-              <div>
-                <p className={`${isDark ? 'text-white' : 'text-gray-900'} font-medium`}>Trade Alerts</p>
-                <p className={`${isDark ? 'text-zinc-400' : 'text-gray-600'} text-sm`}>Notifications for trade executions</p>
-              </div>
-              <button
-                onClick={() => setTradeAlerts(!tradeAlerts)}
-                className={`relative w-14 h-7 rounded-full transition-colors ${
-                  tradeAlerts ? 'bg-blue-600' : isDark ? 'bg-zinc-600' : 'bg-gray-300'
-                }`}
-              >
-                <span
-                  className={`absolute top-1 left-1 w-5 h-5 bg-white rounded-full transition-transform ${
-                    tradeAlerts ? 'translate-x-7' : ''
-                  }`}
-                ></span>
-              </button>
-            </div>
-          </div>
-        </div>
-
-        {/* Account Settings */}
-        <div className={`${isDark ? 'bg-zinc-900 border-zinc-800' : 'bg-gray-50 border-gray-200'} border rounded-xl p-6`}>
-          <div className="flex items-center gap-3 mb-6">
-            <User className="w-5 h-5 text-blue-500" />
-            <h2 className={`text-xl font-bold ${isDark ? 'text-white' : 'text-gray-900'}`}>Account</h2>
-          </div>
-
-          <div className="space-y-3">
-            <button className={`w-full p-4 ${isDark ? 'bg-zinc-800 text-white hover:bg-zinc-700' : 'bg-white border border-gray-200 text-gray-900 hover:bg-gray-50'} rounded-lg transition-colors text-left`}>
-              <p className="font-medium">Profile Settings</p>
-              <p className={`${isDark ? 'text-zinc-400' : 'text-gray-600'} text-sm`}>Manage your personal information</p>
-            </button>
-            <button className={`w-full p-4 ${isDark ? 'bg-zinc-800 text-white hover:bg-zinc-700' : 'bg-white border border-gray-200 text-gray-900 hover:bg-gray-50'} rounded-lg transition-colors text-left`}>
-              <p className="font-medium">Change Password</p>
-              <p className={`${isDark ? 'text-zinc-400' : 'text-gray-600'} text-sm`}>Update your account password</p>
-            </button>
-          </div>
-        </div>
-
-        {/* Security Settings */}
-        <div className={`${isDark ? 'bg-zinc-900 border-zinc-800' : 'bg-gray-50 border-gray-200'} border rounded-xl p-6`}>
-          <div className="flex items-center gap-3 mb-6">
-            <Shield className="w-5 h-5 text-blue-500" />
-            <h2 className={`text-xl font-bold ${isDark ? 'text-white' : 'text-gray-900'}`}>Security</h2>
-          </div>
-
-          <div className="space-y-3">
-            <button className={`w-full p-4 ${isDark ? 'bg-zinc-800 text-white hover:bg-zinc-700' : 'bg-white border border-gray-200 text-gray-900 hover:bg-gray-50'} rounded-lg transition-colors text-left`}>
-              <p className="font-medium">Two-Factor Authentication</p>
-              <p className={`${isDark ? 'text-zinc-400' : 'text-gray-600'} text-sm`}>Add an extra layer of security</p>
-            </button>
-            <button className={`w-full p-4 ${isDark ? 'bg-zinc-800 text-white hover:bg-zinc-700' : 'bg-white border border-gray-200 text-gray-900 hover:bg-gray-50'} rounded-lg transition-colors text-left`}>
-              <p className="font-medium">API Keys</p>
-              <p className={`${isDark ? 'text-zinc-400' : 'text-gray-600'} text-sm`}>Manage your API access</p>
-            </button>
-            <button className={`w-full p-4 ${isDark ? 'bg-zinc-800 text-white hover:bg-zinc-700' : 'bg-white border border-gray-200 text-gray-900 hover:bg-gray-50'} rounded-lg transition-colors text-left`}>
-              <p className="font-medium">Connected Wallets</p>
-              <p className={`${isDark ? 'text-zinc-400' : 'text-gray-600'} text-sm`}>View and manage connected wallets</p>
-            </button>
-          </div>
-        </div>
-
-        {/* Save Button */}
-        <div className="flex justify-end gap-3">
-          <button className={`px-6 py-3 ${isDark ? 'bg-zinc-800 text-white hover:bg-zinc-700' : 'bg-white border border-gray-200 text-gray-900 hover:bg-gray-50'} rounded-lg transition-colors`}>
-            Cancel
-          </button>
-          <button className="px-6 py-3 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors font-medium">
-            Save Changes
-          </button>
-        </div>
-      </div>
+      </Card>
     </div>
   );
 }

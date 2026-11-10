@@ -1,120 +1,81 @@
-import { Dialog, DialogContent, DialogHeader, DialogTitle } from "./ui/dialog"
-import { Mail, Lock, User } from 'lucide-react'
-import { useState } from 'react'
+import { useState, type FormEvent } from 'react';
+import { Lock, Mail } from 'lucide-react';
+import { toast } from 'sonner';
+import { Dialog, DialogContent, DialogHeader, DialogTitle } from './ui/dialog';
+import { useAuth } from '../contexts/auth-context';
 
-interface EmailAuthModalProps {
-  open: boolean
-  onOpenChange: (open: boolean) => void
+interface Props {
+  open: boolean;
+  onOpenChange: (open: boolean) => void;
 }
 
-export function EmailAuthModal({ open, onOpenChange }: EmailAuthModalProps) {
-  const [isLogin, setIsLogin] = useState(true)
-  const [loading, setLoading] = useState(false)
+export function EmailAuthModal({ open, onOpenChange }: Props) {
+  const { signInWithEmail, signUpWithEmail } = useAuth();
+  const [mode, setMode] = useState<'signin' | 'signup'>('signin');
+  const [email, setEmail] = useState('');
+  const [password, setPassword] = useState('');
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
 
-  const handleSubmit = async (e: React.FormEvent) => {
-    e.preventDefault()
-    setLoading(true)
-    
-    // Simulate API call
-    await new Promise(resolve => setTimeout(resolve, 1500))
-    
-    setLoading(false)
-    onOpenChange(false)
-    alert(isLogin ? 'Successfully logged in!' : 'Account created successfully!')
-  }
+  const submit = async (e: FormEvent) => {
+    e.preventDefault();
+    setLoading(true);
+    setError(null);
+    try {
+      if (mode === 'signin') await signInWithEmail(email, password);
+      else await signUpWithEmail(email, password);
+      toast.success(mode === 'signin' ? 'Signed in' : 'Account created');
+      setPassword('');
+      onOpenChange(false);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Something went wrong.');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const input = 'w-full pl-10 pr-3 py-3 rounded-lg border border-zinc-700 bg-zinc-900 text-white placeholder:text-zinc-500 focus:outline-none focus:border-blue-500';
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="sm:max-w-md">
+      <DialogContent className="sm:max-w-md bg-zinc-950 border-zinc-800 text-white">
         <DialogHeader>
-          <DialogTitle className="text-2xl font-bold text-center">
-            {isLogin ? 'Welcome Back' : 'Create Account'}
-          </DialogTitle>
-          <p className="text-center text-gray-500 dark:text-gray-400">
-            {isLogin ? 'Sign in to access your dashboard' : 'Join Arctos to start trading'}
+          <DialogTitle className="text-2xl font-bold text-center">{mode === 'signin' ? 'Welcome back' : 'Create your account'}</DialogTitle>
+          <p className="text-center text-sm text-zinc-400">
+            Your account lives on this device only. Your password is salted and hashed in your browser and is never sent anywhere.
           </p>
         </DialogHeader>
 
-        <form onSubmit={handleSubmit} className="space-y-4 py-4">
-          {!isLogin && (
-            <div>
-              <label className="block text-sm font-medium mb-2">Full Name</label>
-              <div className="relative">
-                <User className="absolute left-3 top-3 w-5 h-5 text-gray-400" />
-                <input
-                  type="text"
-                  placeholder="John Doe"
-                  required
-                  className="w-full pl-10 p-3 rounded-lg border border-gray-300 dark:border-gray-700 bg-white dark:bg-gray-900"
-                />
-              </div>
-            </div>
-          )}
-
+        <form onSubmit={submit} className="space-y-4 py-2">
           <div>
-            <label className="block text-sm font-medium mb-2">Email Address</label>
+            <label htmlFor="auth-email" className="block text-sm font-medium mb-1.5">Email</label>
             <div className="relative">
-              <Mail className="absolute left-3 top-3 w-5 h-5 text-gray-400" />
+              <Mail className="absolute left-3 top-3.5 w-4 h-4 text-zinc-500" aria-hidden />
+              <input id="auth-email" type="email" autoComplete="email" required value={email} onChange={(e) => setEmail(e.target.value)} placeholder="you@example.com" className={input} />
+            </div>
+          </div>
+          <div>
+            <label htmlFor="auth-password" className="block text-sm font-medium mb-1.5">Password</label>
+            <div className="relative">
+              <Lock className="absolute left-3 top-3.5 w-4 h-4 text-zinc-500" aria-hidden />
               <input
-                type="email"
-                placeholder="you@example.com"
-                required
-                className="w-full pl-10 p-3 rounded-lg border border-gray-300 dark:border-gray-700 bg-white dark:bg-gray-900"
+                id="auth-password" type="password" required minLength={mode === 'signup' ? 8 : undefined}
+                autoComplete={mode === 'signin' ? 'current-password' : 'new-password'}
+                value={password} onChange={(e) => setPassword(e.target.value)}
+                placeholder={mode === 'signup' ? 'At least 8 characters' : 'Your password'} className={input}
               />
             </div>
           </div>
-
-          <div>
-            <label className="block text-sm font-medium mb-2">Password</label>
-            <div className="relative">
-              <Lock className="absolute left-3 top-3 w-5 h-5 text-gray-400" />
-              <input
-                type="password"
-                placeholder="••••••••"
-                required
-                className="w-full pl-10 p-3 rounded-lg border border-gray-300 dark:border-gray-700 bg-white dark:bg-gray-900"
-              />
-            </div>
-          </div>
-
-          {isLogin && (
-            <div className="flex justify-between items-center">
-              <label className="flex items-center gap-2">
-                <input type="checkbox" className="rounded" />
-                <span className="text-sm">Remember me</span>
-              </label>
-              <button type="button" className="text-sm text-blue-500 hover:text-blue-600">
-                Forgot password?
-              </button>
-            </div>
-          )}
-
-          <button
-            type="submit"
-            disabled={loading}
-            className="w-full py-3 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors font-medium disabled:opacity-50 disabled:cursor-not-allowed"
-          >
-            {loading ? (
-              <div className="flex items-center justify-center gap-2">
-                <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin"></div>
-                {isLogin ? 'Signing in...' : 'Creating account...'}
-              </div>
-            ) : (
-              isLogin ? 'Sign In' : 'Create Account'
-            )}
+          {error && <p role="alert" className="text-sm text-red-400 bg-red-500/10 border border-red-500/20 rounded-lg px-3 py-2">{error}</p>}
+          <button type="submit" disabled={loading} className="w-full py-3 bg-blue-600 hover:bg-blue-700 disabled:opacity-60 text-white rounded-lg font-medium transition-colors">
+            {loading ? 'Please wait...' : mode === 'signin' ? 'Sign in' : 'Create account'}
           </button>
         </form>
 
-        <div className="text-center">
-          <button
-            type="button"
-            onClick={() => setIsLogin(!isLogin)}
-            className="text-blue-500 hover:text-blue-600 text-sm"
-          >
-            {isLogin ? "Don't have an account? Sign up" : 'Already have an account? Sign in'}
-          </button>
-        </div>
+        <button type="button" onClick={() => { setMode(mode === 'signin' ? 'signup' : 'signin'); setError(null); }} className="text-center text-sm text-blue-400 hover:text-blue-300">
+          {mode === 'signin' ? "Don't have an account? Create one" : 'Already have an account? Sign in'}
+        </button>
       </DialogContent>
     </Dialog>
-  )
+  );
 }

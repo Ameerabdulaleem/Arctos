@@ -28,30 +28,19 @@ export interface VolumeBar {
 /**
  * Props accepted by TradingViewChart.
  *
- * Live-data integration:
- *   Pass `candles` + `volume` from your TradingView / exchange WebSocket feed.
- *   The component will render whatever data you supply.
- *   When these props are **omitted** the component falls back to its built-in
- *   mock data generator so the UI remains functional during development.
- *
- * `onCandleUpdate` is called with the chart's candle & volume series so the
- * parent can push incremental updates via `series.update()` without needing
- * to re-render the whole tree.
+ * The chart only ever draws the candles it is given. There is no placeholder data:
+ * while candles load it shows a loading message, and if the feed fails it shows the error.
  */
 interface TradingViewChartProps {
   symbol: string;
   interval: ChartInterval;
   onIntervalChange: (interval: ChartInterval) => void;
-  /** Optional – supply live OHLCV candles. When present, mock data is bypassed. */
+  /** Live OHLC candles, oldest first. */
   candles?: CandlestickData<Time>[];
-  /** Optional – supply live volume bars matching `candles`. */
+  /** Volume bars matching `candles`. */
   volume?: VolumeBar[];
-  /**
-   * Called once after chart + series are mounted so the parent can push
-   * incremental candle updates via `candleSeries.update(tick)`.
-   */
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  onSeriesReady?: (candleSeries: any, volumeSeries: any) => void;
+  loading?: boolean;
+  error?: string | null;
 }
 
 /* ------------------------------------------------------------------ */
@@ -237,45 +226,6 @@ function runAIAnalysis(candles: CandlestickData<Time>[]): AIAnalysisResult {
 }
 
 /* ------------------------------------------------------------------ */
-/*  Mock OHLCV generator (replaced by live feed when backend is ready) */
-/* ------------------------------------------------------------------ */
-
-function generateMockCandles(count: number, interval: ChartInterval): CandlestickData<Time>[] {
-  const now = Math.floor(Date.now() / 1000);
-  const intervalSeconds: Record<ChartInterval, number> = {
-    '1m': 60,
-    '5m': 300,
-    '15m': 900,
-    '1h': 3600,
-    '4h': 14400,
-    '1d': 86400,
-  };
-  const step = intervalSeconds[interval];
-
-  let open = 45000 + Math.random() * 2000;
-  const candles: CandlestickData<Time>[] = [];
-
-  for (let i = count; i >= 0; i--) {
-    const time = (now - i * step) as Time;
-    const close = open + (Math.random() - 0.48) * 300;
-    const high = Math.max(open, close) + Math.random() * 150;
-    const low = Math.min(open, close) - Math.random() * 150;
-    candles.push({ time, open, high, low, close });
-    open = close;
-  }
-
-  return candles;
-}
-
-function generateMockVolume(candles: CandlestickData<Time>[]) {
-  return candles.map((c) => ({
-    time: c.time,
-    value: Math.random() * 500 + 50,
-    color: c.close >= c.open ? 'rgba(38,166,154,0.35)' : 'rgba(239,83,80,0.35)',
-  }));
-}
-
-/* ------------------------------------------------------------------ */
 /*  Component                                                          */
 /* ------------------------------------------------------------------ */
 
@@ -294,7 +244,8 @@ export default function TradingViewChart({
   onIntervalChange,
   candles: liveCandles,
   volume: liveVolume,
-  onSeriesReady,
+  loading = false,
+  error = null,
 }: TradingViewChartProps) {
   const chartContainerRef = useRef<HTMLDivElement>(null);
   const chartRef = useRef<IChartApi | null>(null);
@@ -303,6 +254,7 @@ export default function TradingViewChart({
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const volumeSeriesRef = useRef<any>(null);
   const candlesRef = useRef<CandlestickData<Time>[]>([]);
+  const shownRef = useRef<{ first: Time | null; length: number }>({ first: null, length: 0 });
   const [crosshairPrice, setCrosshairPrice] = useState<number | null>(null);
 
   // AI drawing state
@@ -584,16 +536,8 @@ export default function TradingViewChart({
       scaleMargins: { top: 0.8, bottom: 0 },
     });
 
-    /* ---- Data source: live props → mock fallback ---- */
-    const useLive = !!liveCandles && liveCandles.length > 0;
-    const candles = useLive ? liveCandles : generateMockCandles(200, interval);
-    const volume  = useLive && liveVolume ? liveVolume : generateMockVolume(candles);
-
-    candleSeries.setData(candles);
-    volumeSeries.setData(volume);
-    candlesRef.current = candles;
-
-    chart.timeScale().fitContent();
+    candlesRef.current = [];
+    shownRef.current = { first: null, length: 0 };
 
     /* Crosshair move → hover price */
     chart.subscribeCrosshairMove((param) => {
@@ -609,34 +553,9 @@ export default function TradingViewChart({
     candleSeriesRef.current = candleSeries;
     volumeSeriesRef.current = volumeSeries;
 
-    /* Notify parent so it can push incremental updates */
-    onSeriesReady?.(candleSeries, volumeSeries);
-
     window.addEventListener('resize', handleResize);
 
-    /* Mock-only: simulate a live tick every 2 s.
-       When `liveCandles` are supplied this timer is skipped — the parent
-       is responsible for calling `candleSeries.update()` directly. */
-    let tickInterval: ReturnType<typeof setInterval> | null = null;
-    if (!useLive) {
-      tickInterval = setInterval(() => {
-        const last = candles[candles.length - 1];
-        if (!last) return;
-        const newClose = last.close + (Math.random() - 0.48) * 80;
-        const updated: CandlestickData<Time> = {
-          ...last,
-          close: newClose,
-          high: Math.max(last.high, newClose),
-          low: Math.min(last.low, newClose),
-        };
-        candles[candles.length - 1] = updated;
-        candlesRef.current = candles;
-        candleSeries.update(updated);
-      }, 2000);
-    }
-
     return () => {
-      if (tickInterval) clearInterval(tickInterval);
       if (aiTimerRef.current) { clearTimeout(aiTimerRef.current); aiTimerRef.current = null; }
       window.removeEventListener('resize', handleResize);
       chart.remove();
@@ -647,19 +566,28 @@ export default function TradingViewChart({
       setAiAnalyzing(false);
       setAiResult(null);
     };
-    // liveCandles / liveVolume intentionally excluded — parent pushes updates
-    // via onSeriesReady rather than re-rendering the entire chart.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+    // Candle data is applied by the effect below, so the chart is only rebuilt for a new pair or interval.
   }, [symbol, interval, handleResize]);
 
-  /* When parent supplies new full candle snapshots, update internal ref +
-     series without recreating the chart (avoids flicker). */
+  /* Apply candles. A new pair or interval replaces everything; a refresh of the same window only
+     touches the newest candles so the chart keeps the user's zoom and scroll position. */
   useEffect(() => {
-    if (!liveCandles || liveCandles.length === 0) return;
+    const candleSeries = candleSeriesRef.current;
+    const volumeSeries = volumeSeriesRef.current;
+    if (!candleSeries || !volumeSeries || !liveCandles || liveCandles.length === 0) return;
+    const shown = shownRef.current;
+    const sameWindow = shown.first === liveCandles[0].time && liveCandles.length >= shown.length && liveCandles.length - shown.length <= 2;
+    if (sameWindow) {
+      for (const c of liveCandles.slice(-3)) candleSeries.update(c);
+      for (const v of (liveVolume ?? []).slice(-3)) volumeSeries.update(v);
+    } else {
+      candleSeries.setData(liveCandles);
+      volumeSeries.setData(liveVolume ?? []);
+      chartRef.current?.timeScale().fitContent();
+    }
+    shownRef.current = { first: liveCandles[0].time, length: liveCandles.length };
     candlesRef.current = liveCandles;
-    if (candleSeriesRef.current) candleSeriesRef.current.setData(liveCandles);
-    if (volumeSeriesRef.current && liveVolume) volumeSeriesRef.current.setData(liveVolume);
-  }, [liveCandles, liveVolume]);
+  }, [liveCandles, liveVolume, symbol, interval]);
 
   const signalColor = aiResult
     ? aiResult.signal.includes('BUY')
@@ -728,7 +656,7 @@ export default function TradingViewChart({
                   className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold bg-zinc-800 text-zinc-300 hover:bg-zinc-700 transition-colors"
                 >
                   <X className="w-3.5 h-3.5" />
-                  Clear AI
+                  Clear
                 </button>
               )}
             </div>
@@ -737,7 +665,7 @@ export default function TradingViewChart({
             {toolMenuOpen && (
               <div className="absolute right-0 top-full mt-2 w-56 bg-zinc-900 border border-zinc-700 rounded-xl shadow-2xl shadow-black/50 z-50 overflow-hidden">
                 <div className="px-3 py-2 border-b border-zinc-800">
-                  <span className="text-[11px] font-semibold text-zinc-400 uppercase tracking-wider">AI Tools</span>
+                  <span className="text-[11px] font-semibold text-zinc-400 uppercase tracking-wider">Indicators</span>
                 </div>
                 {AI_TOOLS.map((tool) => {
                   const isSelected = selectedTools.has(tool.key);
@@ -799,9 +727,9 @@ export default function TradingViewChart({
             {/* Signal badge */}
             <div className="flex items-center gap-2">
               <Sparkles className="w-4 h-4 text-purple-400" />
-              <span className="text-xs text-zinc-400">AI Signal:</span>
+              <span className="text-xs text-zinc-400">Technical signal:</span>
               <span className={`text-sm font-bold ${signalColor}`}>{aiResult.signal}</span>
-              <span className="text-xs text-zinc-500">({aiResult.confidence}% confidence)</span>
+              <span className="text-xs text-zinc-500" title="Built from EMA, RSI and support and resistance rules on the candles shown. It is not a forecast.">(rule based, not a forecast)</span>
             </div>
 
             {/* Indicators */}
@@ -882,7 +810,14 @@ export default function TradingViewChart({
       )}
 
       {/* Chart canvas */}
-      <div ref={chartContainerRef} className="w-full" />
+      <div className="relative">
+        <div ref={chartContainerRef} className="w-full" />
+        {(loading || error) && (!liveCandles || liveCandles.length === 0) && (
+          <div role={error ? 'alert' : 'status'} className="absolute inset-0 flex items-center justify-center bg-zinc-950/80 text-sm">
+            {error ? <span className="text-amber-300 px-6 text-center">{error}</span> : <span className="text-zinc-400 inline-flex items-center gap-2"><Loader2 className="w-4 h-4 animate-spin" /> Loading candles...</span>}
+          </div>
+        )}
+      </div>
     </div>
   );
 }

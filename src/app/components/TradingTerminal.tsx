@@ -1,553 +1,296 @@
-import { useState, useMemo, useCallback, useEffect } from 'react';
-import {
-  Wallet,
-  Zap,
-  BarChart3,
-  ArrowUpDown,
-  Clock,
-} from 'lucide-react';
-import { useAuth } from '@/app/contexts/AuthContext';
+import { useMemo, useState } from 'react';
+import type { CandlestickData, Time } from 'lightweight-charts';
+import { Clock, FlaskConical, Trash2, ArrowUpDown } from 'lucide-react';
 import { toast } from 'sonner';
-import { WalletConnectionModal } from './WalletConnectionModal';
-import TradingViewChart, { type ChartInterval } from './TradingViewChart';
-import AutomatedTrading from './AutomatedTrading';
-import { dashboardSyncService } from '../services/dashboardSyncService';
+import TradingViewChart from './TradingViewChart';
+import { Card, Empty, PaperBadge } from './ui/common';
+import { usePaper } from '../contexts/paper-context';
+import { usePolling } from '../hooks/usePolling';
+import { useTickers } from '../hooks/useTickers';
+import { marketService, walkBook, type ChartInterval } from '../services/marketService';
+import { FEE_RATE } from '../lib/paperTrading';
+import { formatNumber, formatPct, formatPrice, formatUsd, pnlClass } from '../lib/format';
 
-/* ------------------------------------------------------------------ */
-/*  Static mock data (enhanced with live CoinGecko prices)            */
-/* ------------------------------------------------------------------ */
+const BOOK_ROWS = 8;
 
-interface TradingPair {
-  pair: string;
-  price: string;
-  priceNum: number;
-  change: string;
-  isPositive: boolean;
-  volume24h: string;
+function Field({ label, children }: { label: string; children: React.ReactNode }) {
+  return (
+    <label className="block">
+      <span className="text-zinc-400 text-xs mb-1.5 block">{label}</span>
+      {children}
+    </label>
+  );
 }
 
-const DEFAULT_TRADING_PAIRS: TradingPair[] = [
-  { pair: 'BTC/USDT',  price: '$45,234.56', priceNum: 45234.56, change: '+2.50%', isPositive: true,  volume24h: '$1.2B' },
-  { pair: 'ETH/USDT',  price: '$2,345.67',  priceNum: 2345.67,  change: '+1.80%', isPositive: true,  volume24h: '$820M' },
-  { pair: 'BNB/USDT',  price: '$312.45',    priceNum: 312.45,   change: '-0.50%', isPositive: false, volume24h: '$310M' },
-  { pair: 'SOL/USDT',  price: '$98.76',     priceNum: 98.76,    change: '+5.20%', isPositive: true,  volume24h: '$540M' },
-  { pair: 'ARB/USDT',  price: '$1.24',      priceNum: 1.24,     change: '+3.10%', isPositive: true,  volume24h: '$180M' },
-  { pair: 'AVAX/USDT', price: '$35.42',     priceNum: 35.42,    change: '-1.20%', isPositive: false, volume24h: '$210M' },
-];
-
-interface Trade {
-  price: string;
-  amount: string;
-  time: string;
-  type: 'buy' | 'sell';
-}
-
-function generateRecentTrades(priceNum: number): Trade[] {
-  const trades: Trade[] = [];
-  for (let i = 0; i < 12; i++) {
-    const isBuy = Math.random() > 0.45;
-    const p = priceNum + (Math.random() - 0.5) * priceNum * 0.002;
-    trades.push({
-      price: p.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 }),
-      amount: (Math.random() * 2).toFixed(4),
-      time: new Date(Date.now() - i * 1200).toLocaleTimeString(),
-      type: isBuy ? 'buy' : 'sell',
-    });
-  }
-  return trades;
-}
-
-/* Simple 6-level order book mock */
-function generateOrderBook(priceNum: number) {
-  const asks: { price: string; amount: string; total: string }[] = [];
-  const bids: { price: string; amount: string; total: string }[] = [];
-  let askTotal = 0;
-  let bidTotal = 0;
-
-  for (let i = 0; i < 6; i++) {
-    const askP = priceNum + (i + 1) * priceNum * 0.0003;
-    const askA = +(Math.random() * 3 + 0.1).toFixed(4);
-    askTotal += askA;
-    asks.push({
-      price: askP.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 }),
-      amount: askA.toFixed(4),
-      total: askTotal.toFixed(4),
-    });
-
-    const bidP = priceNum - (i + 1) * priceNum * 0.0003;
-    const bidA = +(Math.random() * 3 + 0.1).toFixed(4);
-    bidTotal += bidA;
-    bids.push({
-      price: bidP.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 }),
-      amount: bidA.toFixed(4),
-      total: bidTotal.toFixed(4),
-    });
-  }
-
-  return { asks: asks.reverse(), bids };
-}
-
-/* ------------------------------------------------------------------ */
-/*  Sub-tab type                                                       */
-/* ------------------------------------------------------------------ */
-
-type TerminalTab = 'manual' | 'auto';
-
-/* ------------------------------------------------------------------ */
-/*  Component                                                          */
-/* ------------------------------------------------------------------ */
+const inputClass = 'w-full bg-zinc-800 text-white px-3 py-2.5 rounded-lg border border-zinc-700 focus:border-blue-600 focus:outline-none text-sm tabular-nums';
 
 export function TradingTerminal() {
-  const { isWalletConnected, user } = useAuth();
-
-  /* General state */
-  const [walletModalOpen, setWalletModalOpen] = useState(false);
-  const [terminalTab, setTerminalTab] = useState<TerminalTab>('manual');
-  const [tradingPairs, setTradingPairs] = useState<TradingPair[]>(DEFAULT_TRADING_PAIRS);
-  const [selectedPair, setSelectedPair] = useState<TradingPair>(DEFAULT_TRADING_PAIRS[0]);
-  const [chartInterval, setChartInterval] = useState<ChartInterval>('15m');
-
-  /* Order form */
-  const [activeTab, setActiveTab] = useState<'buy' | 'sell'>('buy');
+  const paper = usePaper();
+  const { tickers, error: tickerError } = useTickers();
+  const [base, setBase] = useState('BTC');
+  const [interval, setInterval_] = useState<ChartInterval>('15m');
+  const [side, setSide] = useState<'buy' | 'sell'>('buy');
   const [orderType, setOrderType] = useState<'market' | 'limit'>('market');
-  const [price, setPrice] = useState('');
-  const [amount, setAmount] = useState('');
+  const [qty, setQty] = useState('');
+  const [limitPrice, setLimitPrice] = useState('');
 
-  /* Load real market data from CoinGecko */
-  useEffect(() => {
-    let mounted = true;
+  const pairs = useMemo(() => Object.values(tickers).sort((a, b) => b.volumeQuote - a.volumeQuote), [tickers]);
+  const ticker = tickers[base];
+  const symbol = `${base}USDT`;
 
-    const loadMarketData = async () => {
-      try {
-        const marketData = await dashboardSyncService.getCachedMarketData();
+  const candles = usePolling((s) => marketService.klines(symbol, interval, 300, s), 3000, [symbol, interval]);
+  const depth = usePolling((s) => marketService.depth(symbol, 20, s), 1500, [symbol]);
+  const trades = usePolling((s) => marketService.trades(symbol, 24, s), 2000, [symbol]);
 
-        if (!mounted) return;
-
-        if (!marketData) {
-          console.warn('Market data unavailable, using defaults');
-          return;
-        }
-
-        console.log('✅ Live market data loaded:', {
-          BTC: marketData.btcPrice,
-          ETH: marketData.ethPrice,
-          BNB: marketData.bnbPrice,
-          SOL: marketData.solPrice
-        });
-
-        // Update trading pairs with real prices
-        const updatedPairs: TradingPair[] = [
-          {
-            pair: 'BTC/USDT',
-            price: `$${marketData.btcPrice.toLocaleString('en-US', { maximumFractionDigits: 2 })}`,
-            priceNum: marketData.btcPrice,
-            change: `${marketData.priceChanges24h.btc > 0 ? '+' : ''}${marketData.priceChanges24h.btc.toFixed(2)}%`,
-            isPositive: marketData.priceChanges24h.btc >= 0,
-            volume24h: '$1.2B',
-          },
-          {
-            pair: 'ETH/USDT',
-            price: `$${marketData.ethPrice.toLocaleString('en-US', { maximumFractionDigits: 2 })}`,
-            priceNum: marketData.ethPrice,
-            change: `${marketData.priceChanges24h.eth > 0 ? '+' : ''}${marketData.priceChanges24h.eth.toFixed(2)}%`,
-            isPositive: marketData.priceChanges24h.eth >= 0,
-            volume24h: '$820M',
-          },
-          {
-            pair: 'BNB/USDT',
-            price: `$${marketData.bnbPrice.toLocaleString('en-US', { maximumFractionDigits: 2 })}`,
-            priceNum: marketData.bnbPrice,
-            change: `${marketData.priceChanges24h.bnb > 0 ? '+' : ''}${marketData.priceChanges24h.bnb.toFixed(2)}%`,
-            isPositive: marketData.priceChanges24h.bnb >= 0,
-            volume24h: '$310M',
-          },
-          {
-            pair: 'SOL/USDT',
-            price: `$${marketData.solPrice.toLocaleString('en-US', { maximumFractionDigits: 2 })}`,
-            priceNum: marketData.solPrice,
-            change: `${marketData.priceChanges24h.sol > 0 ? '+' : ''}${marketData.priceChanges24h.sol.toFixed(2)}%`,
-            isPositive: marketData.priceChanges24h.sol >= 0,
-            volume24h: '$540M',
-          },
-          DEFAULT_TRADING_PAIRS[4], // ARB (fallback)
-          DEFAULT_TRADING_PAIRS[5], // AVAX (fallback)
-        ];
-
-        setTradingPairs(updatedPairs);
-        setSelectedPair(updatedPairs[0]);
-      } catch (error) {
-        console.error('Error loading market data:', error);
-      }
-    };
-
-    void loadMarketData();
-
-    return () => {
-      mounted = false;
-    };
-  }, []);
-
-  /* Derived mock data */
-  const recentTrades = useMemo(() => generateRecentTrades(selectedPair.priceNum), [selectedPair]);
-  const orderBook = useMemo(() => generateOrderBook(selectedPair.priceNum), [selectedPair]);
-
-  /* Percentage amount helpers */
-  const setPercentAmount = useCallback(
-    (pct: number) => {
-      // In production this would calculate from wallet balance
-      const mockBalance = 1.5; // e.g. 1.5 BTC
-      setAmount(((mockBalance * pct) / 100).toFixed(4));
-    },
-    [],
-  );
-
-  /* Estimated total */
-  const estimatedTotal = useMemo(() => {
-    const qty = parseFloat(amount) || 0;
-    const p = orderType === 'limit' && price ? parseFloat(price) : selectedPair.priceNum;
-    return (qty * p).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 });
-  }, [amount, price, orderType, selectedPair]);
-
-  /* Order submission */
-  const handleTrade = () => {
-    if (!isWalletConnected) {
-      toast.error('Please connect your wallet to trade');
-      setWalletModalOpen(true);
-      return;
-    }
-    if (!amount || parseFloat(amount) <= 0) {
-      toast.error('Enter a valid amount');
-      return;
-    }
-    if (orderType === 'limit' && (!price || parseFloat(price) <= 0)) {
-      toast.error('Enter a valid limit price');
-      return;
-    }
-
-    toast.success(`${activeTab.toUpperCase()} order placed`, {
-      description: `${amount} ${selectedPair.pair.split('/')[0]} at ${orderType === 'market' ? 'market' : `$${price}`}`,
-    });
-    setAmount('');
-    setPrice('');
+  // Switching pairs clears the form so a stale amount cannot be sent to a different asset.
+  const selectPair = (next: string) => {
+    setBase(next);
+    setQty('');
+    setLimitPrice('');
   };
 
-  /* ---------------------------------------------------------------- */
-  /*  Render                                                           */
-  /* ---------------------------------------------------------------- */
-  return (
-    <div className="h-full bg-black p-4 md:p-6 overflow-auto">
-      {/* Header */}
-      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 mb-5">
-        <div>
-          <h1 className="text-2xl font-bold text-white tracking-tight">Trading Terminal</h1>
-          <p className="text-zinc-500 text-sm">Professional trading with live charts &amp; automated execution</p>
-        </div>
+  const chartCandles = useMemo<CandlestickData<Time>[]>(
+    () => (candles.data ?? []).map((c) => ({ time: c.t as Time, open: c.o, high: c.h, low: c.l, close: c.c })),
+    [candles.data],
+  );
+  const chartVolume = useMemo(
+    () => (candles.data ?? []).map((c) => ({ time: c.t as Time, value: c.v, color: c.c >= c.o ? 'rgba(38,166,154,0.5)' : 'rgba(239,83,80,0.5)' })),
+    [candles.data],
+  );
 
-        {/* Tab switches */}
-        <div className="flex items-center gap-2">
-          <TabButton
-            active={terminalTab === 'manual'}
-            onClick={() => setTerminalTab('manual')}
-            icon={<BarChart3 className="w-4 h-4" />}
-            label="Manual"
-          />
-          <TabButton
-            active={terminalTab === 'auto'}
-            onClick={() => setTerminalTab('auto')}
-            icon={<Zap className="w-4 h-4" />}
-            label="Auto"
-          />
+  const book = depth.data;
+  const asks = book ? [...book.asks.slice(0, BOOK_ROWS)].reverse() : [];
+  const bids = book ? book.bids.slice(0, BOOK_ROWS) : [];
+  const maxSize = Math.max(1e-12, ...asks.map((a) => a[1]), ...bids.map((b) => b[1]));
+  const spread = book && book.asks[0] && book.bids[0] ? book.asks[0][0] - book.bids[0][0] : null;
+
+  const position = paper.account.positions[base];
+  const quantity = parseFloat(qty);
+  const hasQty = Number.isFinite(quantity) && quantity > 0;
+  const lastPrice = ticker?.price ?? 0;
+  const limit = parseFloat(limitPrice);
+
+  // What a market order would really cost, walking the live order book.
+  const marketFill = useMemo(() => {
+    if (!hasQty || !book) return null;
+    const levels = side === 'buy' ? book.asks : book.bids;
+    const { avgPrice, filledQty } = walkBook(levels, quantity);
+    return filledQty >= quantity * 0.999999 ? avgPrice : null;
+  }, [hasQty, book, side, quantity]);
+
+  const execPrice = orderType === 'market' ? marketFill ?? lastPrice : Number.isFinite(limit) ? limit : 0;
+  const notional = hasQty ? quantity * execPrice : 0;
+  const fee = notional * FEE_RATE;
+  const slippagePct = orderType === 'market' && marketFill && lastPrice ? ((marketFill - lastPrice) / lastPrice) * 100 * (side === 'buy' ? 1 : -1) : null;
+
+  const setPercent = (pct: number) => {
+    const price = orderType === 'limit' && Number.isFinite(limit) && limit > 0 ? limit : lastPrice;
+    if (!price) return;
+    const raw = side === 'buy' ? (paper.availableCash * pct) / 100 / (price * (1 + FEE_RATE)) : ((position?.qty ?? 0) * pct) / 100;
+    setQty(raw > 0 ? String(Math.floor(raw * 1e6) / 1e6) : '');
+  };
+
+  const submit = () => {
+    if (!ticker) return toast.error('Waiting for a live price.');
+    if (!hasQty) return toast.error('Enter an amount greater than zero.');
+    const meta = { key: base, symbol: base, label: base, source: 'terminal' as const };
+    if (orderType === 'limit') {
+      if (!Number.isFinite(limit) || limit <= 0) return toast.error('Enter a valid limit price.');
+      const r = paper.placeLimit(meta, side, limit, quantity);
+      if (!r.ok) return toast.error(r.error);
+      toast.success('Limit order placed', { description: `${side} ${quantity} ${base} at ${formatPrice(limit)}. It fills when the live price reaches it.` });
+    } else {
+      if (marketFill == null) return toast.error('The order book is too thin for that size right now.');
+      const r = side === 'buy' ? paper.buyMarket(meta, quantity, marketFill) : paper.sellMarket(base, quantity, marketFill);
+      if (!r.ok) return toast.error(r.error);
+      toast.success(`Paper ${side} filled`, { description: `${quantity} ${base} at an average ${formatPrice(marketFill)}.` });
+    }
+    setQty('');
+  };
+
+  const myOrders = paper.account.orders.filter((o) => o.key === base);
+  const myFills = paper.account.fills.filter((f) => f.key === base).slice(0, 5);
+
+  return (
+    <div className="p-4 md:p-6 space-y-4 max-w-[1600px] mx-auto">
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+        <div>
+          <h1 className="text-2xl font-bold text-white tracking-tight flex items-center gap-3">Trading Terminal <PaperBadge /></h1>
+          <p className="text-zinc-500 text-sm">Live candles, order book and trades. Orders are simulated against the real order book.</p>
         </div>
+        <div className="text-sm text-zinc-400">Paper balance <span className="text-white font-semibold tabular-nums">{formatUsd(paper.availableCash)}</span></div>
       </div>
 
-      {/* -------------------------------------------------------------- */}
-      {/*  MANUAL TRADING                                                 */}
-      {/* -------------------------------------------------------------- */}
-      {terminalTab === 'manual' && (
-        <div className="grid grid-cols-1 xl:grid-cols-4 gap-4">
-          {/* -------- Left: Chart (spans 3 cols on xl) -------- */}
-          <div className="xl:col-span-3 space-y-4">
-            {/* Pair quick bar */}
-            <div className="flex gap-2 overflow-x-auto pb-1 scrollbar-none">
-              {tradingPairs.map((p) => (
-                <button
-                  key={p.pair}
-                  onClick={() => setSelectedPair(p)}
-                  className={`flex-shrink-0 flex items-center gap-3 px-4 py-2.5 rounded-lg text-sm font-medium transition-colors ${
-                    selectedPair.pair === p.pair
-                      ? 'bg-blue-600 text-white'
-                      : 'bg-zinc-900 border border-zinc-800 text-zinc-300 hover:border-zinc-600'
-                  }`}
-                >
-                  <span>{p.pair}</span>
-                  <span className="font-bold">{p.price}</span>
-                  <span className={`text-xs ${p.isPositive ? 'text-green-400' : 'text-red-400'}`}>{p.change}</span>
+      {pairs.length === 0 ? (
+        <Card className="p-6"><Empty title={tickerError ? 'Live prices are unavailable' : 'Connecting to live prices'}>{tickerError ?? 'This takes a moment.'}</Empty></Card>
+      ) : (
+        <div className="flex gap-2 overflow-x-auto pb-1" role="tablist" aria-label="Trading pairs">
+          {pairs.map((p) => (
+            <button
+              key={p.base} role="tab" aria-selected={base === p.base} onClick={() => selectPair(p.base)}
+              className={`shrink-0 flex items-center gap-3 px-4 py-2.5 rounded-lg text-sm font-medium transition-colors ${base === p.base ? 'bg-blue-600 text-white' : 'bg-zinc-900 border border-zinc-800 text-zinc-300 hover:border-zinc-600'}`}
+            >
+              <span>{p.base}/USDT</span>
+              <span className="font-bold tabular-nums">{formatPrice(p.price)}</span>
+              <span className={`text-xs tabular-nums ${base === p.base ? 'text-white/80' : pnlClass(p.change24hPct)}`}>{formatPct(p.change24hPct)}</span>
+            </button>
+          ))}
+        </div>
+      )}
+
+      <div className="grid grid-cols-1 xl:grid-cols-4 gap-4">
+        <div className="xl:col-span-3 space-y-4 min-w-0">
+          <TradingViewChart
+            symbol={`${base}/USDT`} interval={interval} onIntervalChange={setInterval_}
+            candles={chartCandles} volume={chartVolume} loading={candles.loading} error={candles.error && !candles.data ? candles.error : null}
+          />
+
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            <Card className="p-4">
+              <h3 className="text-sm font-semibold text-zinc-300 mb-3 flex items-center gap-2"><ArrowUpDown className="w-4 h-4" aria-hidden /> Order book</h3>
+              {!book ? <p className="text-sm text-zinc-500 py-6 text-center">{depth.error ?? 'Loading order book...'}</p> : (
+                <div className="text-xs tabular-nums">
+                  <div className="grid grid-cols-2 text-[10px] uppercase tracking-wider text-zinc-500 mb-1"><span>Price</span><span className="text-right">Size ({base})</span></div>
+                  {asks.map(([p, q]) => (
+                    <div key={`a${p}`} className="relative grid grid-cols-2 py-0.5">
+                      <div className="absolute inset-y-0 right-0 bg-red-500/10" style={{ width: `${(q / maxSize) * 100}%` }} />
+                      <span className="relative text-red-400">{formatPrice(p)}</span><span className="relative text-right text-zinc-300">{formatNumber(q, 4)}</span>
+                    </div>
+                  ))}
+                  <div className="text-center py-1.5 my-1 border-y border-zinc-800 text-white font-bold text-sm">
+                    {formatPrice(lastPrice)} {spread != null && <span className="text-[10px] font-normal text-zinc-500 ml-1">spread {formatPrice(spread)}</span>}
+                  </div>
+                  {bids.map(([p, q]) => (
+                    <div key={`b${p}`} className="relative grid grid-cols-2 py-0.5">
+                      <div className="absolute inset-y-0 right-0 bg-emerald-500/10" style={{ width: `${(q / maxSize) * 100}%` }} />
+                      <span className="relative text-emerald-400">{formatPrice(p)}</span><span className="relative text-right text-zinc-300">{formatNumber(q, 4)}</span>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </Card>
+
+            <Card className="p-4">
+              <h3 className="text-sm font-semibold text-zinc-300 mb-3 flex items-center gap-2"><Clock className="w-4 h-4" aria-hidden /> Recent trades</h3>
+              {!trades.data ? <p className="text-sm text-zinc-500 py-6 text-center">{trades.error ?? 'Loading trades...'}</p> : (
+                <div className="text-xs tabular-nums">
+                  <div className="grid grid-cols-3 text-[10px] uppercase tracking-wider text-zinc-500 mb-1"><span>Price</span><span className="text-right">Size</span><span className="text-right">Time</span></div>
+                  {trades.data.slice(0, 18).map((t) => (
+                    <div key={t.id} className="grid grid-cols-3 py-0.5">
+                      <span className={t.side === 'buy' ? 'text-emerald-400' : 'text-red-400'}>{formatPrice(t.price)}</span>
+                      <span className="text-right text-zinc-300">{formatNumber(t.qty, 4)}</span>
+                      <span className="text-right text-zinc-500">{new Date(t.time).toLocaleTimeString()}</span>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </Card>
+          </div>
+        </div>
+
+        <div className="space-y-4">
+          <Card className="p-5">
+            <div className="flex gap-2 mb-4" role="tablist" aria-label="Order side">
+              {(['buy', 'sell'] as const).map((s) => (
+                <button key={s} role="tab" aria-selected={side === s} onClick={() => setSide(s)}
+                  className={`flex-1 py-2.5 rounded-lg font-medium text-sm capitalize transition-colors ${side === s ? (s === 'buy' ? 'bg-green-600 text-white' : 'bg-red-600 text-white') : 'bg-zinc-800 text-zinc-400 hover:text-white'}`}>
+                  {s}
+                </button>
+              ))}
+            </div>
+            <div className="flex gap-2 mb-4">
+              {(['market', 'limit'] as const).map((t) => (
+                <button key={t} aria-pressed={orderType === t} onClick={() => setOrderType(t)}
+                  className={`flex-1 py-2 rounded-lg text-xs font-medium capitalize transition-colors ${orderType === t ? 'bg-blue-600 text-white' : 'bg-zinc-800 text-zinc-400 hover:text-white'}`}>
+                  {t}
                 </button>
               ))}
             </div>
 
-            {/* TradingView chart */}
-            <TradingViewChart symbol={selectedPair.pair} interval={chartInterval} onIntervalChange={setChartInterval} />
-
-            {/* Order book + recent trades (side by side on larger screens) */}
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-              {/* Order Book */}
-              <div className="bg-zinc-900/80 border border-zinc-800/60 rounded-xl p-4">
-                <h3 className="text-sm font-semibold text-zinc-300 mb-3 flex items-center gap-2">
-                  <ArrowUpDown className="w-4 h-4" /> Order Book
-                </h3>
-                {/* Asks */}
-                <div className="space-y-0.5 mb-2">
-                  {orderBook.asks.map((a, i) => (
-                    <div key={`a${i}`} className="grid grid-cols-3 text-xs tabular-nums">
-                      <span className="text-red-400">{a.price}</span>
-                      <span className="text-zinc-400 text-right">{a.amount}</span>
-                      <span className="text-zinc-600 text-right">{a.total}</span>
-                    </div>
-                  ))}
-                </div>
-                {/* Spread indicator */}
-                <div className="text-center py-1 text-sm font-bold text-white border-y border-zinc-800 my-1">
-                  {selectedPair.price}
-                </div>
-                {/* Bids */}
-                <div className="space-y-0.5 mt-2">
-                  {orderBook.bids.map((b, i) => (
-                    <div key={`b${i}`} className="grid grid-cols-3 text-xs tabular-nums">
-                      <span className="text-green-400">{b.price}</span>
-                      <span className="text-zinc-400 text-right">{b.amount}</span>
-                      <span className="text-zinc-600 text-right">{b.total}</span>
-                    </div>
-                  ))}
-                </div>
+            <div className="space-y-3">
+              {orderType === 'limit' && (
+                <Field label="Limit price (USDT)">
+                  <input type="number" inputMode="decimal" min="0" step="any" value={limitPrice} onChange={(e) => setLimitPrice(e.target.value)} placeholder={lastPrice ? lastPrice.toFixed(2) : '0.00'} className={inputClass} />
+                </Field>
+              )}
+              <Field label={`Amount (${base})`}>
+                <input type="number" inputMode="decimal" min="0" step="any" value={qty} onChange={(e) => setQty(e.target.value)} placeholder="0.0000" className={inputClass} />
+              </Field>
+              <div className="grid grid-cols-4 gap-1.5">
+                {[25, 50, 75, 100].map((pct) => (
+                  <button key={pct} onClick={() => setPercent(pct)} className="py-1.5 bg-zinc-800 text-zinc-400 rounded text-xs hover:bg-zinc-700 hover:text-white">{pct}%</button>
+                ))}
               </div>
 
-              {/* Recent Trades */}
-              <div className="bg-zinc-900/80 border border-zinc-800/60 rounded-xl p-4">
-                <h3 className="text-sm font-semibold text-zinc-300 mb-3 flex items-center gap-2">
-                  <Clock className="w-4 h-4" /> Recent Trades
-                </h3>
-                <div className="grid grid-cols-3 text-[10px] text-zinc-500 uppercase tracking-wider mb-2">
-                  <span>Price</span>
-                  <span className="text-right">Amount</span>
-                  <span className="text-right">Time</span>
-                </div>
-                <div className="space-y-0.5">
-                  {recentTrades.map((t, i) => (
-                    <div key={i} className="grid grid-cols-3 text-xs tabular-nums">
-                      <span className={t.type === 'buy' ? 'text-green-400' : 'text-red-400'}>{t.price}</span>
-                      <span className="text-zinc-400 text-right">{t.amount}</span>
-                      <span className="text-zinc-600 text-right">{t.time}</span>
-                    </div>
-                  ))}
-                </div>
-              </div>
+              <dl className="p-3 bg-zinc-800/60 rounded-lg space-y-1.5 text-xs">
+                <div className="flex justify-between"><dt className="text-zinc-500">{side === 'buy' ? 'Available cash' : `Available ${base}`}</dt><dd className="text-white tabular-nums">{side === 'buy' ? formatUsd(paper.availableCash) : formatNumber(position?.qty ?? 0, 6)}</dd></div>
+                <div className="flex justify-between"><dt className="text-zinc-500">{orderType === 'market' ? 'Est. average price' : 'Limit price'}</dt><dd className="text-white tabular-nums">{execPrice ? formatPrice(execPrice) : '—'}</dd></div>
+                {slippagePct != null && <div className="flex justify-between"><dt className="text-zinc-500">Slippage vs last</dt><dd className={`tabular-nums ${slippagePct > 0.2 ? 'text-amber-300' : 'text-zinc-300'}`}>{slippagePct.toFixed(3)}%</dd></div>}
+                <div className="flex justify-between"><dt className="text-zinc-500">Fee (0.1%)</dt><dd className="text-zinc-300 tabular-nums">{formatUsd(fee)}</dd></div>
+                <div className="flex justify-between"><dt className="text-zinc-500">Total</dt><dd className="text-white font-semibold tabular-nums">{formatUsd(notional + (side === 'buy' ? fee : -fee))}</dd></div>
+              </dl>
+              {orderType === 'market' && hasQty && book && marketFill == null && <p role="alert" className="text-xs text-amber-300">The visible order book is too thin for this size.</p>}
+
+              <button onClick={submit} disabled={!ticker}
+                className={`w-full py-3.5 rounded-lg font-bold text-white text-sm transition-colors disabled:opacity-50 ${side === 'buy' ? 'bg-green-600 hover:bg-green-700' : 'bg-red-600 hover:bg-red-700'}`}>
+                {orderType === 'limit' ? 'Place limit' : side === 'buy' ? 'Buy' : 'Sell'} {base} (paper)
+              </button>
+              <p className="text-[11px] text-zinc-500 flex items-start gap-1.5"><FlaskConical className="w-3.5 h-3.5 shrink-0 mt-0.5" aria-hidden />Simulated order. It uses live prices but no real funds or wallet.</p>
             </div>
-          </div>
+          </Card>
 
-          {/* -------- Right: Order panel (1 col on xl) -------- */}
-          <div className="space-y-4">
-            {/* Buy/Sell panel */}
-            <div className="bg-zinc-900/80 border border-zinc-800/60 rounded-xl p-5">
-              {/* Buy / Sell tabs */}
-              <div className="flex gap-2 mb-5">
-                <button
-                  onClick={() => setActiveTab('buy')}
-                  className={`flex-1 py-2.5 rounded-lg font-medium text-sm transition-colors ${
-                    activeTab === 'buy'
-                      ? 'bg-green-600 text-white'
-                      : 'bg-zinc-800 text-zinc-400 hover:text-white'
-                  }`}
-                >
-                  Buy
-                </button>
-                <button
-                  onClick={() => setActiveTab('sell')}
-                  className={`flex-1 py-2.5 rounded-lg font-medium text-sm transition-colors ${
-                    activeTab === 'sell'
-                      ? 'bg-red-600 text-white'
-                      : 'bg-zinc-800 text-zinc-400 hover:text-white'
-                  }`}
-                >
-                  Sell
-                </button>
-              </div>
+          <Card className="p-4">
+            <h4 className="text-xs font-semibold text-zinc-500 uppercase tracking-wider mb-3">{base}/USDT, 24h</h4>
+            {ticker ? (
+              <dl className="space-y-2 text-sm">
+                {[
+                  ['Last price', formatPrice(ticker.price), ''], ['Change', formatPct(ticker.change24hPct), pnlClass(ticker.change24hPct)],
+                  ['High', formatPrice(ticker.high24h), ''], ['Low', formatPrice(ticker.low24h), ''],
+                  ['Volume', `${formatNumber(ticker.volumeBase, 2)} ${base}`, ''],
+                ].map(([k, v, c]) => (
+                  <div key={k} className="flex justify-between"><dt className="text-zinc-500 text-xs">{k}</dt><dd className={`font-semibold tabular-nums ${c || 'text-white'}`}>{v}</dd></div>
+                ))}
+              </dl>
+            ) : <p className="text-sm text-zinc-500">Loading...</p>}
+          </Card>
 
-              {/* Order type */}
-              <div className="flex gap-2 mb-4">
-                <button
-                  onClick={() => setOrderType('market')}
-                  className={`flex-1 py-2 rounded-lg text-xs font-medium transition-colors ${
-                    orderType === 'market'
-                      ? 'bg-blue-600 text-white'
-                      : 'bg-zinc-800 text-zinc-400 hover:text-white'
-                  }`}
-                >
-                  Market
-                </button>
-                <button
-                  onClick={() => setOrderType('limit')}
-                  className={`flex-1 py-2 rounded-lg text-xs font-medium transition-colors ${
-                    orderType === 'limit'
-                      ? 'bg-blue-600 text-white'
-                      : 'bg-zinc-800 text-zinc-400 hover:text-white'
-                  }`}
-                >
-                  Limit
-                </button>
-              </div>
-
-              <div className="space-y-3">
-                {/* Limit price input */}
-                {orderType === 'limit' && (
-                  <div>
-                    <label className="text-zinc-400 text-xs mb-1.5 block">Price (USDT)</label>
-                    <input
-                      type="number"
-                      value={price}
-                      onChange={(e) => setPrice(e.target.value)}
-                      placeholder={selectedPair.priceNum.toFixed(2)}
-                      className="w-full bg-zinc-800 text-white px-3 py-2.5 rounded-lg border border-zinc-700 focus:border-blue-600 focus:outline-none text-sm tabular-nums"
-                    />
-                  </div>
-                )}
-
-                {/* Amount input */}
+          {(position || myOrders.length > 0 || myFills.length > 0) && (
+            <Card className="p-4 space-y-4">
+              {position && (
                 <div>
-                  <label className="text-zinc-400 text-xs mb-1.5 block">
-                    Amount ({selectedPair.pair.split('/')[0]})
-                  </label>
-                  <input
-                    type="number"
-                    value={amount}
-                    onChange={(e) => setAmount(e.target.value)}
-                    placeholder="0.0000"
-                    className="w-full bg-zinc-800 text-white px-3 py-2.5 rounded-lg border border-zinc-700 focus:border-blue-600 focus:outline-none text-sm tabular-nums"
-                  />
+                  <h4 className="text-xs font-semibold text-zinc-500 uppercase tracking-wider mb-2">Your position</h4>
+                  <p className="text-white text-sm font-semibold tabular-nums">{formatNumber(position.qty, 6)} {base}</p>
+                  <p className="text-xs text-zinc-500">Average cost {formatPrice(position.avgPrice)}</p>
+                  {lastPrice > 0 && <p className={`text-xs tabular-nums ${pnlClass(lastPrice - position.avgPrice)}`}>{formatUsd((lastPrice - position.avgPrice) * position.qty)} ({formatPct((lastPrice / position.avgPrice - 1) * 100)})</p>}
                 </div>
-
-                {/* Percentage buttons */}
-                <div className="grid grid-cols-4 gap-1.5">
-                  {[25, 50, 75, 100].map((pct) => (
-                    <button
-                      key={pct}
-                      onClick={() => setPercentAmount(pct)}
-                      className="py-1.5 bg-zinc-800 text-zinc-400 rounded text-xs hover:bg-zinc-700 hover:text-white transition-colors"
-                    >
-                      {pct}%
-                    </button>
-                  ))}
+              )}
+              {myOrders.length > 0 && (
+                <div>
+                  <h4 className="text-xs font-semibold text-zinc-500 uppercase tracking-wider mb-2">Open orders</h4>
+                  <ul className="space-y-1.5">
+                    {myOrders.map((o) => (
+                      <li key={o.id} className="flex items-center justify-between text-xs">
+                        <span className={o.side === 'buy' ? 'text-emerald-400' : 'text-red-400'}>{o.side} {formatNumber(o.qty, 6)} at {formatPrice(o.price)}</span>
+                        <button onClick={() => paper.cancelOrder(o.id)} className="p-1 text-zinc-500 hover:text-red-400" aria-label="Cancel order"><Trash2 className="w-3.5 h-3.5" /></button>
+                      </li>
+                    ))}
+                  </ul>
                 </div>
-
-                {/* Summary */}
-                <div className="p-3 bg-zinc-800/60 rounded-lg space-y-1.5 text-xs">
-                  <div className="flex justify-between">
-                    <span className="text-zinc-500">Available</span>
-                    <span className="text-white tabular-nums">
-                      {isWalletConnected ? '1.5000' : '0.0000'} {selectedPair.pair.split('/')[0]}
-                    </span>
-                  </div>
-                  <div className="flex justify-between">
-                    <span className="text-zinc-500">Est. Total</span>
-                    <span className="text-white font-semibold tabular-nums">${estimatedTotal} USDT</span>
-                  </div>
-                  {orderType === 'market' && (
-                    <div className="flex justify-between">
-                      <span className="text-zinc-500">Slippage est.</span>
-                      <span className="text-zinc-400">~0.1%</span>
-                    </div>
-                  )}
+              )}
+              {myFills.length > 0 && (
+                <div>
+                  <h4 className="text-xs font-semibold text-zinc-500 uppercase tracking-wider mb-2">Recent fills</h4>
+                  <ul className="space-y-1">
+                    {myFills.map((f) => (
+                      <li key={f.id} className="text-xs text-zinc-400 flex justify-between"><span>{f.side} {formatNumber(f.qty, 6)} at {formatPrice(f.price)}</span>{f.realizedPnlUsd != null && <span className={pnlClass(f.realizedPnlUsd)}>{formatUsd(f.realizedPnlUsd)}</span>}</li>
+                    ))}
+                  </ul>
                 </div>
-
-                {/* Execute button */}
-                {isWalletConnected ? (
-                  <button
-                    onClick={handleTrade}
-                    className={`w-full py-3.5 rounded-lg font-bold text-white text-sm transition-colors ${
-                      activeTab === 'buy'
-                        ? 'bg-green-600 hover:bg-green-700'
-                        : 'bg-red-600 hover:bg-red-700'
-                    }`}
-                  >
-                    {activeTab === 'buy' ? 'Buy' : 'Sell'} {selectedPair.pair.split('/')[0]}
-                  </button>
-                ) : (
-                  <button
-                    onClick={() => setWalletModalOpen(true)}
-                    className="w-full py-3.5 rounded-lg font-bold text-white text-sm bg-blue-600 hover:bg-blue-700 transition-colors flex items-center justify-center gap-2"
-                  >
-                    <Wallet className="w-4 h-4" /> Connect Wallet to Trade
-                  </button>
-                )}
-              </div>
-            </div>
-
-            {/* Market info card */}
-            <div className="bg-zinc-900/80 border border-zinc-800/60 rounded-xl p-4">
-              <h4 className="text-xs font-semibold text-zinc-500 uppercase tracking-wider mb-3">
-                {selectedPair.pair} Info
-              </h4>
-              <div className="space-y-2 text-xs">
-                <InfoRow label="Last Price" value={selectedPair.price} />
-                <InfoRow label="24h Change" value={selectedPair.change} color={selectedPair.isPositive ? 'text-green-400' : 'text-red-400'} />
-                <InfoRow label="24h Volume" value={selectedPair.volume24h} />
-                <InfoRow label="Order Type" value={orderType.charAt(0).toUpperCase() + orderType.slice(1)} />
-              </div>
-            </div>
-          </div>
+              )}
+            </Card>
+          )}
         </div>
-      )}
-
-      {/* -------------------------------------------------------------- */}
-      {/*  AUTOMATED TRADING                                              */}
-      {/* -------------------------------------------------------------- */}
-      {terminalTab === 'auto' && (
-        <AutomatedTrading
-          isWalletConnected={isWalletConnected}
-          walletAddress={user?.walletAddress}
-          onRequestWalletConnect={() => setWalletModalOpen(true)}
-        />
-      )}
-
-      {/* Wallet Connection Modal */}
-      <WalletConnectionModal open={walletModalOpen} onOpenChange={setWalletModalOpen} />
-    </div>
-  );
-}
-
-/* ------------------------------------------------------------------ */
-/*  Utility sub-components                                             */
-/* ------------------------------------------------------------------ */
-
-function TabButton({
-  active,
-  onClick,
-  icon,
-  label,
-}: {
-  active: boolean;
-  onClick: () => void;
-  icon: React.ReactNode;
-  label: string;
-}) {
-  return (
-    <button
-      onClick={onClick}
-      className={`flex items-center gap-2 px-4 py-2 rounded-xl text-sm font-medium transition-all ${
-        active ? 'bg-blue-600 text-white shadow-lg shadow-blue-600/15' : 'bg-zinc-900/80 border border-zinc-800/60 text-zinc-400 hover:text-white'
-      }`}
-    >
-      {icon}
-      {label}
-    </button>
-  );
-}
-
-function InfoRow({ label, value, color = 'text-white' }: { label: string; value: string; color?: string }) {
-  return (
-    <div className="flex justify-between items-center">
-      <span className="text-zinc-500 text-xs">{label}</span>
-      <span className={`font-semibold text-sm tabular-nums ${color}`}>{value}</span>
+      </div>
     </div>
   );
 }

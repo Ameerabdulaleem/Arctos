@@ -1,65 +1,34 @@
-// Extend the Window interface to include wallet providers
+// Typed shapes for the wallet providers the app talks to.
+
+interface Eip1193Provider {
+  request(args: { method: string; params?: unknown[] | Record<string, unknown> }): Promise<unknown>;
+  on?(event: string, listener: (...args: unknown[]) => void): void;
+  removeListener?(event: string, listener: (...args: unknown[]) => void): void;
+  isMetaMask?: boolean;
+  isRabby?: boolean;
+  isPhantom?: boolean;
+  isOkxWallet?: boolean;
+  providers?: Eip1193Provider[];
+}
+
+interface SolanaProvider {
+  isPhantom?: boolean;
+  publicKey?: { toString(): string } | null;
+  connect(options?: { onlyIfTrusted?: boolean }): Promise<{ publicKey: { toString(): string } }>;
+  disconnect(): Promise<void>;
+  on?(event: string, listener: (...args: unknown[]) => void): void;
+  off?(event: string, listener: (...args: unknown[]) => void): void;
+}
+
 interface Window {
-  // MetaMask / EIP-1193 Providers
-  ethereum?: {
-    isMetaMask?: boolean;
-    isConnected: () => boolean;
-    request: (args: { method: string; params?: any[] }) => Promise<any>;
-    on: (event: string, callback: (...args: any[]) => void) => void;
-    removeListener: (event: string, callback: (...args: any[]) => void) => void;
-    chainId: string;
-    selectedAddress: string | null;
-    // For multiple wallet support
-    providers?: any[];
-    // For WalletConnect
-    isWalletConnect?: boolean;
-  };
-  
-  // Legacy web3 (some dApps still use this)
-  web3?: {
-    currentProvider: any;
-  };
-  
-  // Solana (Phantom Wallet)
-  solana?: {
-    isPhantom?: boolean;
-    connect: () => Promise<{ publicKey: { toString: () => string } }>;
-    disconnect: () => Promise<void>;
-  };
-  // Some providers are exposed under `window.phantom` wrapper
-  phantom?: {
-    solana?: {
-      isPhantom?: boolean;
-      connect: () => Promise<{ publicKey: { toString: () => string } }>;
-      disconnect: () => Promise<void>;
-    }
-  };
-  // OKX wallet injector
-  okxwallet?: {
-    request: (args: { method: string; params?: any[] }) => Promise<any>;
-  };
-  
-  // Keplr (Cosmos)
-  keplr?: any;
-  
-  // WalletConnect
-  WalletConnect?: any;
-  walletConnect?: any;
-  
-  // Custom injected providers
-  arctosWallet?: any; // If you create your own extension someday
+  ethereum?: Eip1193Provider;
+  okxwallet?: Eip1193Provider;
+  phantom?: { solana?: SolanaProvider; ethereum?: Eip1193Provider };
 }
 
-// Extend EIP-1193 Provider type if needed
-interface EIP1193Provider {
-  request(args: { method: string; params?: any[] }): Promise<any>;
-  on(event: string, listener: (...args: any[]) => void): void;
-  removeListener(event: string, listener: (...args: any[]) => void): void;
-}
-
-// For event types
-interface MetaMaskEthereumProvider {
-  isMetaMask: boolean;
-  chainId: string;
-  selectedAddress: string;
+interface WindowEventMap {
+  'eip6963:announceProvider': CustomEvent<{
+    info: { uuid: string; name: string; icon: string; rdns: string };
+    provider: Eip1193Provider;
+  }>;
 }

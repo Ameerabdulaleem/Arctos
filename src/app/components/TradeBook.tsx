@@ -13,12 +13,12 @@ import {
   ChevronUp,
   ChevronsUpDown,
   AlertTriangle,
-  Wallet,
-  Mail,
+  Download,
 } from 'lucide-react';
-import { useAuth } from '@/app/contexts/AuthContext';
-import { WalletConnectionModal } from './WalletConnectionModal';
-import { EmailAuthModal } from './EmailAuthModal';
+import { useTickers } from '../hooks/useTickers';
+import { usePolling } from '../hooks/usePolling';
+import { marketService } from '../services/marketService';
+import { readTrades, tradesToCsv, TRADEBOOK_KEY } from '../lib/tradebook';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -37,7 +37,7 @@ type SortDir = 'asc' | 'desc';
 
 // ─── Constants ────────────────────────────────────────────────────────────────
 
-const STORAGE_KEY = 'arctos_tradebook';
+const STORAGE_KEY = TRADEBOOK_KEY;
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -132,20 +132,19 @@ function SortButton({
 // ─── Main component ───────────────────────────────────────────────────────────
 
 export function TradeBook() {
-  const { isAuthenticated } = useAuth();
-  const [walletModalOpen, setWalletModalOpen] = useState(false);
-  const [emailAuthModalOpen, setEmailAuthModalOpen] = useState(false);
+  const { tickers } = useTickers();
+  const coins = usePolling((s) => marketService.coins(100, s), 60_000);
 
   // ── State ──────────────────────────────────────────────────────────────────
 
-  const [trades, setTrades] = useState<Trade[]>(() => {
-    try {
-      const stored = localStorage.getItem(STORAGE_KEY);
-      return stored ? (JSON.parse(stored) as Trade[]) : [];
-    } catch {
-      return [];
-    }
-  });
+  const [trades, setTrades] = useState<Trade[]>(readTrades);
+
+  // Live price for a trade's token, matched by symbol against exchange tickers first, then the top 100 coins.
+  const livePrice = (name: string): number | null => {
+    const sym = name.toUpperCase().replace(/[^A-Z0-9]/g, '').replace(/USDT$/, '');
+    if (tickers[sym]) return tickers[sym].price;
+    return coins.data?.coins.find((c) => c.symbol === sym)?.price ?? null;
+  };
 
   const [showForm, setShowForm] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
@@ -166,8 +165,7 @@ export function TradeBook() {
   const [formError, setFormError] = useState<string | null>(null);
 
   // ── Persistence ────────────────────────────────────────────────────────────
-  // NOTE: Replace this useEffect with an API call (POST /api/tradebook/trades)
-  // when your Rust backend is ready. The shape of `trades` is already serialisable.
+  // The trade book is stored in this browser. Use Settings to back it up or move it.
   useEffect(() => {
     try {
       localStorage.setItem(STORAGE_KEY, JSON.stringify(trades));
@@ -190,6 +188,11 @@ export function TradeBook() {
   );
   const netPL = useMemo(() => closedTrades.reduce((s, t) => s + t.profitLoss, 0), [closedTrades]);
   const winningTrades = useMemo(() => closedTrades.filter((t) => t.profitLoss > 0).length, [closedTrades]);
+  const openPL = openTrades.reduce((sum, t) => {
+    const price = livePrice(t.tokenName);
+    return price == null ? sum : sum + (price - parseFloat(t.priceBought)) * parseFloat(t.amount);
+  }, 0);
+  const openPriced = openTrades.filter((t) => livePrice(t.tokenName) != null).length;
   const winRate = useMemo(
     () => (closedTrades.length > 0 ? ((winningTrades / closedTrades.length) * 100).toFixed(1) : '—'),
     [closedTrades, winningTrades],
@@ -245,7 +248,7 @@ export function TradeBook() {
     if (!validateForm()) return;
     const pl = calcPL(priceBought, priceSold, amount);
     const newTrade: Trade = {
-      id: Date.now().toString(),
+      id: crypto.randomUUID(),
       tokenName: tokenName.trim(),
       priceBought,
       amount,
@@ -322,9 +325,25 @@ export function TradeBook() {
               </span>
               Trade Book
             </h1>
-            <p className="text-zinc-500 text-sm">Track and analyse your token trades</p>
+            <p className="text-zinc-500 text-sm">Log your trades. Open positions are marked to live prices. Saved in this browser.</p>
           </div>
 
+          <div className="flex items-center gap-2 shrink-0">
+          {trades.length > 0 && (
+            <button
+              onClick={() => {
+                const url = URL.createObjectURL(new Blob([tradesToCsv(trades)], { type: 'text/csv' }));
+                const a = document.createElement('a');
+                a.href = url;
+                a.download = 'arctos-trade-book.csv';
+                a.click();
+                URL.revokeObjectURL(url);
+              }}
+              className="flex items-center gap-2 px-4 py-2 bg-zinc-800 text-zinc-200 rounded-xl hover:bg-zinc-700 transition-colors text-sm border border-zinc-700"
+            >
+              <Download className="w-4 h-4" /> Export CSV
+            </button>
+          )}
           <button
             onClick={() => { resetForm(); setEditingId(null); setShowForm((v) => !v); }}
             className="flex items-center gap-2 px-4 py-2 bg-blue-600 text-white rounded-xl hover:bg-blue-700 transition-colors font-medium text-sm shrink-0 shadow-lg shadow-blue-600/10"
@@ -332,35 +351,11 @@ export function TradeBook() {
             <Plus className="w-4 h-4" />
             Add Trade
           </button>
+          </div>
         </div>
 
-        {/* ── Auth banner ─────────────────────────────────────────────── */}
-        {!isAuthenticated && (
-          <div className="mb-6 flex items-center justify-between gap-4 px-4 py-3 bg-zinc-900 border border-zinc-800 rounded-xl">
-            <p className="text-zinc-400 text-sm">
-              Connect wallet or sign in to sync your trades across devices.
-            </p>
-            <div className="flex gap-2 shrink-0">
-              <button
-                onClick={() => setWalletModalOpen(true)}
-                className="flex items-center gap-1.5 px-3 py-1.5 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors text-xs font-medium"
-              >
-                <Wallet className="w-3.5 h-3.5" />
-                Connect Wallet
-              </button>
-              <button
-                onClick={() => setEmailAuthModalOpen(true)}
-                className="flex items-center gap-1.5 px-3 py-1.5 bg-zinc-800 text-zinc-300 border border-zinc-700 rounded-lg hover:bg-zinc-700 hover:text-white transition-colors text-xs font-medium"
-              >
-                <Mail className="w-3.5 h-3.5" />
-                Sign In
-              </button>
-            </div>
-          </div>
-        )}
-
         {/* ── Stats ───────────────────────────────────────────────────────── */}
-        <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-5 gap-3 mb-6">
+        <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-3 mb-6">
           <StatCard
             label="Total Trades"
             value={String(trades.length)}
@@ -378,6 +373,12 @@ export function TradeBook() {
             value={fmtUSD(netPL)}
             color={netPL >= 0 ? 'text-green-500' : 'text-red-500'}
             sub="Closed trades only"
+          />
+          <StatCard
+            label="Open P/L (live)"
+            value={openPriced > 0 ? fmtUSD(openPL) : '\u2014'}
+            color={openPriced === 0 ? undefined : openPL >= 0 ? 'text-green-500' : 'text-red-500'}
+            sub={openTrades.length === 0 ? 'No open trades' : `${openPriced} of ${openTrades.length} open priced live`}
           />
         </div>
 
@@ -667,7 +668,17 @@ export function TradeBook() {
                           {/* P/L */}
                           <td className="px-5 py-3.5">
                             {tradeOpen ? (
-                              <span className="text-zinc-600 text-sm">—</span>
+                              (() => {
+                                const live = livePrice(trade.tokenName);
+                                if (live == null) return <span className="text-zinc-600 text-sm" title="No live price found for this token symbol">—</span>;
+                                const unreal = (live - parseFloat(trade.priceBought)) * parseFloat(trade.amount);
+                                return (
+                                  <span className={`text-sm font-semibold tabular-nums ${unreal >= 0 ? 'text-green-400' : 'text-red-400'}`} title={`Live price ${fmtUSD(live)}`}>
+                                    {unreal >= 0 ? '+' : '-'}{fmtUSD(Math.abs(unreal))}
+                                    <span className="ml-1 text-[10px] font-normal text-zinc-500">live</span>
+                                  </span>
+                                );
+                              })()
                             ) : (
                               <div
                                 className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-bold ${
@@ -752,9 +763,6 @@ export function TradeBook() {
           </>
         )}
       </div>
-
-      <WalletConnectionModal open={walletModalOpen} onOpenChange={setWalletModalOpen} />
-      <EmailAuthModal open={emailAuthModalOpen} onOpenChange={setEmailAuthModalOpen} />
     </>
   );
 }
