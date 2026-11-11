@@ -1,183 +1,199 @@
-import { useEffect, useMemo, useState } from 'react';
-import { Bell, TrendingUp, ArrowUpRight, ArrowDownRight, Clock, RefreshCw, Wallet, User, LogOut } from 'lucide-react';
-import { PortfolioValueWidget, AltseasonIndexWidget, DominanceWidget, MarketCapWidget, FearGreedWidget } from './PortfolioWidgets';
+import { useMemo } from 'react';
+import { ArrowDownRight, ArrowUpRight, Clock, ExternalLink, RefreshCw } from 'lucide-react';
+import { AltseasonWidget, DominanceWidget, FearGreedWidget, MarketCapWidget, PortfolioValueWidget } from './PortfolioWidgets';
 import { AssetTabs } from './AssetTabs';
-import { DashboardSnapshot, dashboardSyncService } from '../services/dashboardSyncService';
-import { WalletConnectionModal } from './WalletConnectionModal';
-import { EmailAuthModal } from './EmailAuthModal';
-import { useAuth } from '../contexts/AuthContext';
-import { toast } from 'sonner';
+import { Card, Empty, ErrorNotice, Loading, Pill } from './ui/common';
+import { useAuth } from '../contexts/auth-context';
+import { usePaper } from '../contexts/paper-context';
+import { usePolling } from '../hooks/usePolling';
+import { marketService } from '../services/marketService';
+import { portfolioService } from '../services/portfolioService';
+import { newsService } from '../services/newsService';
+import { whaleService } from '../services/whaleService';
+import { readTrades } from '../lib/tradebook';
+import { formatCompactUsd, formatPct, formatPrice, formatUsd, pnlClass, safeHref, shortAddress, timeAgo } from '../lib/format';
+import type { ViewId } from '../hooks/useHashView';
 
-export function DashboardView() {
-  const [snapshot, setSnapshot] = useState<DashboardSnapshot | null>(null);
-  const [isSyncing, setIsSyncing] = useState(true);
-  const [syncMode, setSyncMode] = useState<'live' | 'fallback'>('fallback');
-  const [walletModalOpen, setWalletModalOpen] = useState(false);
-  const [emailAuthModalOpen, setEmailAuthModalOpen] = useState(false);
-  const { isAuthenticated, isWalletConnected, disconnectWallet, signOut } = useAuth();
+interface Props {
+  onNavigate: (v: ViewId | null) => void;
+  onConnectWallet: () => void;
+}
 
-  useEffect(() => {
-    let isMounted = true;
+export function DashboardView({ onNavigate, onConnectWallet }: Props) {
+  const { user, isWalletConnected } = useAuth();
+  const paper = usePaper();
+  const address = isWalletConnected ? user?.walletAddress : undefined;
 
-    const load = async () => {
-      const initial = await dashboardSyncService.getInitialSnapshot();
-      if (isMounted) {
-        setSnapshot(initial);
-        setIsSyncing(false);
-      }
-    };
+  const overview = usePolling((s) => marketService.overview(s), 30_000);
+  const coins = usePolling((s) => marketService.coins(100, s), 60_000);
+  const wallet = usePolling(
+    (s) => (address ? portfolioService.get(address, s) : Promise.resolve(null)),
+    address ? 30_000 : null,
+    [address],
+  );
+  const news = usePolling((s) => newsService.list(5, s), 120_000);
+  const whales = usePolling((s) => whaleService.list({ minUsd: 1_000_000, limit: 5 }, s), 30_000);
 
-    void load();
+  const walletData = address ? wallet.data : null;
+  const walletChange = useMemo(() => {
+    if (!walletData) return null;
+    const priced = walletData.holdings.filter((h) => h.valueUsd != null && h.change24h != null);
+    const total = priced.reduce((s, h) => s + (h.valueUsd ?? 0), 0);
+    if (total <= 0) return null;
+    return priced.reduce((s, h) => s + ((h.valueUsd ?? 0) / total) * (h.change24h ?? 0), 0);
+  }, [walletData]);
 
-    const unsubscribe = dashboardSyncService.subscribeToUpdates((nextSnapshot) => {
-      setSnapshot(nextSnapshot);
-      setSyncMode('live');
-    });
+  const movers = useMemo(() => {
+    const list = (coins.data?.coins ?? []).filter((c) => c.change24h != null);
+    const sorted = [...list].sort((a, b) => (b.change24h ?? 0) - (a.change24h ?? 0));
+    return { gainers: sorted.slice(0, 4), losers: sorted.slice(-4).reverse() };
+  }, [coins.data]);
 
-    return () => {
-      isMounted = false;
-      unsubscribe();
-    };
-  }, []);
+  const activity = useMemo(() => {
+    const fills = paper.account.fills.slice(0, 8).map((f) => ({
+      id: f.id, time: f.time, title: `${f.side === 'buy' ? 'Bought' : 'Sold'} ${f.symbol}`,
+      detail: `${f.qty.toFixed(6)} at ${formatPrice(f.price)} (${f.note})`, value: f.qty * f.price, side: f.side, tag: 'Paper',
+    }));
+    const trades = readTrades().slice(0, 5).map((t) => ({
+      id: t.id, time: Date.parse(t.date), title: `Logged ${t.tokenName}`,
+      detail: `${t.amount} at ${formatPrice(Number(t.priceBought))}`, value: Number(t.priceBought) * Number(t.amount), side: 'buy' as const, tag: 'Trade book',
+    }));
+    return [...fills, ...trades].sort((a, b) => b.time - a.time).slice(0, 8);
+  }, [paper.account.fills]);
 
-  const recentActivities = useMemo(() => snapshot?.recentActivities ?? [], [snapshot]);
-
-  const handleSignOut = () => {
-    signOut();
-    toast.success('Signed out successfully');
-  };
-
-  const handleDisconnectWallet = () => {
-    disconnectWallet();
-    toast.success('Wallet disconnected');
-  };
-
-  if (!snapshot) {
-    return (
-      <div className="p-6 bg-black min-h-full flex items-center justify-center">
-        <div className="text-zinc-400 inline-flex items-center gap-2">
-          <RefreshCw className="w-4 h-4 animate-spin" />
-          Loading dashboard...
-        </div>
-      </div>
-    );
-  }
+  const loadingFirst = overview.loading && !overview.data;
+  const g = overview.data?.global;
 
   return (
-    <div className="p-6 space-y-6 bg-black min-h-full">
-      <div className="flex items-center justify-between gap-4">
+    <div className="p-4 md:p-6 space-y-6 max-w-[1500px] mx-auto">
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
         <div>
           <h1 className="text-2xl font-bold text-white tracking-tight">Dashboard</h1>
-          <div className="flex items-center gap-3 text-sm mt-1">
-            <p className="text-zinc-500">Portfolio overview &amp; market pulse</p>
-            <span className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[11px] font-medium border ${syncMode === 'live' ? 'text-emerald-400 border-emerald-500/30 bg-emerald-500/10' : 'text-amber-400 border-amber-500/30 bg-amber-500/10'}`}>
-              <span className={`w-1.5 h-1.5 rounded-full ${syncMode === 'live' ? 'bg-emerald-400' : 'bg-amber-400'} ${isSyncing ? 'animate-pulse' : ''}`} />
-              {syncMode === 'live' ? 'Live sync' : 'Fallback'}
-            </span>
-          </div>
+          <p className="text-zinc-500 text-sm mt-1">Portfolio overview and market pulse, from live sources</p>
         </div>
-
-        <div className="flex items-center gap-2">
-          {!isAuthenticated ? (
-            <>
-              <button
-                onClick={() => setWalletModalOpen(true)}
-                className="inline-flex items-center gap-2 px-4 py-2 rounded-lg bg-blue-600 hover:bg-blue-700 text-white text-sm font-medium transition-colors shadow-lg shadow-blue-600/20"
-              >
-                <Wallet className="w-4 h-4" />
-                Connect Wallet
-              </button>
-              <button
-                onClick={() => setEmailAuthModalOpen(true)}
-                className="inline-flex items-center gap-2 px-4 py-2 rounded-lg border border-zinc-700 bg-zinc-900 hover:bg-zinc-800 text-zinc-200 text-sm transition-colors"
-              >
-                <User className="w-4 h-4" />
-                Sign In
-              </button>
-            </>
-          ) : (
-            <button
-              onClick={isWalletConnected ? handleDisconnectWallet : handleSignOut}
-              className="inline-flex items-center gap-2 px-4 py-2 rounded-lg border border-zinc-700 bg-zinc-900 hover:bg-zinc-800 text-zinc-200 text-sm transition-colors"
-            >
-              <LogOut className="w-4 h-4" />
-              {isWalletConnected ? 'Disconnect' : 'Sign Out'}
-            </button>
-          )}
-
-          <button className="p-2.5 bg-zinc-900 border border-zinc-800 rounded-lg hover:bg-zinc-800 transition-colors relative">
-            <Bell className="w-4 h-4 text-zinc-300" />
-            <span className="absolute top-2 right-2 w-1.5 h-1.5 bg-red-500 rounded-full" />
+        <div className="flex items-center gap-3">
+          {overview.updatedAt && <span className="text-xs text-zinc-500">Updated {timeAgo(overview.updatedAt)}</span>}
+          <button onClick={() => { overview.refresh(); coins.refresh(); wallet.refresh(); }} className="inline-flex items-center gap-2 px-3 py-1.5 rounded-lg border border-zinc-700 bg-zinc-900 hover:bg-zinc-800 text-zinc-200 text-sm">
+            <RefreshCw className={`w-4 h-4 ${overview.loading ? 'animate-spin' : ''}`} aria-hidden /> Refresh
           </button>
         </div>
       </div>
 
-      <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-5 gap-3">
-        <PortfolioValueWidget metrics={snapshot.metrics} />
-        <AltseasonIndexWidget metrics={snapshot.metrics} />
-        <DominanceWidget metrics={snapshot.metrics} />
-        <MarketCapWidget metrics={snapshot.metrics} />
-        <FearGreedWidget metrics={snapshot.metrics} />
+      {overview.error && !overview.data && <ErrorNotice message={overview.error} onRetry={overview.refresh} />}
+      {overview.error && overview.data && <ErrorNotice message={`Showing the last data we received. ${overview.error}`} onRetry={overview.refresh} />}
+
+      <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-5 gap-3">
+        {address ? (
+          <PortfolioValueWidget value={walletData?.totalUsd ?? null} change={walletChange} sourceLabel={`Wallet ${shortAddress(address)}`} hint={wallet.error && !walletData ? wallet.error : 'Live on chain balances'} />
+        ) : (
+          <PortfolioValueWidget value={paper.equity} change={paper.totalPnlPct} sourceLabel="Paper account" hint={<button onClick={onConnectWallet} className="text-blue-400 hover:text-blue-300">Connect a wallet for real balances</button>} />
+        )}
+        <AltseasonWidget data={loadingFirst ? undefined : overview.data?.altseason} />
+        <DominanceWidget global={g} />
+        <MarketCapWidget global={g} trend={overview.data?.marketCapTrend ?? []} />
+        <FearGreedWidget data={overview.data?.fearGreed} />
       </div>
 
-      <AssetTabs assets={snapshot.assets} />
+      <AssetTabs
+        wallet={{ connected: Boolean(address), data: walletData, loading: wallet.loading, error: wallet.error, onConnect: onConnectWallet, onRetry: wallet.refresh }}
+        coins={coins.data?.coins ?? null}
+        paperPositions={paper.positions}
+        onOpenTerminal={() => onNavigate('trading')}
+      />
 
-      <div className="bg-zinc-900/80 border border-zinc-800/60 rounded-xl p-6">
-        <div className="flex items-center justify-between mb-5">
-          <h2 className="text-white text-lg font-semibold tracking-tight">Recent Activity</h2>
-          <button className="text-xs text-blue-400 hover:text-blue-300 transition-colors font-medium px-3 py-1.5 rounded-md bg-blue-500/10 border border-blue-500/20 hover:bg-blue-500/15">View All</button>
-        </div>
-
-        <div className="space-y-2">
-          {recentActivities.map((activity, index) => (
-            <div key={`${activity.chain}-${activity.action}-${index}`} className="flex items-center justify-between p-3.5 bg-zinc-800/50 rounded-lg hover:bg-zinc-800/80 transition-colors border border-transparent hover:border-zinc-700/50">
-              <div className="flex items-center gap-3">
-                <div
-                  className={`w-9 h-9 ${
-                    activity.type === 'buy'
-                      ? 'bg-green-600/20 text-green-400'
-                      : activity.type === 'sell'
-                        ? 'bg-red-600/20 text-red-400'
-                        : activity.type === 'stake'
-                          ? 'bg-purple-600/20 text-purple-400'
-                          : activity.type === 'swap'
-                            ? 'bg-blue-600/20 text-blue-400'
-                            : activity.type === 'receive'
-                              ? 'bg-cyan-600/20 text-cyan-400'
-                              : 'bg-orange-600/20 text-orange-400'
-                  } rounded-lg flex items-center justify-center`}
-                >
-                  {activity.type === 'buy' && <ArrowDownRight className="w-4 h-4" />}
-                  {activity.type === 'sell' && <ArrowUpRight className="w-4 h-4" />}
-                  {activity.type === 'stake' && <TrendingUp className="w-4 h-4" />}
-                  {activity.type === 'swap' && <TrendingUp className="w-4 h-4 rotate-90" />}
-                  {activity.type === 'receive' && <ArrowDownRight className="w-4 h-4" />}
-                  {activity.type === 'claim' && <TrendingUp className="w-4 h-4" />}
+      <div className="grid grid-cols-1 xl:grid-cols-3 gap-4">
+        <Card className="p-5">
+          <div className="flex items-center justify-between mb-3">
+            <h2 className="text-white font-semibold">Top movers, 24h</h2>
+            <button onClick={() => onNavigate('trading')} className="text-xs text-blue-400 hover:text-blue-300">Trade</button>
+          </div>
+          {coins.loading && !coins.data ? <Loading /> : (
+            <div className="grid grid-cols-2 gap-3 text-sm">
+              {[['Gainers', movers.gainers], ['Losers', movers.losers]].map(([title, list]) => (
+                <div key={String(title)}>
+                  <p className="text-xs uppercase tracking-wider text-zinc-500 mb-2">{String(title)}</p>
+                  <ul className="space-y-1.5">
+                    {(list as typeof movers.gainers).map((c) => (
+                      <li key={c.id} className="flex justify-between"><span className="text-zinc-200 font-medium">{c.symbol}</span><span className={`tabular-nums ${pnlClass(c.change24h)}`}>{formatPct(c.change24h)}</span></li>
+                    ))}
+                  </ul>
                 </div>
-
-                <div>
-                  <div className="flex items-center gap-2">
-                    <p className="text-white text-sm font-medium">{activity.action}</p>
-                    <span className={`${activity.chainColor} text-white text-[10px] px-1.5 py-0.5 rounded font-medium`}>{activity.chain}</span>
-                  </div>
-                  <p className="text-zinc-500 text-xs mt-0.5">{activity.amount}</p>
-                </div>
-              </div>
-
-              <div className="text-right">
-                <p className="text-white text-sm font-medium tabular-nums">{activity.value}</p>
-                <div className="flex items-center gap-1 text-zinc-500 text-xs justify-end mt-0.5">
-                  <Clock className="w-3 h-3" />
-                  {activity.time}
-                </div>
-              </div>
+              ))}
             </div>
-          ))}
-        </div>
+          )}
+        </Card>
+
+        <Card className="p-5">
+          <div className="flex items-center justify-between mb-3">
+            <h2 className="text-white font-semibold">Whale transfers, $1M and up</h2>
+            <button onClick={() => onNavigate('whale')} className="text-xs text-blue-400 hover:text-blue-300">View all</button>
+          </div>
+          {whales.loading && !whales.data ? <Loading /> : whales.error && !whales.data ? <ErrorNotice message={whales.error} onRetry={whales.refresh} />
+          : whales.data && whales.data.events.length === 0 ? <Empty title="Nothing that large yet">The tracker has not seen a transfer above $1M since it started.</Empty>
+          : (
+            <ul className="space-y-2">
+              {whales.data?.events.map((e) => (
+                <li key={e.id} className="flex items-center justify-between gap-3 text-sm">
+                  <span className="min-w-0 truncate text-zinc-200">{formatCompactUsd(e.valueUsd)} {e.asset} <span className="text-zinc-500">on {e.chainName}</span></span>
+                  <span className="text-xs text-zinc-500 shrink-0">{timeAgo(e.timestamp)}</span>
+                </li>
+              ))}
+            </ul>
+          )}
+        </Card>
+
+        <Card className="p-5">
+          <div className="flex items-center justify-between mb-3">
+            <h2 className="text-white font-semibold">Latest headlines</h2>
+            <button onClick={() => onNavigate('news')} className="text-xs text-blue-400 hover:text-blue-300">More news</button>
+          </div>
+          {news.loading && !news.data ? <Loading /> : news.error && !news.data ? <ErrorNotice message={news.error} onRetry={news.refresh} />
+          : (
+            <ul className="space-y-3">
+              {news.data?.articles.slice(0, 5).map((a) => (
+                <li key={a.id}>
+                  <a href={safeHref(a.url)} target="_blank" rel="noopener noreferrer" className="group flex items-start gap-2 text-sm text-zinc-200 hover:text-white">
+                    <span className="flex-1 line-clamp-2">{a.title}</span>
+                    <ExternalLink className="w-3.5 h-3.5 mt-0.5 text-zinc-600 group-hover:text-zinc-300 shrink-0" aria-hidden />
+                  </a>
+                  <p className="text-xs text-zinc-500 mt-0.5">{a.source.name} &middot; {timeAgo(a.publishedAt)}</p>
+                </li>
+              ))}
+              {news.data && news.data.articles.length === 0 && <Empty title="No headlines yet">The news feeds are still loading.</Empty>}
+            </ul>
+          )}
+        </Card>
       </div>
 
-      <WalletConnectionModal open={walletModalOpen} onOpenChange={setWalletModalOpen} />
-      <EmailAuthModal open={emailAuthModalOpen} onOpenChange={setEmailAuthModalOpen} />
+      <Card className="p-5">
+        <div className="flex items-center justify-between mb-4">
+          <h2 className="text-white font-semibold">Your recent activity</h2>
+          <Pill tone="zinc">Paper trades and trade book entries</Pill>
+        </div>
+        {activity.length === 0 ? (
+          <Empty title="No activity yet">Place a paper trade in the terminal or log a trade in the Trade Book and it will show up here.</Empty>
+        ) : (
+          <ul className="space-y-2">
+            {activity.map((a) => (
+              <li key={a.id} className="flex items-center justify-between gap-3 p-3 bg-zinc-800/40 rounded-lg">
+                <div className="flex items-center gap-3 min-w-0">
+                  <div className={`w-9 h-9 rounded-lg flex items-center justify-center shrink-0 ${a.side === 'buy' ? 'bg-emerald-600/20 text-emerald-400' : 'bg-red-600/20 text-red-400'}`}>
+                    {a.side === 'buy' ? <ArrowDownRight className="w-4 h-4" aria-hidden /> : <ArrowUpRight className="w-4 h-4" aria-hidden />}
+                  </div>
+                  <div className="min-w-0">
+                    <p className="text-white text-sm font-medium truncate">{a.title} <span className="text-[10px] ml-1 text-zinc-400 bg-zinc-800 px-1.5 py-0.5 rounded">{a.tag}</span></p>
+                    <p className="text-zinc-500 text-xs truncate">{a.detail}</p>
+                  </div>
+                </div>
+                <div className="text-right shrink-0">
+                  <p className="text-white text-sm font-medium tabular-nums">{formatUsd(a.value)}</p>
+                  <p className="text-zinc-500 text-xs inline-flex items-center gap-1"><Clock className="w-3 h-3" aria-hidden />{timeAgo(a.time)}</p>
+                </div>
+              </li>
+            ))}
+          </ul>
+        )}
+      </Card>
     </div>
   );
 }

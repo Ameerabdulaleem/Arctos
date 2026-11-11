@@ -1,174 +1,34 @@
-# Production Setup Checklist for ARCTOS Waitlist
+# Production checklist
 
-This guide will walk you through getting Vercel + GitHub + Brevo SMTP configured for production email sending.
+Work through this once before you point a real domain at Arctos.
 
----
+## 1. Data service
 
-## Step 1: Gather Vercel Credentials (5 mins)
+- [ ] Build `backend/Dockerfile` and deploy it (Fly.io, Render, Railway or a VPS).
+- [ ] Set `FRONTEND_ORIGINS` to your site origin, for example `https://arctos-fi.vercel.app`.
+- [ ] Set `TRUST_PROXY=true` if the host puts a proxy in front of the service.
+- [ ] Set `ANTHROPIC_API_KEY` to switch on the AI assistant. Optionally set `ANTHROPIC_MODEL`.
+- [ ] Optional: `DATABASE_URL` for real waitlist positions, `MAIL_*` for the welcome email.
+- [ ] Open `https://<your service>/api/status` and confirm every source shows `ok: true`.
+      If `binance` fails, your host region is probably blocked. Move the service to another region.
 
-### 1a. Get Project ID
-1. Go to https://vercel.com/dashboard
-2. Click on your **arctos-fi** (or similar) project
-3. Click **Settings** (top right)
-4. Look for **Project ID** on the General tab
-5. Copy it (looks like: `prj_abc123xyz`)
+## 2. Web app
 
-### 1b. Get Team/Organization ID
-1. Go to https://vercel.com/account/teams
-2. Find your team name (or "Personal")
-3. Copy the **Team/Org ID** (looks like: `team_abc123xyz`)
-   - If no team, use your personal account ID
+- [ ] In Vercel, set `VITE_RUST_BACKEND_URL` to the service URL.
+- [ ] Deploy, then open Settings, Data sources, and confirm the same list is healthy from the browser.
 
-### 1c. Create Vercel Token
-1. Go to https://vercel.com/account/tokens
-2. Click **Create Token**
-3. Name it: `arctos-github-deploy`
-4. Expiration: 90 days (or permanent)
-5. Scope: Make sure you can redeploy projects
-6. Click **Create**
-7. **Copy the token immediately** (looks like: `vercel_xxx...`) — it won't show again!
+## 3. GitHub
 
-**You now have:**
-- ✅ Project ID
-- ✅ Team/Org ID
-- ✅ Vercel Token
+- [ ] Add repository secrets `VERCEL_TOKEN`, `VERCEL_ORG_ID`, `VERCEL_PROJECT_ID`.
+- [ ] Confirm the CI workflow passes on a pull request.
 
----
+## 4. Clean up from older versions
 
-## Step 2: Add GitHub Secrets (3 mins)
+- [ ] Rotate the Brevo SMTP password and any API keys that were ever in `VITE_` variables. Those were bundled into the public site.
+- [ ] Remove old Vercel environment variables such as `VITE_API_BASE`, `VITE_BREVO_*`, `VITE_ANTHROPIC_API_KEY` and `VITE_NEWS_API_KEY`.
+- [ ] Review the Privacy, Terms and Risk text in `src/app/components/LegalDialog.tsx` with a lawyer.
 
-These tell GitHub how to deploy to Vercel.
+## 5. Content you maintain by hand
 
-### Where to go:
-1. Go to Your Repo → Settings (top menu, not project settings)
-2. Click **Secrets and variables** → **Actions** (left sidebar)
-3. Click **New repository secret**
-
-### Add these 3 secrets:
-
-| Secret Name | Value | Notes |
-|---|---|---|
-| `VERCEL_TOKEN` | Paste the token from Step 1c | The long string starting with `vercel_` |
-| `VERCEL_PROJECT_ID` | Paste the ID from Step 1a | Looks like `prj_abc123xyz` |
-| `VERCEL_ORG_ID` | Paste the ID from Step 1b | Looks like `team_abc123xyz` or your user ID |
-
-**After each:**
-- Paste value in the **Value** field
-- Click **Add secret**
-- You should see ✅ next to each one
-
----
-
-## Step 3: Add Vercel Environment Variables (3 mins)
-
-These tell Vercel how to send emails and where the frontend calls the API.
-
-### Where to go:
-1. Go to https://vercel.com/dashboard
-2. Click your **arctos-fi** project
-3. Click **Settings** (top)
-4. Click **Environment Variables** (left sidebar)
-5. Make sure you're adding to **Production** environment (dropdown at top)
-
-### Add these 4 variables:
-
-| Variable Name | Value | Notes |
-|---|---|---|
-| `BREVO_SMTP_LOGIN` | `your-smtp-login@smtp-brevo.com` | Brevo SMTP login |
-| `BREVO_SMTP_PASSWORD` | `your-smtp-password` | Brevo SMTP password |
-| `BREVO_FROM_EMAIL` | `arctosapp@gmail.com` | Sender address (verified in Brevo) |
-| `VITE_API_BASE` | `https://arctos-fi.vercel.app` | Your actual Vercel URL (change if different) |
-
-**For each:**
-1. Click **Add New** 
-2. Paste name in **Name** field
-3. Paste value in **Value** field
-4. Make sure **Production** is selected
-5. Click **Save**
-
-You should see 4 env vars listed after this.
-
----
-
-## Step 4: Deploy to Production (1 min)
-
-### Via GitHub (automatic):
-```bash
-git add .
-git commit -m "chore: production setup complete"
-git push origin main
-```
-
-This automatically:
-- Deploys to Vercel
-- Sets VITE_API_BASE automatically
-
-Or manually redeploy:
-1. Go to Vercel dashboard
-2. Click your project
-3. Click **Redeploy** button (top right)
-
-**Wait 30-60 seconds for deployment to finish.**
-
----
-
-## Step 5: Verify Production Works (2 mins)
-
-### Test the welcome email:
-
-1. Go to https://arctos-fi.vercel.app (your actual URL)
-2. Click **Join Waitlist**
-3. Enter: `arctosapp@gmail.com` (your test email)
-4. Submit
-
-### Check for email:
-
-Check your email inbox for the **full welcome email** (with position, features, etc.).
-
----
-
-## Troubleshooting
-
-### "Cannot GET /api/brevo"
-- ❌ Vercel deploy didn't work
-- ✅ Re-check: Is `api/brevo.js` at project root? Deploy again.
-
-### "Missing Brevo SMTP credentials"
-- ❌ Env vars not set in Vercel
-- ✅ Go to Vercel Settings → Environment Variables → check Production tab
-
-### No email received
-- ❌ Brevo SMTP login or password is wrong
-- ✅ Check Brevo SMTP credentials in your Brevo dashboard
-
-### Workflow failed to deploy
-- ❌ GitHub secrets missing or Vercel token expired
-- ✅ Check GitHub Actions tab → recent run → see error logs
-
----
-
-## Quick Reference: URLs
-
-| Service | URL | What to do |
-|---|---|---|
-| GitHub Secrets | https://github.com/YOUR-ORG/arctos/settings/secrets/actions | Add VERCEL_TOKEN, VERCEL_PROJECT_ID, VERCEL_ORG_ID |
-| Vercel Env Vars | https://vercel.com/dashboard → arctos-fi → Settings → Environment Variables | Add BREVO_SMTP_LOGIN, BREVO_SMTP_PASSWORD, BREVO_FROM_EMAIL, VITE_API_BASE |
-| Vercel Tokens | https://vercel.com/account/tokens | Create new token |
-| Brevo Dashboard | https://app.brevo.com | Check SMTP credentials |
-| Your Live App | https://arctos-fi.vercel.app | Test registration |
-
----
-
-## Done? Checklist
-
-- [ ] GitHub Secrets added (3)
-- [ ] Vercel Env Vars added (4)
-- [ ] Pushed to main (or manually redeployed)
-- [ ] Waited 60 seconds for deploy
-- [ ] Tested with arctosapp@gmail.com
-- [ ] Received welcome email
-- [ ] Ready for real users ✅
-
----
-
-**Questions?** Let me know which step is confusing and I'll help!
+- [ ] Refresh the PRE-IPO listings and valuations in `src/app/data/preIpoListings.ts`.
+- [ ] Replace the placeholder referral links with your own.

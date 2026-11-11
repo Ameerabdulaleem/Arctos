@@ -2,7 +2,6 @@
 .env
 .env.local
 .env.*.local
-.env.example
 
 # Database Files
 arctos.db
@@ -14,7 +13,6 @@ arctos.db-wal
 
 # Rust Build Artifacts
 /target/
-Cargo.lock
 **/*.rs.bk
 
 # IDE & Editor Files
