@@ -82,7 +82,6 @@ Web app (`.env.example`):
 | Variable | Purpose |
 | --- | --- |
 | `VITE_RUST_BACKEND_URL` | Public URL of the deployed data service. Required for production builds. |
-| `VITE_APP_WAITLIST_GATE` | `true` sends "Launch app" to the waitlist form instead of opening the app. |
 | `VITE_SOCIAL_X`, `VITE_SOCIAL_TELEGRAM`, `VITE_SOCIAL_GITHUB` | Optional footer links. |
 
 Data service (`backend/.env.example`):

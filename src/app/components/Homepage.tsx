@@ -2,6 +2,7 @@ import { useEffect, useState, type FormEvent } from 'react';
 import { ArrowRight, BarChart3, Brain, CheckCircle, Eye, Github, Loader2, Newspaper, Send, Target, Twitter } from 'lucide-react';
 import { toast } from 'sonner';
 import arctosLogo from '../../assets/images/arctos-logo.png.png';
+import type { ViewId } from '../hooks/useHashView';
 import { LegalDialog, type LegalTopic } from './LegalDialog';
 import { LiveStatus } from './LiveStatus';
 import { useTickers } from '../hooks/useTickers';
@@ -13,7 +14,7 @@ import { errorMessage } from '../services/api';
 import { formatCompactUsd, formatPct, formatPrice, pnlClass, safeHref, sparklinePath } from '../lib/format';
 
 interface Props {
-  onLaunch: () => void;
+  onLaunch: (view?: ViewId) => void;
   onOpenWaitlist: () => void;
   onOpenWallet: () => void;
 }
@@ -151,7 +152,7 @@ export function Homepage({ onLaunch, onOpenWaitlist, onOpenWallet }: Props) {
           <div className="flex items-center gap-2">
             <button onClick={onOpenWaitlist} className="hidden sm:inline-flex px-3 py-1.5 rounded-lg border border-zinc-700 text-zinc-200 hover:bg-zinc-900 text-sm">Join waitlist</button>
             <button onClick={onOpenWallet} className="hidden lg:inline-flex px-3 py-1.5 rounded-lg border border-zinc-700 text-zinc-200 hover:bg-zinc-900 text-sm">Connect wallet</button>
-            <button onClick={onLaunch} className="px-4 py-1.5 bg-gradient-to-r from-blue-600 to-purple-600 hover:from-blue-700 hover:to-purple-700 text-white rounded-lg text-sm font-medium">Launch app</button>
+            <button onClick={() => onLaunch()} className="px-4 py-1.5 bg-gradient-to-r from-blue-600 to-purple-600 hover:from-blue-700 hover:to-purple-700 text-white rounded-lg text-sm font-medium">Get started</button>
           </div>
         </div>
         <div className="border-t border-zinc-800/50 bg-black/50">
@@ -184,7 +185,7 @@ export function Homepage({ onLaunch, onOpenWaitlist, onOpenWallet }: Props) {
               <span aria-hidden>{HEADLINE.slice(0, typed)}</span>
             </p>
             <div className="flex flex-col sm:flex-row gap-3 mb-7">
-              <button onClick={onLaunch} className="px-6 py-3 bg-gradient-to-r from-blue-600 to-purple-600 hover:from-blue-700 hover:to-purple-700 text-white rounded-lg font-semibold shadow-lg shadow-blue-600/20">Open the dashboard</button>
+              <button onClick={() => onLaunch()} className="px-6 py-3 bg-gradient-to-r from-blue-600 to-purple-600 hover:from-blue-700 hover:to-purple-700 text-white rounded-lg font-semibold shadow-lg shadow-blue-600/20">Get started</button>
               <button onClick={onOpenWallet} className="px-6 py-3 border border-zinc-700 text-zinc-200 hover:bg-zinc-900 rounded-lg font-medium">Connect wallet</button>
             </div>
             <WaitlistForm />
@@ -245,7 +246,7 @@ export function Homepage({ onLaunch, onOpenWaitlist, onOpenWallet }: Props) {
                     </li>
                   ))}
                 </ul>
-                <button onClick={onLaunch} className="mt-4 w-full inline-flex items-center justify-center gap-2 px-4 py-2.5 rounded-lg bg-blue-600 hover:bg-blue-700 text-white font-medium">
+                <button onClick={() => onLaunch('trading')} className="mt-4 w-full inline-flex items-center justify-center gap-2 px-4 py-2.5 rounded-lg bg-blue-600 hover:bg-blue-700 text-white font-medium">
                   Open the terminal <ArrowRight className="w-4 h-4" aria-hidden />
                 </button>
               </div>
@@ -284,7 +285,7 @@ export function Homepage({ onLaunch, onOpenWaitlist, onOpenWallet }: Props) {
             <p className="text-lg text-zinc-400 mb-6">
               Trading in Arctos is paper trading for now. You can test ideas against live prices, keep a trade book, and ask the assistant for a second opinion without risking funds.
             </p>
-            <button onClick={onLaunch} className="px-7 py-3 bg-blue-600 hover:bg-blue-700 text-white rounded-lg font-medium">Start exploring</button>
+            <button onClick={() => onLaunch()} className="px-7 py-3 bg-blue-600 hover:bg-blue-700 text-white rounded-lg font-medium">Get started</button>
           </div>
           <div className="p-6 rounded-2xl bg-zinc-900 border border-zinc-800">
             <p className="text-sm font-semibold text-zinc-300 mb-4">Right now, in memory</p>
@@ -339,7 +340,7 @@ export function Homepage({ onLaunch, onOpenWaitlist, onOpenWallet }: Props) {
               <h3 className="font-bold mb-3">Product</h3>
               <ul className="space-y-2">
                 <li><button className={nav} onClick={() => scrollTo('features')}>Features</button></li>
-                <li><button className={nav} onClick={onLaunch}>Dashboard</button></li>
+                <li><button className={nav} onClick={() => onLaunch()}>Dashboard</button></li>
                 <li><a className={nav} href={`${REPO_URL}#readme`} target="_blank" rel="noopener noreferrer">Documentation</a></li>
               </ul>
             </div>

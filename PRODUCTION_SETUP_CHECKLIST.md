@@ -15,7 +15,6 @@ Work through this once before you point a real domain at Arctos.
 ## 2. Web app
 
 - [ ] In Vercel, set `VITE_RUST_BACKEND_URL` to the service URL.
-- [ ] Decide on the waitlist gate: `VITE_APP_WAITLIST_GATE=true` keeps the app closed, `false` opens it.
 - [ ] Deploy, then open Settings, Data sources, and confirm the same list is healthy from the browser.
 
 ## 3. GitHub

@@ -28,7 +28,7 @@ require('node:fs').mkdirSync(SC + '/shots', { recursive: true });
   await check('waitlist: invalid email rejected', async () => { await page.locator('input[type=email]').first().fill('nope'); await page.locator('form').first().getByRole('button', { name: 'Join waitlist' }).click(); });
   await check('waitlist: valid email accepted', async () => { await page.locator('input[type=email]').first().fill('tester@example.com'); await page.locator('form').first().getByRole('button', { name: 'Join waitlist' }).click(); await page.getByText(/on the list/).first().waitFor({ timeout: 8000 }); });
 
-  await page.getByRole('button', { name: 'Launch app' }).click();
+  await page.getByRole('button', { name: 'Get started' }).first().click();
   await check('dashboard: widgets with live data', async () => { await page.getByText('3.42T').first().waitFor({ timeout: 15000 }); await page.getByText(/\/100/).first().waitFor(); });
   await check('dashboard: altseason basis text', async () => { await page.getByText(/beat Bitcoin over 30 days/).first().waitFor({ timeout: 8000 }); });
   await check('dashboard: headlines and whales present', async () => { await page.getByText('SEC approves new spot Ethereum ETF options trading').first().waitFor({ timeout: 10000 }); await page.getByText(/USDC/).first().waitFor({ timeout: 10000 }); });

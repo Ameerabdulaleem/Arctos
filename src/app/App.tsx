@@ -1,5 +1,4 @@
 import { lazy, Suspense, useCallback, useEffect, useState } from 'react';
-import { toast } from 'sonner';
 import { AuthProvider } from './contexts/AuthProvider';
 import { PaperProvider } from './contexts/PaperProvider';
 import { Toaster } from './components/ui/sonner';
@@ -36,9 +35,6 @@ const TITLES: Record<ViewId, string> = {
   settings: 'Settings',
 };
 
-// Set VITE_APP_WAITLIST_GATE=true to keep the app closed and send visitors to the waitlist.
-const WAITLIST_GATE = import.meta.env.VITE_APP_WAITLIST_GATE === 'true' && !import.meta.env.DEV;
-
 function Shell() {
   const { view, navigate } = useHashView();
   const [menuOpen, setMenuOpen] = useState(false);
@@ -47,25 +43,14 @@ function Shell() {
   const [emailOpen, setEmailOpen] = useState(false);
   const closeMenu = useCallback(() => setMenuOpen(false), []);
 
-  const launch = useCallback(() => {
-    if (WAITLIST_GATE) {
-      setWaitlistOpen(true);
-      toast.info('Arctos is in early access. Join the waitlist to be invited.');
-      return;
-    }
-    navigate('dashboard');
-  }, [navigate]);
-
-  // Gated deployments cannot be opened by typing a URL hash either.
-  useEffect(() => {
-    if (WAITLIST_GATE && view) navigate(null);
-  }, [view, navigate]);
+  // "Get started" always gives access. No sign in, wallet or waitlist is needed to use the app.
+  const launch = useCallback((target: ViewId = 'dashboard') => navigate(target), [navigate]);
 
   useEffect(() => {
     document.title = view ? `${TITLES[view]} | Arctos` : 'Arctos | Live crypto trading intelligence';
   }, [view]);
 
-  if (!view || WAITLIST_GATE) {
+  if (!view) {
     return (
       <>
         <Homepage onLaunch={launch} onOpenWaitlist={() => setWaitlistOpen(true)} onOpenWallet={() => setWalletOpen(true)} />
