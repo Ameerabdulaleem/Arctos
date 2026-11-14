@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { ArrowRight, Bell, BellOff, ExternalLink, Filter, Plus, Star, Trash2, X } from 'lucide-react';
+import { ArrowRight, ArrowSquareOut, Bell, BellSlash, FunnelSimple, Plus, Star, Trash, Waves, X } from '@phosphor-icons/react';
 import { toast } from 'sonner';
 import { Card, Empty, ErrorNotice, Loading, PageHeader, Pill } from './ui/common';
 import { usePolling } from '../hooks/usePolling';
@@ -22,8 +22,8 @@ type KindFilter = 'all' | WhaleKind;
 
 const KIND_LABEL: Record<WhaleKind, string> = { transfer: 'Transfer', exchange_inflow: 'To exchange', exchange_outflow: 'From exchange' };
 const KIND_STYLE: Record<WhaleKind, string> = {
-  transfer: 'bg-blue-500/15 text-blue-400 border-blue-500/30',
-  exchange_inflow: 'bg-red-500/15 text-red-400 border-red-500/30',
+  transfer: 'bg-blue-500/15 text-blue-300 border-blue-500/30',
+  exchange_inflow: 'bg-red-500/15 text-rose-300 border-red-500/30',
   exchange_outflow: 'bg-green-500/15 text-green-400 border-green-500/30',
 };
 
@@ -132,19 +132,19 @@ export function WhaleAlert() {
   };
 
   const chains = data.data?.chains ?? [];
-  const input = 'w-full bg-zinc-800 text-white text-sm px-3 py-2.5 rounded-lg border border-zinc-700 focus:border-blue-500 focus:outline-none';
+  const input = 'w-full bg-white/[0.06] text-white text-sm px-3 py-2.5 rounded-lg border border-white/10 focus:border-blue-500 focus:outline-none';
 
   return (
     <div className="p-4 md:p-6 space-y-5 max-w-[1500px] mx-auto">
       <PageHeader
-        icon={<span aria-hidden>🐋</span>} title="Whale Alerts"
+        icon={<Waves />} tone="ice" title="Whale Alerts"
         subtitle="Large on chain transfers, read straight from the blockchains"
         actions={
           <>
-            <button onClick={toggleNotify} aria-pressed={notify} className={`inline-flex items-center gap-2 px-3 py-2 rounded-lg text-sm border ${notify ? 'bg-blue-600 border-transparent text-white' : 'bg-zinc-900 border-zinc-700 text-zinc-300 hover:bg-zinc-800'}`}>
-              {notify ? <Bell className="w-4 h-4" aria-hidden /> : <BellOff className="w-4 h-4" aria-hidden />} Browser alerts {notify ? 'on' : 'off'}
+            <button onClick={toggleNotify} aria-pressed={notify} className={`btn h-10 ${notify ? 'border border-blue-300/40 bg-blue-400/15 text-blue-100' : 'btn-secondary'}`}>
+              {notify ? <Bell className="w-4 h-4" aria-hidden /> : <BellSlash className="w-4 h-4" aria-hidden />} Browser alerts {notify ? 'on' : 'off'}
             </button>
-            <button onClick={() => { setShowAdd((v) => !v); setFormError(''); }} className="inline-flex items-center gap-2 px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg text-sm font-medium">
+            <button onClick={() => { setShowAdd((v) => !v); setFormError(''); }} className="btn btn-primary h-10">
               <Plus className="w-4 h-4" aria-hidden /> Track wallet
             </button>
           </>
@@ -169,10 +169,10 @@ export function WhaleAlert() {
             <label className="block"><span className="block text-zinc-400 text-xs mb-1.5">Wallet address</span><input className={`${input} font-mono`} value={address} onChange={(e) => { setAddress(e.target.value); setFormError(''); }} placeholder="0x... or Solana address" /></label>
             <label className="block"><span className="block text-zinc-400 text-xs mb-1.5">Label</span><input className={input} value={label} maxLength={40} onChange={(e) => { setLabel(e.target.value); setFormError(''); }} placeholder="Smart money 1" /></label>
           </div>
-          {formError && <p role="alert" className="text-sm text-red-400 mb-3">{formError}</p>}
+          {formError && <p role="alert" className="text-sm text-rose-300 mb-3">{formError}</p>}
           <div className="flex gap-2">
-            <button onClick={addWhale} className="px-5 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg text-sm font-medium">Save</button>
-            <button onClick={() => setShowAdd(false)} className="px-5 py-2 bg-zinc-800 text-zinc-300 rounded-lg hover:bg-zinc-700 text-sm">Cancel</button>
+            <button onClick={addWhale} className="btn btn-primary px-5 py-2">Save</button>
+            <button onClick={() => setShowAdd(false)} className="px-5 py-2 bg-white/[0.06] text-zinc-300 rounded-lg hover:bg-white/[0.1] text-sm">Cancel</button>
           </div>
           <p className="text-xs text-zinc-500 mt-3">Tracked wallets are saved in this browser. Their transfers are highlighted when they appear in the feed.</p>
         </Card>
@@ -181,14 +181,14 @@ export function WhaleAlert() {
       {tracked.length > 0 && (
         <Card className="p-5">
           <div className="flex items-center justify-between mb-3">
-            <h2 className="text-white font-semibold flex items-center gap-2"><Star className="w-4 h-4 text-yellow-500" aria-hidden /> Tracked wallets <span className="text-xs bg-zinc-800 text-zinc-400 px-2 py-0.5 rounded-full">{tracked.length}</span></h2>
-            <button onClick={() => setTrackedOnly((v) => !v)} aria-pressed={trackedOnly} className={`px-3 py-1.5 rounded-lg text-xs font-medium ${trackedOnly ? 'bg-blue-600 text-white' : 'bg-zinc-800 text-zinc-400 hover:text-white'}`}>{trackedOnly ? 'Showing tracked only' : 'Show tracked only'}</button>
+            <h2 className="text-white font-semibold flex items-center gap-2"><Star className="w-4 h-4 text-amber-300" aria-hidden /> Tracked wallets <span className="text-xs bg-white/[0.06] text-zinc-400 px-2 py-0.5 rounded-full">{tracked.length}</span></h2>
+            <button onClick={() => setTrackedOnly((v) => !v)} aria-pressed={trackedOnly} className={`rounded-lg px-3 py-1.5 text-xs font-medium transition ${trackedOnly ? 'border border-blue-300/40 bg-blue-400/15 text-blue-100' : 'border border-white/[0.07] bg-white/[0.04] text-zinc-400 hover:bg-white/[0.08] hover:text-white'}`}>{trackedOnly ? 'Showing tracked only' : 'Show tracked only'}</button>
           </div>
           <ul className="grid sm:grid-cols-2 lg:grid-cols-3 gap-3">
             {tracked.map((w) => (
-              <li key={w.id} className="flex items-start justify-between gap-3 p-3 bg-zinc-800 rounded-lg border border-zinc-700">
+              <li key={w.id} className="flex items-start justify-between gap-3 p-3 bg-white/[0.06] rounded-lg border border-white/10">
                 <div className="min-w-0"><p className="text-white text-sm font-semibold truncate">{w.name}</p><p className="text-zinc-400 text-xs font-mono truncate">{w.address}</p></div>
-                <button onClick={() => setTracked((p) => p.filter((x) => x.id !== w.id))} aria-label={`Stop tracking ${w.name}`} className="p-1.5 text-zinc-500 hover:text-red-400"><Trash2 className="w-3.5 h-3.5" /></button>
+                <button onClick={() => setTracked((p) => p.filter((x) => x.id !== w.id))} aria-label={`Stop tracking ${w.name}`} className="p-1.5 text-zinc-500 hover:text-rose-300"><Trash className="w-3.5 h-3.5" /></button>
               </li>
             ))}
           </ul>
@@ -197,27 +197,27 @@ export function WhaleAlert() {
 
       <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
         {[['Transfers shown', String(stats.count)], ['Largest', formatCompactUsd(stats.largest)], ['Average', formatCompactUsd(stats.average)], ['Tracked wallets', String(tracked.length)]].map(([k, v]) => (
-          <Card key={k} className="p-4"><p className="text-zinc-500 text-[10px] font-medium uppercase tracking-wider mb-1">{k}</p><p className="text-xl font-bold text-white tabular-nums">{v}</p></Card>
+          <Card key={k} className="p-4"><p className="text-zinc-500 text-[10px] font-medium uppercase tracking-wider mb-1">{k}</p><p className="text-xl font-semibold text-white num">{v}</p></Card>
         ))}
       </div>
 
       <Card className="px-5 py-4">
         <div className="flex flex-wrap items-center gap-3">
-          <span className="flex items-center gap-2 text-zinc-400 text-sm font-medium"><Filter className="w-4 h-4 text-zinc-500" aria-hidden /> Filters</span>
+          <span className="flex items-center gap-2 text-zinc-400 text-sm font-medium"><FunnelSimple className="w-4 h-4 text-zinc-500" aria-hidden /> Filters</span>
           <div className="flex gap-2 flex-wrap" role="group" aria-label="Transfer type">
             {([['all', 'All'], ['transfer', 'Transfers'], ['exchange_inflow', 'To exchange'], ['exchange_outflow', 'From exchange']] as const).map(([id, text]) => (
-              <button key={id} aria-pressed={kind === id} onClick={() => setKind(id)} className={`px-3 py-1.5 rounded-lg text-xs font-semibold ${kind === id ? 'bg-blue-600 text-white' : 'bg-zinc-800 text-zinc-400 hover:bg-zinc-700 hover:text-white'}`}>{text}</button>
+              <button key={id} aria-pressed={kind === id} onClick={() => setKind(id)} className={`rounded-lg px-3 py-1.5 text-xs font-medium transition ${kind === id ? 'border border-blue-300/40 bg-blue-400/15 text-blue-100' : 'border border-white/[0.07] bg-white/[0.04] text-zinc-400 hover:bg-white/[0.08] hover:text-white'}`}>{text}</button>
             ))}
           </div>
           <div className="flex items-center gap-3 ml-auto flex-wrap">
             <label className="flex items-center gap-2 text-zinc-500 text-xs">Chain
-              <select value={chain} onChange={(e) => setChain(e.target.value)} className="bg-zinc-800 text-white text-xs px-3 py-1.5 rounded-lg border border-zinc-700">
+              <select value={chain} onChange={(e) => setChain(e.target.value)} className="bg-white/[0.06] text-white text-xs px-3 py-1.5 rounded-lg border border-white/10">
                 <option value="all">All chains</option>
                 {chains.filter((c) => c.supported).map((c) => <option key={c.chain} value={c.chain}>{c.name}</option>)}
               </select>
             </label>
             <label className="flex items-center gap-2 text-zinc-500 text-xs">Minimum
-              <select value={minUsd} onChange={(e) => setMinUsd(Number(e.target.value))} className="bg-zinc-800 text-white text-xs px-3 py-1.5 rounded-lg border border-zinc-700">
+              <select value={minUsd} onChange={(e) => setMinUsd(Number(e.target.value))} className="bg-white/[0.06] text-white text-xs px-3 py-1.5 rounded-lg border border-white/10">
                 {[100_000, 500_000, 1_000_000, 5_000_000].map((v) => <option key={v} value={v}>{formatCompactUsd(v)}+</option>)}
               </select>
             </label>
@@ -237,11 +237,11 @@ export function WhaleAlert() {
           <div className="overflow-x-auto">
             <table className="w-full text-sm">
               <thead>
-                <tr className="bg-zinc-800/60 border-b border-zinc-700 text-left text-zinc-500 text-xs uppercase tracking-wide">
+                <tr className="bg-white/[0.04] border-b border-white/10 text-left text-zinc-500 text-xs uppercase tracking-wide">
                   {['Type', 'Asset', 'Amount', 'Value', 'From and to', 'Chain', 'Time', ''].map((h) => <th key={h} className="px-4 py-3 font-medium whitespace-nowrap">{h}</th>)}
                 </tr>
               </thead>
-              <tbody className="divide-y divide-zinc-800/60">
+              <tbody className="divide-y divide-white/[0.06]">
                 {filtered.slice(0, 150).map((e) => {
                   const hit = isTracked(e.from) || isTracked(e.to);
                   const href = safeHref(e.explorerUrl);
@@ -252,15 +252,15 @@ export function WhaleAlert() {
                     return <span className="font-mono text-zinc-500">{addr ? shortAddress(addr) : 'Unknown'}</span>;
                   };
                   return (
-                    <tr key={e.id} className={hit ? 'bg-yellow-500/5 hover:bg-yellow-500/10' : 'hover:bg-zinc-800/40'}>
+                    <tr key={e.id} className={hit ? 'bg-amber-400/[0.06] hover:bg-amber-400/10' : 'hover:bg-white/[0.04]'}>
                       <td className="px-4 py-3 whitespace-nowrap"><span className={`inline-flex px-2.5 py-1 rounded-full border text-xs font-semibold ${KIND_STYLE[e.kind]}`}>{KIND_LABEL[e.kind]}</span></td>
-                      <td className="px-4 py-3 text-white font-bold whitespace-nowrap">{e.asset}</td>
-                      <td className="px-4 py-3 text-zinc-300 whitespace-nowrap tabular-nums">{formatNumber(e.amount, e.amount >= 1000 ? 0 : 3)}</td>
-                      <td className="px-4 py-3 text-white font-semibold whitespace-nowrap tabular-nums">{formatCompactUsd(e.valueUsd)}</td>
+                      <td className="px-4 py-3 text-white font-semibold whitespace-nowrap">{e.asset}</td>
+                      <td className="px-4 py-3 text-zinc-300 whitespace-nowrap num">{formatNumber(e.amount, e.amount >= 1000 ? 0 : 3)}</td>
+                      <td className="px-4 py-3 text-white font-semibold whitespace-nowrap num">{formatCompactUsd(e.valueUsd)}</td>
                       <td className="px-4 py-3"><div className="flex items-center gap-1.5 text-xs">{side(e.from, e.fromLabel)}<ArrowRight className="w-3 h-3 text-zinc-600 shrink-0" aria-hidden />{side(e.to, e.toLabel)}</div></td>
-                      <td className="px-4 py-3 whitespace-nowrap"><span className="px-2 py-0.5 bg-zinc-800 text-zinc-400 rounded text-xs">{e.chainName}</span></td>
+                      <td className="px-4 py-3 whitespace-nowrap"><span className="px-2 py-0.5 bg-white/[0.06] text-zinc-400 rounded text-xs">{e.chainName}</span></td>
                       <td className="px-4 py-3 text-zinc-500 text-xs whitespace-nowrap">{timeAgo(e.timestamp)}</td>
-                      <td className="px-4 py-3">{href && <a href={href} target="_blank" rel="noopener noreferrer" aria-label={`View ${e.asset} transfer on a block explorer`} className="inline-flex p-1.5 text-zinc-500 hover:text-white rounded"><ExternalLink className="w-3.5 h-3.5" /></a>}</td>
+                      <td className="px-4 py-3">{href && <a href={href} target="_blank" rel="noopener noreferrer" aria-label={`View ${e.asset} transfer on a block explorer`} className="inline-flex p-1.5 text-zinc-500 hover:text-white rounded"><ArrowSquareOut className="w-3.5 h-3.5" /></a>}</td>
                     </tr>
                   );
                 })}

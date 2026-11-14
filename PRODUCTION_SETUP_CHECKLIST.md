@@ -2,25 +2,31 @@
 
 Work through this once before you point a real domain at Arctos.
 
-## 1. Data service
+## 1. Deploy on Vercel
+
+The site and its data API deploy together. There is nothing to configure for live market data.
+
+- [ ] Connect the repository to Vercel (or keep the existing connection) and deploy `main`.
+- [ ] Open `https://<your site>/api/status` and confirm the sources show `ok: true` after you have browsed a few pages.
+      If `binance` fails, check that the function region in `vercel.json` is one Binance serves.
+- [ ] If two Vercel projects build this repository, delete the one you do not use so each push builds once.
+
+## 2. Switch on the optional features
+
+Add these in Vercel, Project Settings, Environment Variables, then redeploy.
+
+- [ ] `ANTHROPIC_API_KEY` for the AI assistant. Optionally `ANTHROPIC_MODEL`.
+- [ ] `DATABASE_URL` for real waitlist positions.
+- [ ] `MAIL_USERNAME`, `MAIL_PASSWORD`, `MAIL_FROM` for the welcome email.
+- [ ] `COINGECKO_API_KEY` if CoinGecko starts limiting requests.
+
+## 3. Optional: a standalone server
+
+Only needed if you want WebSocket streams and background polling.
 
 - [ ] Build `backend/Dockerfile` and deploy it (Fly.io, Render, Railway or a VPS).
-- [ ] Set `FRONTEND_ORIGINS` to your site origin, for example `https://arctos-fi.vercel.app`.
-- [ ] Set `TRUST_PROXY=true` if the host puts a proxy in front of the service.
-- [ ] Set `ANTHROPIC_API_KEY` to switch on the AI assistant. Optionally set `ANTHROPIC_MODEL`.
-- [ ] Optional: `DATABASE_URL` for real waitlist positions, `MAIL_*` for the welcome email.
-- [ ] Open `https://<your service>/api/status` and confirm every source shows `ok: true`.
-      If `binance` fails, your host region is probably blocked. Move the service to another region.
-
-## 2. Web app
-
-- [ ] In Vercel, set `VITE_RUST_BACKEND_URL` to the service URL.
-- [ ] Deploy, then open Settings, Data sources, and confirm the same list is healthy from the browser.
-
-## 3. GitHub
-
-- [ ] Add repository secrets `VERCEL_TOKEN`, `VERCEL_ORG_ID`, `VERCEL_PROJECT_ID`.
-- [ ] Confirm the CI workflow passes on a pull request.
+- [ ] Set `FRONTEND_ORIGINS` to your site origin and `TRUST_PROXY=true` behind a proxy.
+- [ ] In Vercel, set `VITE_RUST_BACKEND_URL` to the server URL and redeploy.
 
 ## 4. Clean up from older versions
 

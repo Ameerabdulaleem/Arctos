@@ -41,7 +41,7 @@ export function formatPct(value: number | null | undefined, digits = 2, withSign
 
 export function pnlClass(value: number | null | undefined): string {
   if (value == null || !Number.isFinite(value) || value === 0) return 'text-zinc-400';
-  return value > 0 ? 'text-emerald-400' : 'text-red-400';
+  return value > 0 ? 'text-emerald-300' : 'text-rose-300';
 }
 
 export function timeAgo(from: number | Date | string, now: number = Date.now()): string {

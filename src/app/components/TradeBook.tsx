@@ -1,21 +1,7 @@
 import { useState, useMemo, useEffect } from 'react';
-import {
-  BookOpen,
-  Plus,
-  X,
-  Trash2,
-  TrendingUp,
-  TrendingDown,
-  Edit2,
-  Check,
-  Search,
-  ChevronDown,
-  ChevronUp,
-  ChevronsUpDown,
-  AlertTriangle,
-  Download,
-} from 'lucide-react';
+import { CaretDown, CaretUp, CaretUpDown, Check, DownloadSimple, MagnifyingGlass, PencilSimple, Notebook, Plus, Trash, TrendDown, TrendUp, Warning, X } from '@phosphor-icons/react';
 import { useTickers } from '../hooks/useTickers';
+import { IconTile } from './ui/common';
 import { usePolling } from '../hooks/usePolling';
 import { marketService } from '../services/marketService';
 import { readTrades, tradesToCsv, TRADEBOOK_KEY } from '../lib/tradebook';
@@ -93,9 +79,9 @@ function StatCard({
   color?: string;
 }) {
   return (
-    <div className="bg-zinc-900/80 border border-zinc-800/60 rounded-xl p-5">
+    <div className="panel p-5">
       <p className="text-zinc-500 text-[10px] font-medium uppercase tracking-wider mb-2">{label}</p>
-      <p className={`text-xl font-bold tabular-nums ${color ?? 'text-white'}`}>{value}</p>
+      <p className={`text-xl font-semibold num ${color ?? 'text-white'}`}>{value}</p>
       {sub && <p className="text-zinc-600 text-xs mt-1">{sub}</p>}
     </div>
   );
@@ -115,12 +101,12 @@ function SortButton({
   onSort: (f: SortField) => void;
 }) {
   const active = sortBy === field;
-  const Icon = !active ? ChevronsUpDown : sortDir === 'asc' ? ChevronUp : ChevronDown;
+  const Icon = !active ? CaretUpDown : sortDir === 'asc' ? CaretUp : CaretDown;
   return (
     <button
       onClick={() => onSort(field)}
       className={`flex items-center gap-1 text-xs font-medium uppercase tracking-wider transition-colors ${
-        active ? 'text-blue-400' : 'text-zinc-400 hover:text-zinc-200'
+        active ? 'text-blue-300' : 'text-zinc-400 hover:text-zinc-200'
       }`}
     >
       {label}
@@ -314,21 +300,19 @@ export function TradeBook() {
 
   return (
     <>
-      <div className="h-full bg-black p-6 overflow-auto">
+      <div className="mx-auto h-full max-w-[1500px] overflow-auto p-4 md:p-6">
 
         {/* ── Header ──────────────────────────────────────────────────────── */}
-        <div className="mb-6 flex items-start justify-between gap-4">
-          <div>
-            <h1 className="text-2xl font-bold text-white mb-1 flex items-center gap-3 tracking-tight">
-              <span className="flex items-center justify-center w-9 h-9 rounded-lg bg-blue-600/15">
-                <BookOpen className="w-5 h-5 text-blue-400" strokeWidth={1.5} />
-              </span>
-              Trade Book
-            </h1>
-            <p className="text-zinc-500 text-sm">Log your trades. Open positions are marked to live prices. Saved in this browser.</p>
+        <div className="mb-6 flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between motion-safe:animate-fade-up">
+          <div className="flex min-w-0 items-center gap-4">
+            <IconTile tone="violet" size="lg"><Notebook /></IconTile>
+            <div className="min-w-0">
+              <h1 className="text-2xl font-semibold tracking-tight text-white sm:text-[28px] sm:leading-8">Trade Book</h1>
+              <p className="mt-1 text-sm text-zinc-400">Log your trades. Open positions are marked to live prices. Saved in this browser.</p>
+            </div>
           </div>
 
-          <div className="flex items-center gap-2 shrink-0">
+          <div className="flex shrink-0 flex-wrap items-center gap-2">
           {trades.length > 0 && (
             <button
               onClick={() => {
@@ -339,14 +323,14 @@ export function TradeBook() {
                 a.click();
                 URL.revokeObjectURL(url);
               }}
-              className="flex items-center gap-2 px-4 py-2 bg-zinc-800 text-zinc-200 rounded-xl hover:bg-zinc-700 transition-colors text-sm border border-zinc-700"
+              className="btn btn-secondary px-4 py-2"
             >
-              <Download className="w-4 h-4" /> Export CSV
+              <DownloadSimple className="w-4 h-4" /> Export CSV
             </button>
           )}
           <button
             onClick={() => { resetForm(); setEditingId(null); setShowForm((v) => !v); }}
-            className="flex items-center gap-2 px-4 py-2 bg-blue-600 text-white rounded-xl hover:bg-blue-700 transition-colors font-medium text-sm shrink-0 shadow-lg shadow-blue-600/10"
+            className="btn btn-primary px-4 py-2 shrink-0"
           >
             <Plus className="w-4 h-4" />
             Add Trade
@@ -384,14 +368,14 @@ export function TradeBook() {
 
         {/* ── Add / Edit form ─────────────────────────────────────────────── */}
         {showForm && (
-          <div className="mb-6 bg-zinc-900 border border-zinc-800 rounded-xl p-6">
+          <div className="mb-6 panel p-6">
             <div className="flex items-center justify-between mb-5">
               <h3 className="text-lg font-semibold text-white">
                 {editingId ? 'Edit Trade' : 'Add New Trade'}
               </h3>
               <button
                 onClick={handleCancel}
-                className="p-1.5 text-zinc-400 hover:text-white hover:bg-zinc-800 rounded transition-colors"
+                className="p-1.5 text-zinc-400 hover:text-white hover:bg-white/[0.08] rounded transition-colors"
               >
                 <X className="w-4 h-4" />
               </button>
@@ -408,7 +392,7 @@ export function TradeBook() {
                   value={tokenName}
                   onChange={(e) => setTokenName(e.target.value)}
                   placeholder="e.g. BTC, ETH"
-                  className="w-full bg-zinc-800 text-white px-3 py-2.5 rounded-lg border border-zinc-700 focus:border-blue-500 focus:outline-none text-sm placeholder:text-zinc-600"
+                  className="field"
                 />
               </div>
 
@@ -424,7 +408,7 @@ export function TradeBook() {
                   value={priceBought}
                   onChange={(e) => setPriceBought(e.target.value)}
                   placeholder="0.00"
-                  className="w-full bg-zinc-800 text-white px-3 py-2.5 rounded-lg border border-zinc-700 focus:border-blue-500 focus:outline-none text-sm placeholder:text-zinc-600"
+                  className="field"
                 />
               </div>
 
@@ -440,7 +424,7 @@ export function TradeBook() {
                   value={amount}
                   onChange={(e) => setAmount(e.target.value)}
                   placeholder="0.00"
-                  className="w-full bg-zinc-800 text-white px-3 py-2.5 rounded-lg border border-zinc-700 focus:border-blue-500 focus:outline-none text-sm placeholder:text-zinc-600"
+                  className="field"
                 />
               </div>
 
@@ -456,7 +440,7 @@ export function TradeBook() {
                   value={priceSold}
                   onChange={(e) => setPriceSold(e.target.value)}
                   placeholder="Leave blank if open"
-                  className="w-full bg-zinc-800 text-white px-3 py-2.5 rounded-lg border border-zinc-700 focus:border-blue-500 focus:outline-none text-sm placeholder:text-zinc-600"
+                  className="field"
                 />
               </div>
 
@@ -466,10 +450,10 @@ export function TradeBook() {
                   P/L Preview
                 </label>
                 <div
-                  className={`w-full px-3 py-2.5 rounded-lg border font-bold flex items-center justify-between text-sm ${
+                  className={`w-full px-3 py-2.5 rounded-lg border font-semibold flex items-center justify-between text-sm ${
                     previewPositive
                       ? 'bg-green-500/10 border-green-500/30 text-green-400'
-                      : 'bg-red-500/10 border-red-500/30 text-red-400'
+                      : 'bg-red-500/10 border-red-500/30 text-rose-300'
                   }`}
                 >
                   <span>
@@ -482,9 +466,9 @@ export function TradeBook() {
                     )}
                   </span>
                   {previewPositive ? (
-                    <TrendingUp className="w-4 h-4" />
+                    <TrendUp className="w-4 h-4" />
                   ) : (
-                    <TrendingDown className="w-4 h-4" />
+                    <TrendDown className="w-4 h-4" />
                   )}
                 </div>
               </div>
@@ -492,8 +476,8 @@ export function TradeBook() {
 
             {/* Form error */}
             {formError && (
-              <div className="flex items-center gap-2 text-red-400 text-sm mb-4 p-3 bg-red-500/10 border border-red-500/20 rounded-lg">
-                <AlertTriangle className="w-4 h-4 shrink-0" />
+              <div className="flex items-center gap-2 text-rose-300 text-sm mb-4 p-3 bg-red-500/10 border border-red-500/20 rounded-lg">
+                <Warning className="w-4 h-4 shrink-0" />
                 {formError}
               </div>
             )}
@@ -503,7 +487,7 @@ export function TradeBook() {
               {editingId ? (
                 <button
                   onClick={() => handleUpdateTrade(editingId)}
-                  className="flex-1 px-5 py-2.5 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors font-medium text-sm flex items-center justify-center gap-2"
+                  className="btn btn-primary flex-1 px-5 py-2.5"
                 >
                   <Check className="w-4 h-4" />
                   Update Trade
@@ -511,14 +495,14 @@ export function TradeBook() {
               ) : (
                 <button
                   onClick={handleAddTrade}
-                  className="flex-1 px-5 py-2.5 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors font-medium text-sm"
+                  className="btn btn-primary flex-1 px-5 py-2.5"
                 >
                   Save Trade
                 </button>
               )}
               <button
                 onClick={handleCancel}
-                className="px-5 py-2.5 bg-zinc-800 text-zinc-300 rounded-lg hover:bg-zinc-700 hover:text-white transition-colors text-sm"
+                className="px-5 py-2.5 bg-white/[0.06] text-zinc-300 rounded-lg hover:bg-white/[0.1] hover:text-white transition-colors text-sm"
               >
                 Cancel
               </button>
@@ -528,15 +512,15 @@ export function TradeBook() {
 
         {/* ── Empty state ─────────────────────────────────────────────────── */}
         {trades.length === 0 ? (
-          <div className="bg-zinc-900 border border-zinc-800 rounded-xl p-14 text-center">
-            <BookOpen className="w-14 h-14 text-zinc-700 mx-auto mb-4" strokeWidth={1} />
+          <div className="panel p-14 text-center">
+            <Notebook className="w-14 h-14 text-zinc-700 mx-auto mb-4" />
             <h3 className="text-lg font-semibold text-white mb-2">No trades recorded yet</h3>
             <p className="text-zinc-400 text-sm mb-6">
               Start tracking your trades by clicking the "Add Trade" button above.
             </p>
             <button
               onClick={() => setShowForm(true)}
-              className="px-5 py-2.5 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors font-medium text-sm inline-flex items-center gap-2"
+              className="btn btn-primary px-5 py-2.5"
             >
               <Plus className="w-4 h-4" />
               Add Your First Trade
@@ -547,13 +531,13 @@ export function TradeBook() {
             {/* ── Search + sort bar ──────────────────────────────────────── */}
             <div className="flex flex-col sm:flex-row gap-3 mb-4">
               <div className="relative flex-1 max-w-xs">
-                <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-zinc-500" />
+                <MagnifyingGlass className="absolute left-3 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-zinc-500" />
                 <input
                   type="text"
                   value={search}
                   onChange={(e) => setSearch(e.target.value)}
                   placeholder="Search token..."
-                  className="w-full bg-zinc-900 border border-zinc-800 text-white pl-9 pr-3 py-2 rounded-lg focus:border-blue-500 focus:outline-none text-sm placeholder:text-zinc-600"
+                  className="field pl-9 pr-3"
                 />
               </div>
 
@@ -563,10 +547,10 @@ export function TradeBook() {
             </div>
 
             {/* ── Trades table ───────────────────────────────────────────── */}
-            <div className="bg-zinc-900 border border-zinc-800 rounded-xl overflow-hidden">
+            <div className="panel overflow-hidden">
               <div className="overflow-x-auto">
                 <table className="w-full">
-                  <thead className="bg-zinc-800/60 border-b border-zinc-700/60">
+                  <thead className="bg-white/[0.04] border-b border-white/10">
                     <tr>
                       <th className="text-left px-5 py-3.5">
                         <SortButton field="token" label="Token" sortBy={sortBy} sortDir={sortDir} onSort={handleSort} />
@@ -598,7 +582,7 @@ export function TradeBook() {
                     </tr>
                   </thead>
 
-                  <tbody className="divide-y divide-zinc-800/60">
+                  <tbody className="divide-y divide-white/[0.06]">
                     {displayedTrades.map((trade) => {
                       const invested = parseFloat(trade.priceBought) * parseFloat(trade.amount);
                       const returned = parseFloat(trade.priceSold) * parseFloat(trade.amount);
@@ -610,17 +594,17 @@ export function TradeBook() {
                       return (
                         <tr
                           key={trade.id}
-                          className={`transition-colors ${isDeleting ? 'bg-red-500/5' : 'hover:bg-zinc-800/30'}`}
+                          className={`transition-colors ${isDeleting ? 'bg-red-500/5' : 'hover:bg-white/[0.04]'}`}
                         >
                           {/* Token + status */}
                           <td className="px-5 py-3.5">
                             <div className="flex items-center gap-2">
                               <span className="text-white font-semibold text-sm">{trade.tokenName}</span>
                               <span
-                                className={`text-[10px] font-bold uppercase px-1.5 py-0.5 rounded tracking-wider ${
+                                className={`text-[10px] font-semibold uppercase px-1.5 py-0.5 rounded tracking-wider ${
                                   tradeOpen
-                                    ? 'bg-blue-500/15 text-blue-400 border border-blue-500/20'
-                                    : 'bg-zinc-700/50 text-zinc-400 border border-zinc-700'
+                                    ? 'bg-blue-500/15 text-blue-300 border border-blue-500/20'
+                                    : 'bg-zinc-700/50 text-zinc-400 border border-white/10'
                                 }`}
                               >
                                 {tradeOpen ? 'Open' : 'Closed'}
@@ -673,7 +657,7 @@ export function TradeBook() {
                                 if (live == null) return <span className="text-zinc-600 text-sm" title="No live price found for this token symbol">—</span>;
                                 const unreal = (live - parseFloat(trade.priceBought)) * parseFloat(trade.amount);
                                 return (
-                                  <span className={`text-sm font-semibold tabular-nums ${unreal >= 0 ? 'text-green-400' : 'text-red-400'}`} title={`Live price ${fmtUSD(live)}`}>
+                                  <span className={`text-sm font-semibold num ${unreal >= 0 ? 'text-green-400' : 'text-rose-300'}`} title={`Live price ${fmtUSD(live)}`}>
                                     {unreal >= 0 ? '+' : '-'}{fmtUSD(Math.abs(unreal))}
                                     <span className="ml-1 text-[10px] font-normal text-zinc-500">live</span>
                                   </span>
@@ -681,13 +665,13 @@ export function TradeBook() {
                               })()
                             ) : (
                               <div
-                                className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-bold ${
+                                className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-semibold ${
                                   isProfitable
                                     ? 'bg-green-500/15 text-green-400'
-                                    : 'bg-red-500/15 text-red-400'
+                                    : 'bg-red-500/15 text-rose-300'
                                 }`}
                               >
-                                {isProfitable ? <TrendingUp className="w-3 h-3" /> : <TrendingDown className="w-3 h-3" />}
+                                {isProfitable ? <TrendUp className="w-3 h-3" /> : <TrendDown className="w-3 h-3" />}
                                 <span>
                                   {isProfitable ? '+' : '-'}
                                   {fmtUSD(Math.abs(trade.profitLoss))}
@@ -713,14 +697,14 @@ export function TradeBook() {
                                 <span className="text-zinc-400 text-xs mr-1">Delete?</span>
                                 <button
                                   onClick={() => handleDeleteTrade(trade.id)}
-                                  className="p-1.5 text-red-400 hover:text-red-300 hover:bg-red-500/10 rounded transition-colors"
+                                  className="p-1.5 text-rose-300 hover:text-red-300 hover:bg-red-500/10 rounded transition-colors"
                                   title="Confirm delete"
                                 >
                                   <Check className="w-3.5 h-3.5" />
                                 </button>
                                 <button
                                   onClick={() => setConfirmDeleteId(null)}
-                                  className="p-1.5 text-zinc-400 hover:text-white hover:bg-zinc-700 rounded transition-colors"
+                                  className="p-1.5 text-zinc-400 hover:text-white hover:bg-white/[0.1] rounded transition-colors"
                                   title="Cancel"
                                 >
                                   <X className="w-3.5 h-3.5" />
@@ -730,17 +714,17 @@ export function TradeBook() {
                               <div className="flex gap-1">
                                 <button
                                   onClick={() => handleEditTrade(trade)}
-                                  className="p-1.5 text-blue-400 hover:text-blue-300 hover:bg-blue-500/10 rounded transition-colors"
+                                  className="p-1.5 text-blue-300 hover:text-blue-200 hover:bg-blue-500/10 rounded transition-colors"
                                   title="Edit trade"
                                 >
-                                  <Edit2 className="w-3.5 h-3.5" />
+                                  <PencilSimple className="w-3.5 h-3.5" />
                                 </button>
                                 <button
                                   onClick={() => setConfirmDeleteId(trade.id)}
-                                  className="p-1.5 text-zinc-500 hover:text-red-400 hover:bg-red-500/10 rounded transition-colors"
+                                  className="p-1.5 text-zinc-500 hover:text-rose-300 hover:bg-red-500/10 rounded transition-colors"
                                   title="Delete trade"
                                 >
-                                  <Trash2 className="w-3.5 h-3.5" />
+                                  <Trash className="w-3.5 h-3.5" />
                                 </button>
                               </div>
                             )}

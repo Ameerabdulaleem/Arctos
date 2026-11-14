@@ -1,7 +1,7 @@
 import { useState } from 'react';
-import { Building2, DollarSign, ExternalLink, Info, LineChart, TrendingUp } from 'lucide-react';
+import { ArrowSquareOut, Buildings, ChartLine, CurrencyDollar, Info, TrendUp } from '@phosphor-icons/react';
 import { ImageWithFallback } from './figma/ImageWithFallback';
-import { Card, Empty, ErrorNotice, Loading, PageHeader, Pill } from './ui/common';
+import { Card, Empty, ErrorNotice, IconTile, Loading, PageHeader, Pill } from './ui/common';
 import { usePolling } from '../hooks/usePolling';
 import { stocksService } from '../services/stocksService';
 import { PRE_IPO_PLATFORMS } from '../data/preIpoListings';
@@ -14,11 +14,11 @@ export function StocksPreIPO() {
 
   return (
     <div className="p-4 md:p-6 max-w-[1500px] mx-auto">
-      <PageHeader icon={<TrendingUp className="w-5 h-5" />} title="Stocks & PRE-IPO" subtitle="Live public market quotes, plus curated access to private companies" />
+      <PageHeader icon={<Buildings />} tone="mint" title="Stocks & PRE-IPO" subtitle="Live public market quotes, plus curated access to private companies" />
 
-      <div className="border-b border-zinc-800 mb-6" role="tablist" aria-label="Markets">
+      <div className="border-b border-white/[0.07] mb-6" role="tablist" aria-label="Markets">
         <div className="flex gap-6 overflow-x-auto">
-          {[{ id: 'public', name: 'Public markets', icon: LineChart }, ...PRE_IPO_PLATFORMS.map((p) => ({ id: p.id, name: `${p.name} PRE-IPO`, icon: Building2 }))].map(({ id, name, icon: Icon }) => (
+          {[{ id: 'public', name: 'Public markets', icon: ChartLine }, ...PRE_IPO_PLATFORMS.map((p) => ({ id: p.id, name: `${p.name} PRE-IPO`, icon: Buildings }))].map(({ id, name, icon: Icon }) => (
             <button key={id} role="tab" aria-selected={tab === id} onClick={() => setTab(id)}
               className={`pb-3 px-1 border-b-2 whitespace-nowrap text-sm font-medium flex items-center gap-2 transition-colors ${tab === id ? 'border-blue-500 text-white' : 'border-transparent text-zinc-400 hover:text-white'}`}>
               <Icon className="w-4 h-4" aria-hidden /> {name}
@@ -38,12 +38,12 @@ export function StocksPreIPO() {
                   <Card key={q.symbol} className="p-4">
                     <div className="flex items-start justify-between gap-3">
                       <div className="min-w-0">
-                        <p className="text-white font-bold text-lg">{q.symbol}</p>
+                        <p className="text-white font-semibold text-lg">{q.symbol}</p>
                         <p className="text-zinc-500 text-xs truncate">{q.name}</p>
                       </div>
                       <div className="text-right">
-                        <p className="text-white font-semibold tabular-nums">{formatUsd(q.price)}</p>
-                        <p className={`text-sm tabular-nums ${pnlClass(q.change)}`}>{formatPct(q.changePct)}</p>
+                        <p className="text-white font-semibold num">{formatUsd(q.price)}</p>
+                        <p className={`text-sm num ${pnlClass(q.change)}`}>{formatPct(q.changePct)}</p>
                       </div>
                     </div>
                     <svg viewBox="0 0 170 36" className="w-full h-10 mt-3" aria-hidden>
@@ -65,7 +65,7 @@ export function StocksPreIPO() {
         <section aria-label={`${platform.name} listings`}>
           <Card className="p-5 mb-6">
             <div className="flex items-start gap-4">
-              <div className="bg-blue-600/10 p-3 rounded-lg"><Info className="w-6 h-6 text-blue-500" aria-hidden /></div>
+              <IconTile tone="ice" size="lg"><Info /></IconTile>
               <div>
                 <h2 className="text-lg font-semibold text-white mb-1">{platform.name}</h2>
                 <p className="text-zinc-400 text-sm">{platform.description}</p>
@@ -78,14 +78,14 @@ export function StocksPreIPO() {
             {platform.listings.map((s) => {
               const href = safeHref(s.link);
               return (
-                <article key={s.id} className="bg-zinc-900 border border-zinc-800 rounded-xl overflow-hidden hover:border-blue-500 transition-colors group flex flex-col">
-                  <div className="relative h-44 overflow-hidden bg-zinc-800">
+                <article key={s.id} className="panel overflow-hidden hover:border-blue-500 transition-colors group flex flex-col">
+                  <div className="relative h-44 overflow-hidden bg-white/[0.06]">
                     <ImageWithFallback src={s.imageUrl} alt="" className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-300" />
-                    {s.isHot && <div className="absolute top-3 right-3"><Pill tone="red"><TrendingUp className="w-3 h-3" aria-hidden />HOT</Pill></div>}
+                    {s.isHot && <div className="absolute top-3 right-3"><Pill tone="red"><TrendUp className="w-3 h-3" aria-hidden />HOT</Pill></div>}
                     <div className="absolute inset-0 bg-gradient-to-t from-zinc-900 via-transparent to-transparent opacity-60" />
                   </div>
                   <div className="p-5 flex flex-col flex-1">
-                    <h3 className="text-xl font-bold text-white">{s.name} <span className="text-sm font-normal text-zinc-500">{s.ticker}</span></h3>
+                    <h3 className="text-xl font-semibold text-white">{s.name} <span className="text-sm font-normal text-zinc-500">{s.ticker}</span></h3>
                     <p className="text-zinc-400 text-sm my-3 line-clamp-3">{s.description}</p>
                     <dl className="space-y-2 mb-4 text-sm mt-auto">
                       <div className="flex justify-between"><dt className="text-zinc-500">Sector</dt><dd className="text-white font-medium">{s.sector}</dd></div>
@@ -93,8 +93,8 @@ export function StocksPreIPO() {
                       <div className="flex justify-between"><dt className="text-zinc-500">Min. investment</dt><dd className="text-white font-medium">{s.minInvestment}</dd></div>
                     </dl>
                     {href && (
-                      <a href={href} target="_blank" rel="noopener noreferrer sponsored" className="w-full bg-blue-600 hover:bg-blue-700 text-white font-medium py-2.5 rounded-lg transition-colors flex items-center justify-center gap-2">
-                        <DollarSign className="w-4 h-4" aria-hidden /> View on {platform.name} <ExternalLink className="w-4 h-4" aria-hidden />
+                      <a href={href} target="_blank" rel="noopener noreferrer sponsored" className="btn btn-primary w-full py-2.5">
+                        <CurrencyDollar className="w-4 h-4" aria-hidden /> View on {platform.name} <ArrowSquareOut className="w-4 h-4" aria-hidden />
                       </a>
                     )}
                   </div>
@@ -103,7 +103,7 @@ export function StocksPreIPO() {
             })}
           </div>
 
-          <div className="mt-10 bg-zinc-900/50 border border-zinc-800 rounded-lg p-5">
+          <div className="mt-10 bg-white/[0.03] border border-white/[0.07] rounded-lg p-5">
             <h3 className="text-sm font-semibold text-zinc-400 mb-2">Important disclaimer</h3>
             <p className="text-xs text-zinc-500 leading-relaxed">
               Investing in PRE-IPO companies involves substantial risk, including the loss of everything you invest, and may not be suitable for you. Past performance does not predict future results. Do your own research and speak to a licensed financial adviser before you invest. These links are referral links and Arctos may be paid if you sign up. Minimums and valuations change and are set by the platform.

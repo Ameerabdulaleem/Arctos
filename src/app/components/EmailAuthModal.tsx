@@ -1,5 +1,5 @@
 import { useState, type FormEvent } from 'react';
-import { Lock, Mail } from 'lucide-react';
+import { EnvelopeSimple, LockSimple } from '@phosphor-icons/react';
 import { toast } from 'sonner';
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from './ui/dialog';
 import { useAuth } from '../contexts/auth-context';
@@ -34,13 +34,13 @@ export function EmailAuthModal({ open, onOpenChange }: Props) {
     }
   };
 
-  const input = 'w-full pl-10 pr-3 py-3 rounded-lg border border-zinc-700 bg-zinc-900 text-white placeholder:text-zinc-500 focus:outline-none focus:border-blue-500';
+  const input = 'field h-12 rounded-2xl pl-10';
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="sm:max-w-md bg-zinc-950 border-zinc-800 text-white">
+      <DialogContent className="text-white sm:max-w-md">
         <DialogHeader>
-          <DialogTitle className="text-2xl font-bold text-center">{mode === 'signin' ? 'Welcome back' : 'Create your account'}</DialogTitle>
+          <DialogTitle className="text-2xl font-semibold text-center">{mode === 'signin' ? 'Welcome back' : 'Create your account'}</DialogTitle>
           <p className="text-center text-sm text-zinc-400">
             Your account lives on this device only. Your password is salted and hashed in your browser and is never sent anywhere.
           </p>
@@ -48,16 +48,16 @@ export function EmailAuthModal({ open, onOpenChange }: Props) {
 
         <form onSubmit={submit} className="space-y-4 py-2">
           <div>
-            <label htmlFor="auth-email" className="block text-sm font-medium mb-1.5">Email</label>
+            <label htmlFor="auth-email" className="label mb-1.5 block text-sm text-zinc-300">Email</label>
             <div className="relative">
-              <Mail className="absolute left-3 top-3.5 w-4 h-4 text-zinc-500" aria-hidden />
+              <EnvelopeSimple className="absolute left-3.5 top-4 h-4 w-4 text-zinc-500" aria-hidden />
               <input id="auth-email" type="email" autoComplete="email" required value={email} onChange={(e) => setEmail(e.target.value)} placeholder="you@example.com" className={input} />
             </div>
           </div>
           <div>
-            <label htmlFor="auth-password" className="block text-sm font-medium mb-1.5">Password</label>
+            <label htmlFor="auth-password" className="label mb-1.5 block text-sm text-zinc-300">Password</label>
             <div className="relative">
-              <Lock className="absolute left-3 top-3.5 w-4 h-4 text-zinc-500" aria-hidden />
+              <LockSimple className="absolute left-3.5 top-4 h-4 w-4 text-zinc-500" aria-hidden />
               <input
                 id="auth-password" type="password" required minLength={mode === 'signup' ? 8 : undefined}
                 autoComplete={mode === 'signin' ? 'current-password' : 'new-password'}
@@ -66,13 +66,13 @@ export function EmailAuthModal({ open, onOpenChange }: Props) {
               />
             </div>
           </div>
-          {error && <p role="alert" className="text-sm text-red-400 bg-red-500/10 border border-red-500/20 rounded-lg px-3 py-2">{error}</p>}
-          <button type="submit" disabled={loading} className="w-full py-3 bg-blue-600 hover:bg-blue-700 disabled:opacity-60 text-white rounded-lg font-medium transition-colors">
+          {error && <p role="alert" className="rounded-xl border border-rose-400/25 bg-rose-400/10 px-3 py-2 text-sm text-rose-200">{error}</p>}
+          <button type="submit" disabled={loading} className="btn btn-primary btn-lg w-full">
             {loading ? 'Please wait...' : mode === 'signin' ? 'Sign in' : 'Create account'}
           </button>
         </form>
 
-        <button type="button" onClick={() => { setMode(mode === 'signin' ? 'signup' : 'signin'); setError(null); }} className="text-center text-sm text-blue-400 hover:text-blue-300">
+        <button type="button" onClick={() => { setMode(mode === 'signin' ? 'signup' : 'signin'); setError(null); }} className="text-center text-sm text-blue-300 hover:text-blue-200">
           {mode === 'signin' ? "Don't have an account? Create one" : 'Already have an account? Sign in'}
         </button>
       </DialogContent>

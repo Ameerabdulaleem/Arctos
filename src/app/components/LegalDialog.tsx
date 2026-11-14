@@ -42,9 +42,9 @@ export function LegalDialog({ topic, onClose }: Props) {
   const content = topic ? CONTENT[topic] : null;
   return (
     <Dialog open={Boolean(topic)} onOpenChange={(o) => !o && onClose()}>
-      <DialogContent className="sm:max-w-lg bg-zinc-950 border-zinc-800 text-white">
+      <DialogContent className="text-white sm:max-w-lg">
         <DialogHeader>
-          <DialogTitle className="text-xl font-bold">{content?.title}</DialogTitle>
+          <DialogTitle className="text-xl font-semibold">{content?.title}</DialogTitle>
           <p className="text-xs text-amber-300/80">Plain language summary. Have a lawyer review it before a public launch.</p>
         </DialogHeader>
         <div className="space-y-3 text-sm text-zinc-300 leading-relaxed max-h-[60vh] overflow-y-auto pr-1">

@@ -12,6 +12,9 @@ export interface SourceHealth {
 
 export interface ServiceStatus {
   version: string;
+  /** 'server' keeps data hot with pollers and streams. 'on_demand' refreshes per request (serverless). */
+  mode?: 'server' | 'on_demand';
+  realtime?: boolean;
   startedAt: string;
   uptimeSecs: number;
   sources: SourceHealth[];

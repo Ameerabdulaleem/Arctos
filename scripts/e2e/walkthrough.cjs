@@ -13,7 +13,7 @@ require('node:fs').mkdirSync(SC + '/shots', { recursive: true });
   const problems = [];
   page.on('console', (m) => { if (['error'].includes(m.type())) problems.push(`console.${m.type()}: ${m.text().slice(0, 200)}`); });
   page.on('pageerror', (e) => problems.push(`pageerror: ${e.message.slice(0, 200)}`));
-  page.on('requestfailed', (r) => { if (!r.url().includes('/ws/')) problems.push(`requestfailed: ${r.url()}`); });
+  page.on('requestfailed', (r) => { const why = r.failure()?.errorText ?? ''; if (!r.url().includes('/ws/') && why !== 'net::ERR_ABORTED') problems.push(`requestfailed: ${r.url()} ${why}`); });
   page.on('response', (r) => { if (r.status() >= 400 && r.url().includes('/api/')) problems.push(`http ${r.status()}: ${r.url()}`); });
   const out = [];
   const check = async (name, fn) => { try { const v = await fn(); out.push(`PASS ${name}${v ? ' :: ' + v : ''}`); } catch (e) { out.push(`FAIL ${name} :: ${e.message.split('\n')[0]}`); } };

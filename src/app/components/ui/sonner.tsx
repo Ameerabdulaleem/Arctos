@@ -1,26 +1,23 @@
-"use client";
+import { Toaster as Sonner, type ToasterProps } from 'sonner';
 
-import { Toaster as Sonner, ToasterProps } from "sonner";
-
-interface CustomToasterProps extends ToasterProps {
-  theme: 'dark' | 'light';
-}
-
-const Toaster = ({ theme, ...props }: CustomToasterProps) => {
-  return (
-    <Sonner
-      theme={theme}
-      className="toaster group"
-      toastOptions={{
-        style: {
-          background: theme === 'dark' ? 'hsl(222.2 84% 4.9%)' : 'white',
-          color: theme === 'dark' ? 'white' : 'hsl(222.2 84% 4.9%)',
-          border: theme === 'dark' ? '1px solid hsl(217.2 32.6% 17.5%)' : '1px solid hsl(214.3 31.8% 91.4%)',
-        },
-      }}
-      {...props}
-    />
-  );
-};
+/** Toasts styled as glass panels to match the rest of the app. */
+const Toaster = (props: ToasterProps) => (
+  <Sonner
+    theme="dark"
+    className="toaster group"
+    toastOptions={{
+      style: {
+        background: 'rgba(10, 14, 23, 0.92)',
+        color: '#F3F6FB',
+        border: '1px solid rgba(255, 255, 255, 0.1)',
+        borderRadius: '14px',
+        backdropFilter: 'blur(16px)',
+        boxShadow: '0 20px 50px -20px rgba(0, 0, 0, 0.9)',
+        fontFamily: 'inherit',
+      },
+    }}
+    {...props}
+  />
+);
 
 export { Toaster };

@@ -10,7 +10,7 @@ import {
   type CandlestickData,
   type Time,
 } from 'lightweight-charts';
-import { Sparkles, Loader2, X, TrendingUp, TrendingDown, ChevronDown } from 'lucide-react';
+import { CaretDown, CircleNotch, Sparkle, TrendDown, TrendUp, X } from '@phosphor-icons/react';
 
 /* ------------------------------------------------------------------ */
 /*  Types                                                              */
@@ -499,32 +499,33 @@ export default function TradingViewChart({
       width: chartContainerRef.current.clientWidth,
       height: 420,
       layout: {
-        background: { type: ColorType.Solid, color: '#09090b' },
-        textColor: '#a1a1aa',
+        background: { type: ColorType.Solid, color: 'transparent' },
+        textColor: '#8593AC',
+        fontFamily: '"Geist Mono Variable", ui-monospace, monospace',
       },
       grid: {
-        vertLines: { color: '#1e1e22' },
-        horzLines: { color: '#1e1e22' },
+        vertLines: { color: 'rgba(255,255,255,0.04)' },
+        horzLines: { color: 'rgba(255,255,255,0.04)' },
       },
       crosshair: { mode: CrosshairMode.Normal },
       rightPriceScale: {
-        borderColor: '#27272a',
+        borderColor: 'rgba(255,255,255,0.08)',
         scaleMargins: { top: 0.1, bottom: 0.25 },
       },
       timeScale: {
-        borderColor: '#27272a',
+        borderColor: 'rgba(255,255,255,0.08)',
         timeVisible: true,
         secondsVisible: false,
       },
     });
 
     const candleSeries = chart.addSeries(CandlestickSeries, {
-      upColor: '#26a69a',
-      downColor: '#ef5350',
-      borderDownColor: '#ef5350',
-      borderUpColor: '#26a69a',
-      wickDownColor: '#ef5350',
-      wickUpColor: '#26a69a',
+      upColor: '#34d399',
+      downColor: '#fb7185',
+      borderDownColor: '#fb7185',
+      borderUpColor: '#34d399',
+      wickDownColor: '#fb7185',
+      wickUpColor: '#34d399',
     });
 
     const volumeSeries = chart.addSeries(HistogramSeries, {
@@ -591,41 +592,38 @@ export default function TradingViewChart({
 
   const signalColor = aiResult
     ? aiResult.signal.includes('BUY')
-      ? 'text-green-400'
+      ? 'text-emerald-300'
       : aiResult.signal.includes('SELL')
-        ? 'text-red-400'
-        : 'text-amber-400'
+        ? 'text-rose-300'
+        : 'text-amber-300'
     : '';
 
   return (
-    <div className="bg-zinc-900 border border-zinc-800 rounded-xl overflow-hidden">
+    <div className="panel overflow-hidden">
       {/* Toolbar */}
-      <div className="flex items-center justify-between px-4 py-3 border-b border-zinc-800">
+      <div className="flex flex-wrap items-center justify-between gap-x-4 gap-y-2.5 border-b border-white/[0.07] px-4 py-3">
         <div className="flex items-center gap-3">
           <span className="text-white font-semibold text-lg">{symbol}</span>
           {crosshairPrice !== null && (
-            <span className="text-zinc-400 text-sm tabular-nums">
+            <span className="text-zinc-400 text-sm num">
               ${crosshairPrice.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
             </span>
           )}
         </div>
-        <div className="flex items-center gap-2">
-          <div className="flex gap-1">
+        <div className="flex flex-wrap items-center gap-2">
+          <div className="seg p-0.5" role="group" aria-label="Chart interval">
             {INTERVALS.map((iv) => (
               <button
                 key={iv}
                 onClick={() => onIntervalChange(iv)}
-                className={`px-3 py-1 rounded text-xs font-medium transition-colors ${
-                  interval === iv
-                    ? 'bg-blue-600 text-white'
-                    : 'bg-zinc-800 text-zinc-400 hover:bg-zinc-700 hover:text-white'
-                }`}
+                aria-pressed={interval === iv}
+                className="seg-item num px-2.5 py-1 text-xs font-medium"
               >
                 {iv}
               </button>
             ))}
           </div>
-          <div className="w-px h-5 bg-zinc-700" />
+          <div className="hidden h-5 w-px bg-white/10 sm:block" />
           {/* AI Tool Selector */}
           <div className="relative" ref={dropdownRef}>
             <div className="flex items-center gap-1">
@@ -634,26 +632,27 @@ export default function TradingViewChart({
                   <button
                     onClick={handleAIDraw}
                     disabled={aiAnalyzing || selectedTools.size === 0}
-                    className="flex items-center gap-1.5 px-3 py-1.5 rounded-l-lg text-xs font-semibold bg-gradient-to-r from-purple-600 to-blue-600 text-white hover:from-purple-500 hover:to-blue-500 transition-all disabled:opacity-60 shadow-lg shadow-purple-600/20"
+                    className="flex items-center gap-1.5 rounded-l-lg border border-violet-300/30 bg-violet-400/15 px-3 py-1.5 text-xs font-semibold text-violet-100 transition hover:bg-violet-400/25 disabled:opacity-60"
                   >
                     {aiAnalyzing ? (
-                      <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                      <CircleNotch className="w-3.5 h-3.5 animate-spin" />
                     ) : (
-                      <Sparkles className="w-3.5 h-3.5" />
+                      <Sparkle className="w-3.5 h-3.5" />
                     )}
                     {aiAnalyzing ? 'Analyzing...' : `Draw (${selectedTools.size})`}
                   </button>
                   <button
                     onClick={() => setToolMenuOpen((v) => !v)}
-                    className="flex items-center px-1.5 py-1.5 rounded-r-lg text-xs font-semibold bg-gradient-to-r from-blue-600 to-blue-700 text-white hover:from-blue-500 hover:to-blue-600 transition-all shadow-lg shadow-purple-600/20 border-l border-blue-500/40"
+                    aria-label="Choose what to draw" aria-expanded={toolMenuOpen}
+                    className="-ml-px flex items-center rounded-r-lg border border-violet-300/30 bg-violet-400/15 px-1.5 py-1.5 text-xs font-semibold text-violet-100 transition hover:bg-violet-400/25"
                   >
-                    <ChevronDown className={`w-3.5 h-3.5 transition-transform ${toolMenuOpen ? 'rotate-180' : ''}`} />
+                    <CaretDown className={`w-3.5 h-3.5 transition-transform ${toolMenuOpen ? 'rotate-180' : ''}`} />
                   </button>
                 </>
               ) : (
                 <button
                   onClick={clearAIDrawings}
-                  className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold bg-zinc-800 text-zinc-300 hover:bg-zinc-700 transition-colors"
+                  className="btn btn-secondary btn-sm"
                 >
                   <X className="w-3.5 h-3.5" />
                   Clear
@@ -663,9 +662,9 @@ export default function TradingViewChart({
 
             {/* Tool selection dropdown */}
             {toolMenuOpen && (
-              <div className="absolute right-0 top-full mt-2 w-56 bg-zinc-900 border border-zinc-700 rounded-xl shadow-2xl shadow-black/50 z-50 overflow-hidden">
-                <div className="px-3 py-2 border-b border-zinc-800">
-                  <span className="text-[11px] font-semibold text-zinc-400 uppercase tracking-wider">Indicators</span>
+              <div className="panel-solid absolute right-0 top-full z-50 mt-2 w-60 overflow-hidden shadow-2xl shadow-black/60">
+                <div className="px-3 py-2 border-b border-white/[0.07]">
+                  <span className="eyebrow">Indicators</span>
                 </div>
                 {AI_TOOLS.map((tool) => {
                   const isSelected = selectedTools.has(tool.key);
@@ -673,13 +672,13 @@ export default function TradingViewChart({
                     <button
                       key={tool.key}
                       onClick={() => toggleTool(tool.key)}
-                      className="w-full flex items-center gap-2.5 px-3 py-2 text-left hover:bg-zinc-800/70 transition-colors"
+                      className="w-full flex items-center gap-2.5 px-3 py-2 text-left hover:bg-white/[0.04] transition-colors"
                     >
                       <div
                         className={`w-3.5 h-3.5 rounded-sm border flex items-center justify-center transition-colors ${
                           isSelected
-                            ? 'border-purple-500 bg-purple-600'
-                            : 'border-zinc-600 bg-zinc-800'
+                            ? 'border-violet-300 bg-violet-500'
+                            : 'border-zinc-600 bg-white/[0.06]'
                         }`}
                       >
                         {isSelected && (
@@ -690,8 +689,8 @@ export default function TradingViewChart({
                       </div>
                       <div className="flex-1 min-w-0">
                         <div className="flex items-center gap-1.5">
-                          {tool.key === 'longPosition' && <TrendingUp className="w-3 h-3 text-green-400" />}
-                          {tool.key === 'shortPosition' && <TrendingDown className="w-3 h-3 text-red-400" />}
+                          {tool.key === 'longPosition' && <TrendUp className="w-3 h-3 text-emerald-300" />}
+                          {tool.key === 'shortPosition' && <TrendDown className="w-3 h-3 text-rose-300" />}
                           <span className="text-xs font-medium text-zinc-200">{tool.label}</span>
                         </div>
                         <span className="text-[10px] text-zinc-500">{tool.description}</span>
@@ -700,10 +699,10 @@ export default function TradingViewChart({
                     </button>
                   );
                 })}
-                <div className="px-3 py-2 border-t border-zinc-800 flex justify-between">
+                <div className="px-3 py-2 border-t border-white/[0.07] flex justify-between">
                   <button
                     onClick={() => setSelectedTools(new Set(AI_TOOLS.map((t) => t.key)))}
-                    className="text-[10px] text-purple-400 hover:text-purple-300 font-medium"
+                    className="text-[10px] text-violet-300 hover:text-violet-200 font-medium"
                   >
                     Select All
                   </button>
@@ -722,13 +721,13 @@ export default function TradingViewChart({
 
       {/* AI Analysis Panel */}
       {aiResult && (
-        <div className="px-4 py-3 border-b border-zinc-800 bg-zinc-900/80">
+        <div className="px-4 py-3 border-b border-white/[0.07] bg-white/[0.03]">
           <div className="flex items-start gap-6 flex-wrap">
             {/* Signal badge */}
             <div className="flex items-center gap-2">
-              <Sparkles className="w-4 h-4 text-purple-400" />
+              <Sparkle className="w-4 h-4 text-violet-300" />
               <span className="text-xs text-zinc-400">Technical signal:</span>
-              <span className={`text-sm font-bold ${signalColor}`}>{aiResult.signal}</span>
+              <span className={`text-sm font-semibold ${signalColor}`}>{aiResult.signal}</span>
               <span className="text-xs text-zinc-500" title="Built from EMA, RSI and support and resistance rules on the candles shown. It is not a forecast.">(rule based, not a forecast)</span>
             </div>
 
@@ -739,18 +738,18 @@ export default function TradingViewChart({
                   <div className="flex items-center gap-1.5">
                     <span className="w-2.5 h-0.5 rounded bg-yellow-400 inline-block" />
                     <span className="text-zinc-400">EMA 9:</span>
-                    <span className="text-white tabular-nums">${aiResult.ema9Last.toFixed(2)}</span>
+                    <span className="text-white num">${aiResult.ema9Last.toFixed(2)}</span>
                   </div>
                   <div className="flex items-center gap-1.5">
                     <span className="w-2.5 h-0.5 rounded bg-cyan-400 inline-block" />
                     <span className="text-zinc-400">EMA 21:</span>
-                    <span className="text-white tabular-nums">${aiResult.ema21Last.toFixed(2)}</span>
+                    <span className="text-white num">${aiResult.ema21Last.toFixed(2)}</span>
                   </div>
                 </>
               )}
               <div>
                 <span className="text-zinc-400">RSI:</span>{' '}
-                <span className={`font-medium tabular-nums ${aiResult.rsiLast > 70 ? 'text-red-400' : aiResult.rsiLast < 30 ? 'text-green-400' : 'text-white'}`}>
+                <span className={`font-medium num ${aiResult.rsiLast > 70 ? 'text-rose-300' : aiResult.rsiLast < 30 ? 'text-emerald-300' : 'text-white'}`}>
                   {aiResult.rsiLast.toFixed(1)}
                 </span>
               </div>
@@ -759,37 +758,37 @@ export default function TradingViewChart({
                   <div className="flex items-center gap-1.5">
                     <span className="w-2.5 h-0.5 rounded bg-green-500 inline-block" />
                     <span className="text-zinc-400">S:</span>
-                    <span className="text-green-400 tabular-nums">${aiResult.support.toFixed(2)}</span>
+                    <span className="text-emerald-300 num">${aiResult.support.toFixed(2)}</span>
                   </div>
                   <div className="flex items-center gap-1.5">
                     <span className="w-2.5 h-0.5 rounded bg-red-500 inline-block" />
                     <span className="text-zinc-400">R:</span>
-                    <span className="text-red-400 tabular-nums">${aiResult.resistance.toFixed(2)}</span>
+                    <span className="text-rose-300 num">${aiResult.resistance.toFixed(2)}</span>
                   </div>
                 </>
               )}
               {selectedTools.has('longPosition') && (
                 <div className="flex items-center gap-1.5">
-                  <TrendingUp className="w-3 h-3 text-green-400" />
+                  <TrendUp className="w-3 h-3 text-emerald-300" />
                   <span className="text-zinc-400">Long TP:</span>
-                  <span className="text-green-400 tabular-nums">
+                  <span className="text-emerald-300 num">
                     ${aiResult.longTP.toFixed(2)}
                   </span>
                   <span className="text-zinc-500">|</span>
                   <span className="text-zinc-400">SL:</span>
-                  <span className="text-red-400 tabular-nums">${aiResult.longSL.toFixed(2)}</span>
+                  <span className="text-rose-300 num">${aiResult.longSL.toFixed(2)}</span>
                 </div>
               )}
               {selectedTools.has('shortPosition') && (
                 <div className="flex items-center gap-1.5">
-                  <TrendingDown className="w-3 h-3 text-red-400" />
+                  <TrendDown className="w-3 h-3 text-rose-300" />
                   <span className="text-zinc-400">Short TP:</span>
-                  <span className="text-green-400 tabular-nums">
+                  <span className="text-emerald-300 num">
                     ${aiResult.shortTP.toFixed(2)}
                   </span>
                   <span className="text-zinc-500">|</span>
                   <span className="text-zinc-400">SL:</span>
-                  <span className="text-red-400 tabular-nums">${aiResult.shortSL.toFixed(2)}</span>
+                  <span className="text-rose-300 num">${aiResult.shortSL.toFixed(2)}</span>
                 </div>
               )}
             </div>
@@ -800,7 +799,7 @@ export default function TradingViewChart({
             {aiResult.reasons.map((reason, i) => (
               <span
                 key={i}
-                className="px-2 py-1 rounded-md bg-zinc-800 border border-zinc-700 text-zinc-300 text-[11px]"
+                className="px-2 py-1 rounded-md bg-white/[0.06] border border-white/10 text-zinc-300 text-[11px]"
               >
                 {reason}
               </span>
@@ -814,7 +813,7 @@ export default function TradingViewChart({
         <div ref={chartContainerRef} className="w-full" />
         {(loading || error) && (!liveCandles || liveCandles.length === 0) && (
           <div role={error ? 'alert' : 'status'} className="absolute inset-0 flex items-center justify-center bg-zinc-950/80 text-sm">
-            {error ? <span className="text-amber-300 px-6 text-center">{error}</span> : <span className="text-zinc-400 inline-flex items-center gap-2"><Loader2 className="w-4 h-4 animate-spin" /> Loading candles...</span>}
+            {error ? <span className="text-amber-300 px-6 text-center">{error}</span> : <span className="text-zinc-400 inline-flex items-center gap-2"><CircleNotch className="w-4 h-4 animate-spin" /> Loading candles...</span>}
           </div>
         )}
       </div>

@@ -1,4 +1,5 @@
 import { lazy, Suspense, useCallback, useEffect, useState } from 'react';
+import { IconContext } from '@phosphor-icons/react';
 import { AuthProvider } from './contexts/AuthProvider';
 import { PaperProvider } from './contexts/PaperProvider';
 import { Toaster } from './components/ui/sonner';
@@ -11,6 +12,7 @@ import { EmailAuthModal } from './components/EmailAuthModal';
 import { ErrorBoundary } from './components/ErrorBoundary';
 import { Loading } from './components/ui/common';
 import { useHashView, type ViewId } from './hooks/useHashView';
+import { navItem } from './components/navigation';
 
 const DashboardView = lazy(() => import('./components/DashboardView').then((m) => ({ default: m.DashboardView })));
 const TradingTerminal = lazy(() => import('./components/TradingTerminal').then((m) => ({ default: m.TradingTerminal })));
@@ -22,17 +24,8 @@ const StocksPreIPO = lazy(() => import('./components/StocksPreIPO').then((m) => 
 const AIChat = lazy(() => import('./components/AIChat').then((m) => ({ default: m.AIChat })));
 const Settings = lazy(() => import('./components/Settings').then((m) => ({ default: m.Settings })));
 
-const TITLES: Record<ViewId, string> = {
-  dashboard: 'Dashboard',
-  trading: 'Trading Terminal',
-  sniper: 'Sniper Engine',
-  tradebook: 'Trade Book',
-  whale: 'Whale Alerts',
-  news: 'Fundamental News',
-  stocks: 'Stocks & PRE-IPO',
-  chat: 'AI Chat',
-  settings: 'Settings',
-};
+// Icons are duotone everywhere unless a component asks for another weight.
+const ICON_DEFAULTS = { color: 'currentColor', size: '1em', weight: 'duotone' as const, mirrored: false };
 
 function Shell() {
   const { view, navigate } = useHashView();
@@ -46,7 +39,7 @@ function Shell() {
   const launch = useCallback((target: ViewId = 'dashboard') => navigate(target), [navigate]);
 
   useEffect(() => {
-    document.title = view ? `${TITLES[view]} | Arctos` : 'Arctos | Live crypto trading intelligence';
+    document.title = view ? `${navItem(view).label} | Arctos` : 'Arctos | Live crypto trading intelligence';
   }, [view]);
 
   if (!view) {
@@ -74,11 +67,12 @@ function Shell() {
   };
 
   return (
-    <div className="h-screen flex bg-black text-zinc-100 overflow-hidden">
+    <div className="flex h-dvh overflow-hidden text-zinc-100">
+      <a href="#main" className="sr-only focus:not-sr-only focus:fixed focus:left-3 focus:top-3 focus:z-[60] focus:rounded-lg focus:bg-white focus:px-3 focus:py-2 focus:text-sm focus:font-medium focus:text-black">Skip to content</a>
       <Sidebar active={view} onNavigate={navigate} open={menuOpen} onClose={closeMenu} />
-      <div className="flex-1 flex flex-col min-w-0">
-        <TopBar title={TITLES[view]} onMenu={() => setMenuOpen(true)} onConnectWallet={() => setWalletOpen(true)} onSignIn={() => setEmailOpen(true)} />
-        <main className="flex-1 overflow-auto" id="main">
+      <div className="flex min-w-0 flex-1 flex-col">
+        <TopBar title={navItem(view).label} onMenu={() => setMenuOpen(true)} onConnectWallet={() => setWalletOpen(true)} onSignIn={() => setEmailOpen(true)} />
+        <main className="flex-1 overflow-auto" id="main" tabIndex={-1}>
           <ErrorBoundary resetKey={view}>
             <Suspense fallback={<Loading label="Opening" />}>{render()}</Suspense>
           </ErrorBoundary>
@@ -92,11 +86,13 @@ function Shell() {
 
 export default function App() {
   return (
-    <AuthProvider>
-      <PaperProvider>
-        <Shell />
-        <Toaster theme="dark" />
-      </PaperProvider>
-    </AuthProvider>
+    <IconContext.Provider value={ICON_DEFAULTS}>
+      <AuthProvider>
+        <PaperProvider>
+          <Shell />
+          <Toaster position="bottom-right" />
+        </PaperProvider>
+      </AuthProvider>
+    </IconContext.Provider>
   );
 }
