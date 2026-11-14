@@ -11,7 +11,6 @@ import { EmailAuthModal } from './components/EmailAuthModal';
 import { ErrorBoundary } from './components/ErrorBoundary';
 import { Loading } from './components/ui/common';
 import { useHashView, type ViewId } from './hooks/useHashView';
-import { BACKEND_CONFIGURED } from './services/api';
 
 const DashboardView = lazy(() => import('./components/DashboardView').then((m) => ({ default: m.DashboardView })));
 const TradingTerminal = lazy(() => import('./components/TradingTerminal').then((m) => ({ default: m.TradingTerminal })));
@@ -79,11 +78,6 @@ function Shell() {
       <Sidebar active={view} onNavigate={navigate} open={menuOpen} onClose={closeMenu} />
       <div className="flex-1 flex flex-col min-w-0">
         <TopBar title={TITLES[view]} onMenu={() => setMenuOpen(true)} onConnectWallet={() => setWalletOpen(true)} onSignIn={() => setEmailOpen(true)} />
-        {!BACKEND_CONFIGURED && (
-          <div role="alert" className="bg-amber-500/10 border-b border-amber-500/30 text-amber-200 text-sm px-4 py-2">
-            The Arctos data service URL is not configured, so live data cannot load. Set VITE_RUST_BACKEND_URL when building the site.
-          </div>
-        )}
         <main className="flex-1 overflow-auto" id="main">
           <ErrorBoundary resetKey={view}>
             <Suspense fallback={<Loading label="Opening" />}>{render()}</Suspense>

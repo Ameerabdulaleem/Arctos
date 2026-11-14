@@ -24,8 +24,15 @@ pub async fn upgrade(
     state: Arc<AppState>,
     channel: Channel,
 ) -> Response {
-    let origin = headers.get("origin").and_then(|v| v.to_str().ok());
-    if !state.config.origin_allowed(origin) {
+    if state.config.on_demand {
+        // Nothing produces live messages here. The web app polls the REST API instead.
+        return (
+            StatusCode::NOT_IMPLEMENTED,
+            "live streams are not available on this deployment",
+        )
+            .into_response();
+    }
+    if !crate::origin_ok(&state.config, &headers) {
         return (StatusCode::FORBIDDEN, "origin not allowed").into_response();
     }
     let Ok(permit) = state.ws_slots.clone().try_acquire_owned() else {

@@ -18,7 +18,7 @@ use quick_xml::{
 };
 use serde::{Deserialize, Serialize};
 
-use crate::AppState;
+use crate::{upstream::Gate, AppState};
 
 #[derive(Debug, Clone, Serialize, PartialEq)]
 #[serde(rename_all = "camelCase")]
@@ -51,11 +51,22 @@ pub struct FeedStatus {
     pub error: Option<String>,
 }
 
-#[derive(Default)]
 pub struct NewsStore {
     articles: RwLock<Vec<Article>>,
     feeds: RwLock<Vec<FeedStatus>>,
     fetched_at: RwLock<Option<DateTime<Utc>>>,
+    gate: Gate,
+}
+
+impl Default for NewsStore {
+    fn default() -> Self {
+        Self {
+            articles: RwLock::default(),
+            feeds: RwLock::default(),
+            fetched_at: RwLock::default(),
+            gate: Gate::new(Duration::from_secs(120), Duration::from_secs(30)),
+        }
+    }
 }
 
 impl NewsStore {
@@ -561,7 +572,7 @@ pub fn merge_articles(mut all: Vec<Article>) -> Vec<Article> {
 
 // ── Poller ───────────────────────────────────────────────────────────────────
 
-async fn refresh(state: &Arc<AppState>) {
+async fn refresh(state: &Arc<AppState>) -> bool {
     let now = Utc::now();
     let fetches = state.config.news_feeds.iter().map(|(name, url)| {
         let st = state.clone();
@@ -597,7 +608,8 @@ async fn refresh(state: &Arc<AppState>) {
             }),
         }
     }
-    if !all.is_empty() {
+    let ok = !all.is_empty();
+    if ok {
         *state
             .news
             .articles
@@ -610,6 +622,15 @@ async fn refresh(state: &Arc<AppState>) {
             .unwrap_or_else(|e| e.into_inner()) = Some(now);
     }
     *state.news.feeds.write().unwrap_or_else(|e| e.into_inner()) = statuses;
+    ok
+}
+
+/// On demand mode: reloads the feeds when they are due. A no op when the poller runs.
+pub async fn ensure_fresh(state: &Arc<AppState>) {
+    if !state.config.on_demand {
+        return;
+    }
+    state.news.gate.ensure(|| refresh(state)).await;
 }
 
 pub fn spawn_pollers(state: Arc<AppState>) {
@@ -641,6 +662,7 @@ pub async fn get_news(
     Query(q): Query<NewsQuery>,
 ) -> Json<NewsResponse> {
     let limit = q.limit.unwrap_or(100).clamp(1, 150);
+    ensure_fresh(&state).await;
     let articles: Vec<Article> = state
         .news
         .articles

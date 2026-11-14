@@ -1,5 +1,5 @@
-// One shared live ticker feed for the whole app. It uses the data service WebSocket and
-// falls back to polling when the socket is not connected.
+// One shared live ticker feed for the whole app. It uses the data service WebSocket when the
+// service offers one, and polls otherwise (always the case on a serverless deployment).
 
 import { openSocket, type SocketStatus } from './api';
 import { marketService, type Ticker } from './marketService';
@@ -10,6 +10,9 @@ export interface TickerSnapshot {
   updatedAt: number | null;
   error: string | null;
 }
+
+// Prices are cached for two seconds at the edge, so polling faster gains nothing.
+const POLL_MS = 3000;
 
 const EMPTY: TickerSnapshot = { tickers: {}, status: 'connecting', updatedAt: null, error: null };
 
@@ -54,7 +57,7 @@ function start() {
   );
   pollTimer = setInterval(() => {
     if (!socketLive && !document.hidden) void pollOnce();
-  }, 5000);
+  }, POLL_MS);
 }
 
 function stop() {

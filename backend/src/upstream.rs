@@ -56,7 +56,7 @@ impl Upstream {
         let client = reqwest::Client::builder()
             .timeout(Duration::from_secs(12))
             .connect_timeout(Duration::from_secs(6))
-            .user_agent("ArctosDataService/0.2 (+https://github.com/ameerabdulaleem/arctos)")
+            .user_agent("Mozilla/5.0 (compatible; ArctosDataService/0.3)")
             .gzip(true)
             .build()
             .expect("failed to build HTTP client");
@@ -286,6 +286,44 @@ impl<V: Clone> KeyedCache<V> {
     }
 }
 
+// ── On demand refresh gate ───────────────────────────────────────────────────
+
+/// Decides when shared state is due for a refresh when no background poller
+/// runs (for example inside a serverless function). At most one refresh runs
+/// at a time, and callers that arrive during one wait for it instead of
+/// starting their own.
+pub struct Gate {
+    ttl: Duration,
+    retry: Duration,
+    next_due: tokio::sync::Mutex<Option<Instant>>,
+}
+
+impl Gate {
+    /// `ttl` is how long a successful refresh stays fresh. `retry` is how long
+    /// to wait after a failed one, so a struggling provider is not hammered.
+    pub fn new(ttl: Duration, retry: Duration) -> Self {
+        Self {
+            ttl,
+            retry,
+            next_due: tokio::sync::Mutex::new(None),
+        }
+    }
+
+    /// Runs `refresh` when the data is due. `refresh` returns true on success.
+    pub async fn ensure<F, Fut>(&self, refresh: F)
+    where
+        F: FnOnce() -> Fut,
+        Fut: Future<Output = bool>,
+    {
+        let mut due = self.next_due.lock().await;
+        if due.is_some_and(|t| Instant::now() < t) {
+            return;
+        }
+        let ok = refresh().await;
+        *due = Some(Instant::now() + if ok { self.ttl } else { self.retry });
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -332,6 +370,42 @@ mod tests {
             .get_or_fetch::<_, _, String>("other", || async { Err("boom".to_string()) })
             .await;
         assert!(err.is_err());
+    }
+
+    #[tokio::test]
+    async fn gate_refreshes_only_when_due() {
+        let gate = Gate::new(Duration::from_millis(40), Duration::from_millis(10));
+        let calls = Arc::new(AtomicUsize::new(0));
+        for _ in 0..3 {
+            let c = calls.clone();
+            gate.ensure(|| async move {
+                c.fetch_add(1, Ordering::SeqCst);
+                true
+            })
+            .await;
+        }
+        assert_eq!(
+            calls.load(Ordering::SeqCst),
+            1,
+            "fresh data is not refetched"
+        );
+        tokio::time::sleep(Duration::from_millis(50)).await;
+        let c = calls.clone();
+        gate.ensure(|| async move {
+            c.fetch_add(1, Ordering::SeqCst);
+            false
+        })
+        .await;
+        assert_eq!(calls.load(Ordering::SeqCst), 2, "stale data is refetched");
+        // A failed refresh is retried after the shorter retry delay.
+        tokio::time::sleep(Duration::from_millis(15)).await;
+        let c = calls.clone();
+        gate.ensure(|| async move {
+            c.fetch_add(1, Ordering::SeqCst);
+            true
+        })
+        .await;
+        assert_eq!(calls.load(Ordering::SeqCst), 3);
     }
 
     #[test]

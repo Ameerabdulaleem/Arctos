@@ -33,8 +33,24 @@ pub fn normalize_database_url(database_url: &str) -> String {
     normalized
 }
 
+async fn migrate(pool: &PgPool) -> std::result::Result<(), sqlx::Error> {
+    sqlx::query(
+        "CREATE TABLE IF NOT EXISTS waitlist (
+            id BIGSERIAL PRIMARY KEY,
+            email TEXT NOT NULL UNIQUE,
+            created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+        )",
+    )
+    .execute(pool)
+    .await
+    .map(|_| ())
+}
+
 /// Connects to Postgres if configured. Failure is logged and the service keeps running without it.
-pub async fn connect(database_url: Option<&str>) -> Option<PgPool> {
+///
+/// With `lazy` set (on demand mode) nothing is opened here: the first waitlist
+/// request connects, so requests that never touch the database do not pay for it.
+pub async fn connect(database_url: Option<&str>, lazy: bool) -> Option<PgPool> {
     let url = database_url?;
     let options = match PgConnectOptions::from_str(&normalize_database_url(url)) {
         // Works with connection poolers in transaction mode (Supabase pooler).
@@ -44,6 +60,14 @@ pub async fn connect(database_url: Option<&str>) -> Option<PgPool> {
             return None;
         }
     };
+    if lazy {
+        return Some(
+            PgPoolOptions::new()
+                .max_connections(2)
+                .acquire_timeout(Duration::from_secs(8))
+                .connect_lazy_with(options),
+        );
+    }
     let pool = match PgPoolOptions::new()
         .max_connections(5)
         .acquire_timeout(Duration::from_secs(8))
@@ -58,17 +82,8 @@ pub async fn connect(database_url: Option<&str>) -> Option<PgPool> {
             return None;
         }
     };
-    let migrated = sqlx::query(
-        "CREATE TABLE IF NOT EXISTS waitlist (
-            id BIGSERIAL PRIMARY KEY,
-            email TEXT NOT NULL UNIQUE,
-            created_at TIMESTAMPTZ NOT NULL DEFAULT now()
-        )",
-    )
-    .execute(&pool)
-    .await;
-    match migrated {
-        Ok(_) => {
+    match migrate(&pool).await {
+        Ok(()) => {
             tracing::info!("PostgreSQL ready (waitlist)");
             Some(pool)
         }
@@ -76,6 +91,38 @@ pub async fn connect(database_url: Option<&str>) -> Option<PgPool> {
             tracing::error!("waitlist migration failed: {e}");
             None
         }
+    }
+}
+
+/// The pool, once the waitlist table is known to exist.
+async fn ready_pool(state: &AppState) -> Option<&PgPool> {
+    let pool = state.db.as_ref()?;
+    state
+        .db_ready
+        .get_or_try_init(|| async {
+            migrate(pool).await.map_err(|e| {
+                tracing::error!("waitlist database is not reachable: {e}");
+            })
+        })
+        .await
+        .ok()?;
+    Some(pool)
+}
+
+/// Sends the welcome email. A long running server sends it in the background.
+/// In on demand mode the work must finish before the response, because nothing
+/// is guaranteed to run afterwards.
+async fn dispatch_welcome(state: &Arc<AppState>, email: String, position: Option<i64>) {
+    if state.config.on_demand {
+        let send = send_welcome(state.clone(), email, position);
+        if tokio::time::timeout(Duration::from_secs(10), send)
+            .await
+            .is_err()
+        {
+            tracing::error!("welcome email timed out");
+        }
+    } else {
+        tokio::spawn(send_welcome(state.clone(), email, position));
     }
 }
 
@@ -220,8 +267,7 @@ pub async fn join(
     headers: HeaderMap,
     Json(req): Json<JoinRequest>,
 ) -> Result<Json<JoinResponse>> {
-    let origin = headers.get("origin").and_then(|v| v.to_str().ok());
-    if !state.config.origin_allowed(origin) {
+    if !crate::origin_ok(&state.config, &headers) {
         return Err(AppError::Forbidden("origin not allowed".into()));
     }
     let email = req.email.trim().to_ascii_lowercase();
@@ -231,7 +277,7 @@ pub async fn join(
         ));
     }
 
-    let Some(pool) = &state.db else {
+    let Some(pool) = ready_pool(&state).await else {
         // Without a database we cannot give a real position, so we do not invent one.
         let first_time = state
             .waitlist_mem
@@ -239,7 +285,7 @@ pub async fn join(
             .unwrap_or_else(|e| e.into_inner())
             .insert(email.clone());
         if first_time {
-            tokio::spawn(send_welcome(state.clone(), email, None));
+            dispatch_welcome(&state, email, None).await;
         }
         return Ok(Json(JoinResponse {
             ok: true,
@@ -275,7 +321,7 @@ pub async fn join(
 
     // Only the first signup triggers an email, so the endpoint cannot be used to spam an inbox.
     if !already {
-        tokio::spawn(send_welcome(state.clone(), email, Some(position)));
+        dispatch_welcome(&state, email, Some(position)).await;
     }
     Ok(Json(JoinResponse {
         ok: true,
@@ -291,7 +337,7 @@ pub struct CountResponse {
 }
 
 pub async fn count(State(state): State<Arc<AppState>>) -> Result<Json<CountResponse>> {
-    let Some(pool) = state.db.clone() else {
+    let Some(pool) = ready_pool(&state).await.cloned() else {
         return Ok(Json(CountResponse { count: None }));
     };
     let count = state
