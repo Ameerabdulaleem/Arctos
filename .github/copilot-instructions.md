@@ -5,7 +5,8 @@ Read `README.md` first. It explains the architecture, what is live and what is s
 ## Shape of the project
 
 - `src/app/` is the React app (Vite, TypeScript, Tailwind). Pages live in `components/`, API clients in `services/`, pure logic in `lib/`, shared state in `contexts/`.
-- `backend/` is the Rust data service (Axum, Tokio). It polls the public data providers, caches, rate limits and serves REST and WebSocket to the app. It also proxies the AI assistant and stores the waitlist.
+- `backend/` is the Rust data service (Axum, Tokio). It fetches from the public data providers, caches, rate limits and serves the app. It also proxies the AI assistant and stores the waitlist.
+- `api/main.rs` with the root `Cargo.toml` wraps that service as a Vercel function. There it runs in on demand mode: no pollers, no sockets, every handler refreshes what it needs first. Any new handler that reads shared state must call the matching `ensure_*` function.
 - The app never calls data providers directly. All market, chain, news, stock and AI data goes through the service in `src/app/services/api.ts`.
 
 ## Rules to keep
@@ -29,6 +30,8 @@ cd backend && cargo fmt --check && cargo clippy --all-targets -- -D warnings && 
 
 ## Style
 
-- Dark UI with Tailwind zinc and blue. Keep layouts responsive down to 360 px.
+- Dark "arctic night" UI. Use the shared classes in `src/styles/globals.css` (`panel`, `btn btn-primary`, `field`, `seg`, `icon-tile`, `num`) and the primitives in `components/ui/common.tsx` instead of one off colours. `zinc` and `blue` are remapped to the brand palette in `tailwind.config.js`.
+- Icons come from `@phosphor-icons/react` (duotone by default). Page names, icons and accent colours live in `components/navigation.ts`.
+- Keep layouts responsive down to 360 px.
 - Prefer small components, typed API clients, and pure functions that can be unit tested.
 - In copy shown to users, write plainly and avoid hyphens and dashes where a comma works.

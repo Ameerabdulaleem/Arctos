@@ -1,8 +1,8 @@
 import { useMemo } from 'react';
-import { ArrowDownRight, ArrowUpRight, Clock, ExternalLink, RefreshCw } from 'lucide-react';
+import { ArrowDownRight, ArrowsClockwise, ArrowSquareOut, ArrowUpRight, Clock, Lightning, Newspaper, Notebook, SquaresFour, Waves } from '@phosphor-icons/react';
 import { AltseasonWidget, DominanceWidget, FearGreedWidget, MarketCapWidget, PortfolioValueWidget } from './PortfolioWidgets';
 import { AssetTabs } from './AssetTabs';
-import { Card, Empty, ErrorNotice, Loading, Pill } from './ui/common';
+import { Card, Empty, ErrorNotice, IconTile, Loading, PageHeader, Pill } from './ui/common';
 import { useAuth } from '../contexts/auth-context';
 import { usePaper } from '../contexts/paper-context';
 import { usePolling } from '../hooks/usePolling';
@@ -65,19 +65,18 @@ export function DashboardView({ onNavigate, onConnectWallet }: Props) {
   const g = overview.data?.global;
 
   return (
-    <div className="p-4 md:p-6 space-y-6 max-w-[1500px] mx-auto">
-      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
-        <div>
-          <h1 className="text-2xl font-bold text-white tracking-tight">Dashboard</h1>
-          <p className="text-zinc-500 text-sm mt-1">Portfolio overview and market pulse, from live sources</p>
-        </div>
-        <div className="flex items-center gap-3">
-          {overview.updatedAt && <span className="text-xs text-zinc-500">Updated {timeAgo(overview.updatedAt)}</span>}
-          <button onClick={() => { overview.refresh(); coins.refresh(); wallet.refresh(); }} className="inline-flex items-center gap-2 px-3 py-1.5 rounded-lg border border-zinc-700 bg-zinc-900 hover:bg-zinc-800 text-zinc-200 text-sm">
-            <RefreshCw className={`w-4 h-4 ${overview.loading ? 'animate-spin' : ''}`} aria-hidden /> Refresh
-          </button>
-        </div>
-      </div>
+    <div className="mx-auto max-w-[1500px] space-y-5 p-4 md:p-6">
+      <PageHeader
+        icon={<SquaresFour />} tone="ice" title="Dashboard" subtitle="Portfolio overview and market pulse, from live sources"
+        actions={
+          <>
+            {overview.updatedAt && <span className="text-xs text-zinc-500">Updated {timeAgo(overview.updatedAt)}</span>}
+            <button onClick={() => { overview.refresh(); coins.refresh(); wallet.refresh(); }} className="btn btn-secondary btn-sm h-9">
+              <ArrowsClockwise className={`h-4 w-4 ${overview.loading ? 'animate-spin' : ''}`} aria-hidden /> Refresh
+            </button>
+          </>
+        }
+      />
 
       {overview.error && !overview.data && <ErrorNotice message={overview.error} onRetry={overview.refresh} />}
       {overview.error && overview.data && <ErrorNotice message={`Showing the last data we received. ${overview.error}`} onRetry={overview.refresh} />}
@@ -86,7 +85,7 @@ export function DashboardView({ onNavigate, onConnectWallet }: Props) {
         {address ? (
           <PortfolioValueWidget value={walletData?.totalUsd ?? null} change={walletChange} sourceLabel={`Wallet ${shortAddress(address)}`} hint={wallet.error && !walletData ? wallet.error : 'Live on chain balances'} />
         ) : (
-          <PortfolioValueWidget value={paper.equity} change={paper.totalPnlPct} sourceLabel="Paper account" hint={<button onClick={onConnectWallet} className="text-blue-400 hover:text-blue-300">Connect a wallet for real balances</button>} />
+          <PortfolioValueWidget value={paper.equity} change={paper.totalPnlPct} sourceLabel="Paper account" hint={<button onClick={onConnectWallet} className="text-blue-300 underline-offset-2 hover:text-blue-200 hover:underline">Connect a wallet for real balances</button>} />
         )}
         <AltseasonWidget data={loadingFirst ? undefined : overview.data?.altseason} />
         <DominanceWidget global={g} />
@@ -103,18 +102,18 @@ export function DashboardView({ onNavigate, onConnectWallet }: Props) {
 
       <div className="grid grid-cols-1 xl:grid-cols-3 gap-4">
         <Card className="p-5">
-          <div className="flex items-center justify-between mb-3">
-            <h2 className="text-white font-semibold">Top movers, 24h</h2>
-            <button onClick={() => onNavigate('trading')} className="text-xs text-blue-400 hover:text-blue-300">Trade</button>
+          <div className="mb-4 flex items-center justify-between gap-3">
+            <h2 className="flex items-center gap-2.5 font-semibold text-white"><IconTile tone="amber" size="sm"><Lightning /></IconTile>Top movers, 24h</h2>
+            <button onClick={() => onNavigate('trading')} className="btn btn-ghost btn-sm text-blue-300">Trade <ArrowUpRight className="h-3 w-3" weight="bold" aria-hidden /></button>
           </div>
           {coins.loading && !coins.data ? <Loading /> : (
             <div className="grid grid-cols-2 gap-3 text-sm">
               {[['Gainers', movers.gainers], ['Losers', movers.losers]].map(([title, list]) => (
                 <div key={String(title)}>
-                  <p className="text-xs uppercase tracking-wider text-zinc-500 mb-2">{String(title)}</p>
+                  <p className="eyebrow mb-2 text-[10px]">{String(title)}</p>
                   <ul className="space-y-1.5">
                     {(list as typeof movers.gainers).map((c) => (
-                      <li key={c.id} className="flex justify-between"><span className="text-zinc-200 font-medium">{c.symbol}</span><span className={`tabular-nums ${pnlClass(c.change24h)}`}>{formatPct(c.change24h)}</span></li>
+                      <li key={c.id} className="panel-inset flex items-center justify-between px-3 py-2"><span className="font-medium text-zinc-100">{c.symbol}</span><span className={`num ${pnlClass(c.change24h)}`}>{formatPct(c.change24h)}</span></li>
                     ))}
                   </ul>
                 </div>
@@ -124,18 +123,18 @@ export function DashboardView({ onNavigate, onConnectWallet }: Props) {
         </Card>
 
         <Card className="p-5">
-          <div className="flex items-center justify-between mb-3">
-            <h2 className="text-white font-semibold">Whale transfers, $1M and up</h2>
-            <button onClick={() => onNavigate('whale')} className="text-xs text-blue-400 hover:text-blue-300">View all</button>
+          <div className="mb-4 flex items-center justify-between gap-3">
+            <h2 className="flex items-center gap-2.5 font-semibold text-white"><IconTile tone="ice" size="sm"><Waves /></IconTile>Whale transfers over $1M</h2>
+            <button onClick={() => onNavigate('whale')} className="btn btn-ghost btn-sm text-blue-300">View all <ArrowUpRight className="h-3 w-3" weight="bold" aria-hidden /></button>
           </div>
           {whales.loading && !whales.data ? <Loading /> : whales.error && !whales.data ? <ErrorNotice message={whales.error} onRetry={whales.refresh} />
           : whales.data && whales.data.events.length === 0 ? <Empty title="Nothing that large yet">The tracker has not seen a transfer above $1M since it started.</Empty>
           : (
             <ul className="space-y-2">
               {whales.data?.events.map((e) => (
-                <li key={e.id} className="flex items-center justify-between gap-3 text-sm">
-                  <span className="min-w-0 truncate text-zinc-200">{formatCompactUsd(e.valueUsd)} {e.asset} <span className="text-zinc-500">on {e.chainName}</span></span>
-                  <span className="text-xs text-zinc-500 shrink-0">{timeAgo(e.timestamp)}</span>
+                <li key={e.id} className="panel-inset flex items-center justify-between gap-3 px-3 py-2 text-sm">
+                  <span className="min-w-0 truncate text-zinc-100"><span className="num font-medium">{formatCompactUsd(e.valueUsd)}</span> {e.asset} <span className="text-zinc-500">on {e.chainName}</span></span>
+                  <span className="shrink-0 text-xs text-zinc-500">{timeAgo(e.timestamp)}</span>
                 </li>
               ))}
             </ul>
@@ -143,9 +142,9 @@ export function DashboardView({ onNavigate, onConnectWallet }: Props) {
         </Card>
 
         <Card className="p-5">
-          <div className="flex items-center justify-between mb-3">
-            <h2 className="text-white font-semibold">Latest headlines</h2>
-            <button onClick={() => onNavigate('news')} className="text-xs text-blue-400 hover:text-blue-300">More news</button>
+          <div className="mb-4 flex items-center justify-between gap-3">
+            <h2 className="flex items-center gap-2.5 font-semibold text-white"><IconTile tone="rose" size="sm"><Newspaper /></IconTile>Latest headlines</h2>
+            <button onClick={() => onNavigate('news')} className="btn btn-ghost btn-sm text-blue-300">More news <ArrowUpRight className="h-3 w-3" weight="bold" aria-hidden /></button>
           </div>
           {news.loading && !news.data ? <Loading /> : news.error && !news.data ? <ErrorNotice message={news.error} onRetry={news.refresh} />
           : (
@@ -154,7 +153,7 @@ export function DashboardView({ onNavigate, onConnectWallet }: Props) {
                 <li key={a.id}>
                   <a href={safeHref(a.url)} target="_blank" rel="noopener noreferrer" className="group flex items-start gap-2 text-sm text-zinc-200 hover:text-white">
                     <span className="flex-1 line-clamp-2">{a.title}</span>
-                    <ExternalLink className="w-3.5 h-3.5 mt-0.5 text-zinc-600 group-hover:text-zinc-300 shrink-0" aria-hidden />
+                    <ArrowSquareOut className="w-3.5 h-3.5 mt-0.5 text-zinc-600 group-hover:text-zinc-300 shrink-0" aria-hidden />
                   </a>
                   <p className="text-xs text-zinc-500 mt-0.5">{a.source.name} &middot; {timeAgo(a.publishedAt)}</p>
                 </li>
@@ -166,8 +165,8 @@ export function DashboardView({ onNavigate, onConnectWallet }: Props) {
       </div>
 
       <Card className="p-5">
-        <div className="flex items-center justify-between mb-4">
-          <h2 className="text-white font-semibold">Your recent activity</h2>
+        <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
+          <h2 className="flex items-center gap-2.5 font-semibold text-white"><IconTile tone="violet" size="sm"><Notebook /></IconTile>Your recent activity</h2>
           <Pill tone="zinc">Paper trades and trade book entries</Pill>
         </div>
         {activity.length === 0 ? (
@@ -175,18 +174,18 @@ export function DashboardView({ onNavigate, onConnectWallet }: Props) {
         ) : (
           <ul className="space-y-2">
             {activity.map((a) => (
-              <li key={a.id} className="flex items-center justify-between gap-3 p-3 bg-zinc-800/40 rounded-lg">
+              <li key={a.id} className="panel-inset flex items-center justify-between gap-3 p-3">
                 <div className="flex items-center gap-3 min-w-0">
-                  <div className={`w-9 h-9 rounded-lg flex items-center justify-center shrink-0 ${a.side === 'buy' ? 'bg-emerald-600/20 text-emerald-400' : 'bg-red-600/20 text-red-400'}`}>
-                    {a.side === 'buy' ? <ArrowDownRight className="w-4 h-4" aria-hidden /> : <ArrowUpRight className="w-4 h-4" aria-hidden />}
-                  </div>
+                  <IconTile tone={a.side === 'buy' ? 'mint' : 'rose'} size="sm" className="h-9 w-9">
+                    {a.side === 'buy' ? <ArrowDownRight weight="bold" /> : <ArrowUpRight weight="bold" />}
+                  </IconTile>
                   <div className="min-w-0">
-                    <p className="text-white text-sm font-medium truncate">{a.title} <span className="text-[10px] ml-1 text-zinc-400 bg-zinc-800 px-1.5 py-0.5 rounded">{a.tag}</span></p>
+                    <p className="text-white text-sm font-medium truncate">{a.title} <span className="ml-1 rounded-md border border-white/10 bg-white/[0.04] px-1.5 py-0.5 text-[10px] text-zinc-400">{a.tag}</span></p>
                     <p className="text-zinc-500 text-xs truncate">{a.detail}</p>
                   </div>
                 </div>
                 <div className="text-right shrink-0">
-                  <p className="text-white text-sm font-medium tabular-nums">{formatUsd(a.value)}</p>
+                  <p className="num text-sm font-medium text-white">{formatUsd(a.value)}</p>
                   <p className="text-zinc-500 text-xs inline-flex items-center gap-1"><Clock className="w-3 h-3" aria-hidden />{timeAgo(a.time)}</p>
                 </div>
               </li>

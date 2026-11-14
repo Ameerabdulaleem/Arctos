@@ -270,6 +270,8 @@ pub async fn get_portfolio(
     } else {
         address.clone()
     };
+    // Balances are valued with live prices.
+    crate::binance::ensure_tickers(&state).await;
     let st = state.clone();
     let addr = key.clone();
     let response = state

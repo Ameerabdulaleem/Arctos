@@ -7,18 +7,29 @@ Everything you see on screen comes from a live source. When a source is down, Ar
 ## How it is built
 
 ```text
-Browser (React + Vite, hosted on Vercel)
-   |  REST and WebSocket
+Browser (React + Vite)
+   |  same site: /api
    v
 Arctos data service (Rust, Axum + Tokio)   <-- this is where the speed comes from
-   |  keeps everything hot in memory, caches, rate limits, health checks
+   |  caches, rate limits, health checks
    v
 CoinGecko, Binance, Alternative.me, DexScreener, GeckoTerminal, GoPlus, Blockchair,
 public chain RPC (Ethereum, BNB Chain, Base, Arbitrum, Solana), crypto RSS feeds,
 Yahoo Finance, Anthropic (AI)
 ```
 
-The Rust service does all the heavy work: it polls providers on a schedule, shares one upstream call between many visitors, relays the live price stream over a WebSocket, scans chains for large transfers, and serves the AI assistant so the API key never reaches the browser.
+The Rust service does all the heavy work: it fetches from the providers, shares one upstream call between many visitors, scans chains for large transfers, and serves the AI assistant so the API key never reaches the browser.
+
+The same Rust code runs in two ways:
+
+| | On Vercel (default) | As a standalone server |
+| --- | --- | --- |
+| Entry point | `api/main.rs`, a Vercel function | `backend/src/main.rs`, a long lived process |
+| How data stays fresh | Each request refreshes what it needs behind short lived caches, and the CDN caches responses for a few seconds | Background pollers keep everything hot in memory |
+| Live updates | The app polls every few seconds | WebSocket streams |
+| Setup | None. `vercel.json` sends `/api/*` to the function | Deploy `backend/Dockerfile`, then set `VITE_RUST_BACKEND_URL` |
+
+The web app asks `/api/status` which mode it is talking to and adapts, so nothing else changes between the two.
 
 ## What is live
 
@@ -81,14 +92,14 @@ Web app (`.env.example`):
 
 | Variable | Purpose |
 | --- | --- |
-| `VITE_RUST_BACKEND_URL` | Public URL of the deployed data service. Required for production builds. |
+| `VITE_RUST_BACKEND_URL` | Optional. Leave it empty to use the data API on the same site (the Vercel function). Set it only when the service is hosted somewhere else. |
 | `VITE_SOCIAL_X`, `VITE_SOCIAL_TELEGRAM`, `VITE_SOCIAL_GITHUB` | Optional footer links. |
 
 Data service (`backend/.env.example`):
 
 | Variable | Purpose |
 | --- | --- |
-| `FRONTEND_ORIGINS` | Comma separated site origins allowed to call the service. Set this in production. |
+| `FRONTEND_ORIGINS` | Comma separated site origins allowed to call the service. Needed for a standalone server. On Vercel the site and the API share one host, which is accepted automatically. |
 | `TRUST_PROXY` | `true` behind your own proxy so rate limits see the real client IP. |
 | `ANTHROPIC_API_KEY`, `ANTHROPIC_MODEL`, `ANTHROPIC_EFFORT` | AI assistant. The default model is `claude-opus-5-5`. |
 | `DATABASE_URL` | PostgreSQL for real waitlist positions (optional). |
@@ -100,18 +111,29 @@ Every provider base URL can also be overridden, which is how the fixtures work.
 
 ## Deploy
 
-1. **Data service.** Build and run `backend/Dockerfile` on any container host (Fly.io, Render, Railway, a VPS). Set `FRONTEND_ORIGINS`, `TRUST_PROXY=true`, and your keys. Check `GET /api/status` after it starts; it lists every provider and whether it is reachable from that host.
-2. **Web app.** Deploy to Vercel with `VITE_RUST_BACKEND_URL` set to the service URL. `vercel.json` already adds a strict Content Security Policy and the other security headers.
-3. **CI.** `.github/workflows/ci.yml` runs lint, tests, the build and `cargo clippy` on every push. `deploy-vercel.yml` deploys `main` with the official Vercel CLI and needs `VERCEL_TOKEN`, `VERCEL_ORG_ID` and `VERCEL_PROJECT_ID` secrets.
+**Vercel (recommended).** Connect the repository to Vercel and deploy. That is all the site needs:
 
-Some hosting regions are blocked by Binance. The service tries `data-api.binance.vision` first and `api.binance.com` second. If both are refused from your region, `/api/status` shows it and you can host the service somewhere else.
+* Vercel builds the web app and the Rust function together. `vercel.json` sets the framework, the `/api/*` rewrite, the function region and the security headers.
+* Live market data, whales, news, stocks and the sniper work with no environment variables.
+* Add these in Vercel, Project Settings, Environment Variables, when you want the feature:
+  * `ANTHROPIC_API_KEY` switches on the AI assistant.
+  * `DATABASE_URL` gives the waitlist real positions, and `MAIL_USERNAME`, `MAIL_PASSWORD` and `MAIL_FROM` send the welcome email.
+  * `COINGECKO_API_KEY` and `BLOCKCHAIR_API_KEY` raise provider limits.
+* After a deploy, open `/api/status` on your site. It lists every provider and whether it is reachable.
+
+The function runs in Frankfurt (`fra1` in `vercel.json`). Binance refuses requests from some regions, the United States among them, so keep the function in a region Binance serves. If the exchange is ever unreachable, prices fall back to the CoinGecko market list and the status page says so.
+
+**Standalone server (optional).** For WebSocket streams and background polling, run `backend/Dockerfile` on any container host (Fly.io, Render, Railway, a VPS). Set `FRONTEND_ORIGINS`, `TRUST_PROXY=true` and your keys, then build the web app with `VITE_RUST_BACKEND_URL` pointing at it.
+
+**CI.** `.github/workflows/ci.yml` runs lint, tests and the build for the web app, `cargo clippy` and `cargo test` for the service, and builds the function crate.
 
 ## Security notes
 
 * The AI key lives only on the server. Requests are limited per client, origin checked, size capped, and the system prompt is built on the server, so the browser cannot change the assistant's rules.
 * External text (headlines, token names) is sanitised on the server and rendered as plain text. Links are only opened if they are http or https.
 * The waitlist sends one server templated email per new address. Clients cannot choose the subject or body, so the endpoint cannot be used as a mail relay.
-* The service enforces per client rate limits, a body size limit, timeouts, strict response headers, and an origin allow list for costly endpoints.
+* The service enforces per client rate limits, a body size limit, timeouts, strict response headers, and an origin check for costly endpoints. Only the site itself, or origins on the allow list, may call them, and other sites get no cross origin permission.
+* TLS is pure Rust (rustls), so there is no system OpenSSL to keep patched.
 * A failed contract risk check is shown as "no risk data", never as "safe".
 * Never commit `.env` files. Rotate any key that was ever exposed, including SMTP credentials from earlier versions of this project.
 
@@ -120,7 +142,8 @@ Some hosting regions are blocked by Binance. The service tries `data-api.binance
 ```bash
 npm test                          # unit tests for the paper trading engine, formatting, trade book, password hashing
 npm run lint && npm run build
-cd backend && cargo test          # 46 unit tests and 5 end to end tests against a fake upstream
+cd backend && cargo test          # 56 unit tests and 7 end to end tests against a fake upstream, in both modes
+cargo build                       # the Vercel function crate (repository root)
 cd backend && cargo clippy --all-targets -- -D warnings
 ```
 
@@ -130,10 +153,13 @@ Tests use fixtures shaped like the provider responses. They prove the code handl
 
 ```text
 src/app/            React app: components, services (API clients), contexts, hooks, lib (pure logic)
+src/styles/         Design system: tokens and shared classes (panel, btn, field, seg, icon-tile)
+api/main.rs         Vercel function: a thin adapter around the backend crate
+Cargo.toml          The function crate (depends on backend/)
 backend/src/        Rust service: market, binance, whales, sniper, news, stocks, portfolio, ai, waitlist
-backend/tests/      End to end test with a fake upstream
+backend/tests/      End to end tests with a fake upstream
 scripts/            Dev fixtures and the browser walkthrough
-.github/workflows/  CI and deploy
+.github/workflows/  CI
 ```
 
 ## Disclaimer

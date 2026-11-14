@@ -1,12 +1,13 @@
 // Client for the Arctos Rust data service.
 //
-// Development: requests go to the same origin and Vite proxies /api and /ws to the service.
-// Production: set VITE_RUST_BACKEND_URL to the public URL of the service.
+// By default requests go to the same site that serves the web app:
+//   * on Vercel the service runs as a function behind /api (see api/main.rs),
+//   * in development Vite proxies /api and /ws to a local service.
+// Set VITE_RUST_BACKEND_URL only when the service is hosted somewhere else.
 
 const RAW_BASE = (import.meta.env.VITE_RUST_BACKEND_URL ?? '').trim().replace(/\/+$/, '');
 
 export const API_BASE = RAW_BASE;
-export const BACKEND_CONFIGURED = import.meta.env.DEV || RAW_BASE.length > 0;
 
 export class ApiError extends Error {
   readonly status: number;
@@ -75,9 +76,32 @@ export function wsUrl(path: string): string {
   return `${proto}://${window.location.host}${path}`;
 }
 
-export type SocketStatus = 'connecting' | 'live' | 'reconnecting' | 'closed';
+export type SocketStatus = 'connecting' | 'live' | 'reconnecting' | 'closed' | 'unavailable';
 
-/** Opens a WebSocket that reconnects with backoff. Returns a function that closes it for good. */
+let realtimeCheck: Promise<boolean> | null = null;
+
+/**
+ * Whether the data service offers live WebSocket streams. A serverless deployment does not,
+ * and the app polls instead. The answer is fetched once and shared.
+ */
+export function realtimeAvailable(): Promise<boolean> {
+  if (!realtimeCheck) {
+    realtimeCheck = apiGet<{ realtime?: boolean }>('/api/status', { timeoutMs: 10_000 })
+      .then((status) => status.realtime === true)
+      .catch(() => {
+        // Ask again next time instead of remembering a failure.
+        realtimeCheck = null;
+        return false;
+      });
+  }
+  return realtimeCheck;
+}
+
+/**
+ * Opens a WebSocket that reconnects with backoff. Returns a function that closes it for good.
+ * When the service has no live streams the status becomes 'unavailable' and nothing is opened,
+ * so callers keep polling.
+ */
 export function openSocket(
   path: string,
   onMessage: (data: unknown) => void,
@@ -121,7 +145,12 @@ export function openSocket(
     timer = setTimeout(connect, delay);
   };
 
-  connect();
+  onStatus?.('connecting');
+  void realtimeAvailable().then((available) => {
+    if (closed) return;
+    if (available) connect();
+    else onStatus?.('unavailable');
+  });
   return () => {
     closed = true;
     if (timer) clearTimeout(timer);

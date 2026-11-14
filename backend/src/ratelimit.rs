@@ -80,7 +80,8 @@ impl RateLimiter {
 pub fn client_ip(headers: &HeaderMap, peer: SocketAddr, trust_proxy: bool) -> IpAddr {
     if trust_proxy {
         let forwarded = headers
-            .get("fly-client-ip")
+            .get("x-real-ip")
+            .or_else(|| headers.get("fly-client-ip"))
             .or_else(|| headers.get("x-forwarded-for"))
             .and_then(|v| v.to_str().ok())
             .and_then(|v| v.split(',').next())
@@ -106,10 +107,14 @@ fn bucket_for(method: &Method, path: &str) -> Bucket {
 
 pub async fn middleware(
     State(state): State<Arc<AppState>>,
-    ConnectInfo(peer): ConnectInfo<SocketAddr>,
+    peer: Option<ConnectInfo<SocketAddr>>,
     req: Request,
     next: Next,
 ) -> Response {
+    // A serverless entry point has no socket of its own, only the forwarded address.
+    let peer = peer
+        .map(|ConnectInfo(addr)| addr)
+        .unwrap_or_else(|| SocketAddr::from(([0, 0, 0, 0], 0)));
     let ip = client_ip(req.headers(), peer, state.config.trust_proxy);
     let bucket = bucket_for(req.method(), req.uri().path());
     if !state.limiter.check(ip, bucket) {

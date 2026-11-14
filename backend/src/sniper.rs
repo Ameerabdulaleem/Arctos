@@ -135,6 +135,8 @@ pub struct SniperStore {
     security: KeyedCache<Security>,
     search: KeyedCache<Vec<SniperToken>>,
     refresh: KeyedCache<Vec<SniperToken>>,
+    /// New pools per chain, used in on demand mode where no poller keeps `latest` fresh.
+    new_pools: KeyedCache<Vec<SniperToken>>,
 }
 
 impl SniperStore {
@@ -148,6 +150,7 @@ impl SniperStore {
             security: KeyedCache::new(Duration::from_secs(300), Duration::from_secs(3600)),
             search: KeyedCache::new(Duration::from_secs(20), Duration::from_secs(120)),
             refresh: KeyedCache::new(Duration::from_secs(8), Duration::from_secs(60)),
+            new_pools: KeyedCache::new(Duration::from_secs(20), Duration::from_secs(300)),
         }
     }
 }
@@ -690,6 +693,36 @@ pub async fn get_new(
 ) -> Result<Json<TokensResponse>> {
     let chain =
         chain_info(&q.chain).ok_or_else(|| AppError::BadRequest("unsupported chain".into()))?;
+    if state.config.on_demand {
+        // No poller here: fetch on request, shared and cached for a few seconds.
+        let st = state.clone();
+        let info = chain;
+        let tokens = state
+            .sniper
+            .new_pools
+            .get_or_fetch(chain.key, || async move {
+                let tokens = fetch_new_pools(&st, &info).await?;
+                st.sniper
+                    .updated_at
+                    .write()
+                    .unwrap_or_else(|e| e.into_inner())
+                    .insert(info.key.to_string(), Utc::now());
+                Ok::<_, UpstreamError>(tokens)
+            })
+            .await?;
+        let updated_at = state
+            .sniper
+            .updated_at
+            .read()
+            .unwrap_or_else(|e| e.into_inner())
+            .get(chain.key)
+            .copied();
+        return Ok(Json(TokensResponse {
+            chain: chain.key.to_string(),
+            tokens,
+            updated_at,
+        }));
+    }
     let have = state
         .sniper
         .latest

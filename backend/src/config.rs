@@ -57,6 +57,10 @@ pub struct Config {
     pub stock_watchlist: Vec<String>,
     /// Set to false in tests to avoid starting pollers.
     pub enable_pollers: bool,
+    /// On demand mode: no background pollers and no live streams. Every request
+    /// refreshes what it needs (with short lived caches) before answering. This is
+    /// how the service runs as a serverless function, for example on Vercel.
+    pub on_demand: bool,
 }
 
 fn var(key: &str) -> Option<String> {
@@ -119,12 +123,16 @@ impl Config {
                 .collect(),
         };
 
+        // Vercel sets VERCEL=1 for builds and functions.
+        let on_demand = truthy("ARCTOS_ON_DEMAND") || truthy("VERCEL");
+
         Self {
             host: var_or("HOST", "0.0.0.0"),
             port: var("PORT").and_then(|v| v.parse().ok()).unwrap_or(4000),
             database_url: var("DATABASE_URL"),
             frontend_origins: list("FRONTEND_ORIGINS", &[]),
-            trust_proxy: truthy("TRUST_PROXY"),
+            // Vercel overwrites the forwarding headers itself, so they can be trusted there.
+            trust_proxy: truthy("TRUST_PROXY") || truthy("VERCEL"),
 
             mail_host: var_or("MAIL_HOST", "smtp-relay.brevo.com"),
             mail_port: var("MAIL_PORT").and_then(|v| v.parse().ok()).unwrap_or(587),
@@ -192,20 +200,54 @@ impl Config {
             .into_iter()
             .map(|s| s.to_ascii_uppercase())
             .collect(),
-            enable_pollers: !truthy("DISABLE_POLLERS"),
+            enable_pollers: !on_demand && !truthy("DISABLE_POLLERS"),
+            on_demand,
         }
     }
 
-    /// Origin check used by the AI and waitlist endpoints.
-    /// With no configured origins (local development) every origin is accepted.
-    pub fn origin_allowed(&self, origin: Option<&str>) -> bool {
-        if self.frontend_origins.is_empty() {
+    /// Switches to on demand mode (used by the serverless entry point).
+    pub fn into_on_demand(mut self) -> Self {
+        self.on_demand = true;
+        self.enable_pollers = false;
+        self.trust_proxy = true;
+        self
+    }
+
+    /// True when browsers on any origin may call the API (local development only).
+    pub fn open_to_any_origin(&self) -> bool {
+        self.frontend_origins.is_empty() && !self.on_demand
+    }
+
+    /// Origin check used by the AI, waitlist and live stream endpoints.
+    ///
+    /// An origin is accepted when it is on the configured allow list, or when it
+    /// is the very site the request was sent to (the web app and the API share
+    /// one host). With no allow list outside on demand mode (local development)
+    /// every origin is accepted.
+    pub fn origin_allowed(&self, origin: Option<&str>, host: Option<&str>) -> bool {
+        if self.open_to_any_origin() {
             return true;
         }
         match origin {
-            Some(o) => self.frontend_origins.iter().any(|allowed| allowed == o),
+            Some(o) => {
+                self.frontend_origins.iter().any(|allowed| allowed == o) || same_host(o, host)
+            }
             None => false,
         }
+    }
+}
+
+/// True when `origin` (scheme://host[:port]) points at `host` (a Host header value).
+fn same_host(origin: &str, host: Option<&str>) -> bool {
+    let Some(host) = host.map(str::trim).filter(|h| !h.is_empty()) else {
+        return false;
+    };
+    let authority = origin
+        .strip_prefix("https://")
+        .or_else(|| origin.strip_prefix("http://"));
+    match authority {
+        Some(a) => !a.is_empty() && !a.contains('/') && a.eq_ignore_ascii_case(host),
+        None => false,
     }
 }
 
@@ -214,6 +256,7 @@ impl Config {
     pub fn for_tests() -> Self {
         let mut c = Self::from_env();
         c.enable_pollers = false;
+        c.on_demand = false;
         c.frontend_origins = Vec::new();
         c.database_url = None;
         c
@@ -227,13 +270,34 @@ mod tests {
     #[test]
     fn origin_rules() {
         let mut c = Config::for_tests();
-        assert!(c.origin_allowed(None), "dev mode accepts anything");
+        assert!(c.origin_allowed(None, None), "dev mode accepts anything");
         c.frontend_origins = vec!["https://app.example".into()];
-        assert!(c.origin_allowed(Some("https://app.example")));
-        assert!(!c.origin_allowed(Some("https://evil.example")));
+        assert!(c.origin_allowed(Some("https://app.example"), None));
+        assert!(!c.origin_allowed(Some("https://evil.example"), None));
         assert!(
-            !c.origin_allowed(None),
+            !c.origin_allowed(None, None),
             "a configured allow list rejects missing Origin"
         );
+    }
+
+    #[test]
+    fn same_site_requests_are_allowed_without_an_allow_list() {
+        let c = Config::for_tests().into_on_demand();
+        assert!(!c.open_to_any_origin());
+        assert!(c.origin_allowed(Some("https://arctos.example"), Some("arctos.example")));
+        assert!(c.origin_allowed(Some("https://Arctos.Example"), Some("arctos.example")));
+        assert!(c.origin_allowed(Some("http://localhost:3000"), Some("localhost:3000")));
+        assert!(!c.origin_allowed(Some("https://evil.example"), Some("arctos.example")));
+        assert!(!c.origin_allowed(
+            Some("https://arctos.example.evil.io"),
+            Some("arctos.example")
+        ));
+        assert!(!c.origin_allowed(Some("https://arctos.example/x"), Some("arctos.example")));
+        assert!(!c.origin_allowed(Some("null"), Some("arctos.example")));
+        assert!(
+            !c.origin_allowed(None, Some("arctos.example")),
+            "a missing Origin is rejected"
+        );
+        assert!(!c.origin_allowed(Some("https://arctos.example"), None));
     }
 }

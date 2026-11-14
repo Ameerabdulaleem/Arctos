@@ -24,7 +24,7 @@ use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 use tokio::sync::broadcast;
 
-use crate::{error::Result, AppState};
+use crate::{error::Result, upstream::Gate, AppState};
 
 const TRANSFER_TOPIC: &str = "0xddf252ad1be2c89b69c2b068fc378daa952ba7f163c4a11628f55a4df523b3ef";
 const MAX_EVENTS: usize = 1000;
@@ -70,17 +70,80 @@ pub struct WhaleStore {
     seen: Mutex<HashSet<String>>,
     pub status: RwLock<HashMap<String, ChainStatus>>,
     pub tx: broadcast::Sender<String>,
+    /// Last scanned block per chain, so each scan only covers new blocks.
+    last_blocks: Mutex<HashMap<&'static str, u64>>,
+    evm_gate: Gate,
+    bitcoin_gate: Gate,
 }
 
 impl WhaleStore {
     pub fn new() -> Self {
         let (tx, _) = broadcast::channel(256);
+        let mut status = HashMap::new();
+        status.insert(
+            "solana".to_string(),
+            ChainStatus {
+                chain: "solana".into(),
+                name: "Solana".into(),
+                supported: false,
+                ok: false,
+                last_block: None,
+                last_poll: None,
+                note: "Not available yet. A reliable Solana feed needs a dedicated RPC provider."
+                    .into(),
+            },
+        );
         Self {
             events: RwLock::new(VecDeque::new()),
             seen: Mutex::new(HashSet::new()),
-            status: RwLock::new(HashMap::new()),
+            status: RwLock::new(status),
             tx,
+            last_blocks: Mutex::new(HashMap::new()),
+            evm_gate: Gate::new(Duration::from_secs(15), Duration::from_secs(10)),
+            // The free Blockchair tier allows roughly one request a minute.
+            bitcoin_gate: Gate::new(Duration::from_secs(90), Duration::from_secs(60)),
         }
+    }
+
+    fn last_block(&self, chain: &'static str) -> Option<u64> {
+        self.last_blocks
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .get(chain)
+            .copied()
+    }
+
+    fn set_last_block(&self, chain: &'static str, block: u64) {
+        self.last_blocks
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .insert(chain, block);
+    }
+
+    /// Records a failed scan while keeping what is known about the chain.
+    fn mark_failed(&self, chain: &str, name: &str, error: &str) {
+        let mut status = self
+            .status
+            .read()
+            .unwrap_or_else(|e| e.into_inner())
+            .get(chain)
+            .cloned()
+            .unwrap_or(ChainStatus {
+                chain: chain.into(),
+                name: name.into(),
+                supported: true,
+                ok: false,
+                last_block: None,
+                last_poll: None,
+                note: String::new(),
+            });
+        status.ok = false;
+        status.last_poll = Some(Utc::now());
+        status.note = format!(
+            "Last poll failed: {}",
+            error.chars().take(120).collect::<String>()
+        );
+        self.set_status(status);
     }
 
     /// Adds events that have not been seen before and broadcasts them. Returns how many were new.
@@ -527,11 +590,71 @@ async fn rpc(
         .ok_or_else(|| "empty rpc result".to_string())
 }
 
+/// Block timestamps in milliseconds. A handful of blocks are fetched exactly.
+/// For a longer span (the first scan after a start) the first and last block
+/// are fetched and the rest are interpolated, which keeps a cold start to two
+/// calls instead of one per block.
+async fn block_timestamps(
+    state: &AppState,
+    spec: &ChainSpec,
+    url: &str,
+    blocks: &[u64],
+) -> HashMap<u64, i64> {
+    const EXACT_LIMIT: usize = 6;
+    let fetch = |n: u64| async move {
+        let block = rpc(
+            state,
+            spec.key,
+            url,
+            "eth_getBlockByNumber",
+            json!([format!("0x{n:x}"), false]),
+        )
+        .await
+        .ok()?;
+        let ts = block
+            .get("timestamp")
+            .and_then(|t| t.as_str())
+            .and_then(hex_to_u64)?;
+        Some((n, ts as i64 * 1000))
+    };
+    let mut out: HashMap<u64, i64> = HashMap::new();
+    if blocks.len() <= EXACT_LIMIT {
+        for (n, ts) in futures_util::future::join_all(blocks.iter().map(|n| fetch(*n)))
+            .await
+            .into_iter()
+            .flatten()
+        {
+            out.insert(n, ts);
+        }
+        return out;
+    }
+    let (Some(&first), Some(&last)) = (blocks.iter().min(), blocks.iter().max()) else {
+        return out;
+    };
+    let (a, b) = tokio::join!(fetch(first), fetch(last));
+    if let (Some((_, t0)), Some((_, t1))) = (a, b) {
+        for &n in blocks {
+            out.insert(n, interpolate_timestamp(first, t0, last, t1, n));
+        }
+    }
+    out
+}
+
+/// Linear estimate of a block time between two known blocks.
+pub fn interpolate_timestamp(first: u64, t0: i64, last: u64, t1: i64, block: u64) -> i64 {
+    if last <= first {
+        return t0;
+    }
+    let span = (last - first) as f64;
+    let offset = block.clamp(first, last) - first;
+    t0 + (((t1 - t0) as f64) * (offset as f64 / span)).round() as i64
+}
+
 async fn poll_evm_once(
     state: &Arc<AppState>,
     spec: &'static ChainSpec,
-    last_block: &mut Option<u64>,
 ) -> std::result::Result<usize, String> {
+    let last_block = state.whales.last_block(spec.key);
     let url = rpc_url(state, spec.key);
     let latest = hex_to_u64(
         rpc(state, spec.key, &url, "eth_blockNumber", json!([]))
@@ -540,7 +663,7 @@ async fn poll_evm_once(
             .unwrap_or("0x0"),
     )
     .ok_or("bad block number")?;
-    let start = match *last_block {
+    let start = match last_block {
         Some(l) if l >= latest => return Ok(0),
         Some(l) => l + 1,
         None => latest.saturating_sub(spec.lookback),
@@ -576,29 +699,10 @@ async fn poll_evm_once(
     }
 
     // Block timestamps for the events we kept.
-    let mut block_ts: HashMap<u64, i64> = HashMap::new();
-    for ev in events.iter().filter_map(|e| e.block) {
-        if block_ts.contains_key(&ev) {
-            continue;
-        }
-        if let Ok(b) = rpc(
-            state,
-            spec.key,
-            &url,
-            "eth_getBlockByNumber",
-            json!([format!("0x{ev:x}"), false]),
-        )
-        .await
-        {
-            if let Some(ts) = b
-                .get("timestamp")
-                .and_then(|t| t.as_str())
-                .and_then(hex_to_u64)
-            {
-                block_ts.insert(ev, ts as i64 * 1000);
-            }
-        }
-    }
+    let mut wanted: Vec<u64> = events.iter().filter_map(|e| e.block).collect();
+    wanted.sort_unstable();
+    wanted.dedup();
+    let block_ts = block_timestamps(state, spec, &url, &wanted).await;
     let now = Utc::now().timestamp_millis();
     for ev in events.iter_mut() {
         ev.timestamp = ev
@@ -611,18 +715,22 @@ async fn poll_evm_once(
     if spec.native_blocks > 0 {
         if let Some(native_price) = price_of(state, PriceRef::Ticker(spec.native_ticker)) {
             let native_from = start.max(latest.saturating_sub(spec.native_blocks - 1));
-            for n in native_from..=latest {
-                let Ok(block) = rpc(
-                    state,
-                    spec.key,
-                    &url,
-                    "eth_getBlockByNumber",
-                    json!([format!("0x{n:x}"), true]),
-                )
-                .await
-                else {
-                    continue;
-                };
+            let url_ref = url.as_str();
+            let blocks =
+                futures_util::future::join_all((native_from..=latest).map(|n| async move {
+                    let block = rpc(
+                        state,
+                        spec.key,
+                        url_ref,
+                        "eth_getBlockByNumber",
+                        json!([format!("0x{n:x}"), true]),
+                    )
+                    .await
+                    .ok()?;
+                    Some((n, block))
+                }))
+                .await;
+            for (n, block) in blocks.into_iter().flatten() {
                 let ts = block
                     .get("timestamp")
                     .and_then(|t| t.as_str())
@@ -643,7 +751,7 @@ async fn poll_evm_once(
         }
     }
 
-    *last_block = Some(latest);
+    state.whales.set_last_block(spec.key, latest);
     state.whales.set_status(ChainStatus {
         chain: spec.key.into(),
         name: spec.name.into(),
@@ -754,50 +862,56 @@ async fn poll_bitcoin_once(state: &Arc<AppState>) -> std::result::Result<usize, 
     Ok(state.whales.push(events))
 }
 
-pub fn spawn_pollers(state: Arc<AppState>) {
-    state.whales.set_status(ChainStatus {
-        chain: "solana".into(),
-        name: "Solana".into(),
-        supported: false,
-        ok: false,
-        last_block: None,
-        last_poll: None,
-        note: "Not available yet. A reliable Solana feed needs a dedicated RPC provider.".into(),
-    });
+/// Scans one EVM chain and records the outcome. Returns true on success.
+async fn poll_chain(state: &Arc<AppState>, spec: &'static ChainSpec) -> bool {
+    match poll_evm_once(state, spec).await {
+        Ok(_) => true,
+        Err(e) => {
+            tracing::warn!("{} whale poll failed: {e}", spec.key);
+            state.whales.mark_failed(spec.key, spec.name, &e);
+            false
+        }
+    }
+}
 
+/// Fetches recent large Bitcoin transactions and records the outcome.
+async fn poll_bitcoin(state: &Arc<AppState>) -> bool {
+    match poll_bitcoin_once(state).await {
+        Ok(_) => true,
+        Err(e) => {
+            tracing::warn!("bitcoin whale poll failed: {e}");
+            state.whales.mark_failed("bitcoin", "Bitcoin", &e);
+            false
+        }
+    }
+}
+
+/// On demand mode: scans the chains that are due. A no op when pollers run.
+pub async fn ensure_fresh(state: &Arc<AppState>) {
+    if !state.config.on_demand {
+        return;
+    }
+    // Transfers are valued with live prices, so those come first.
+    crate::binance::ensure_tickers(state).await;
+    tokio::join!(
+        state.whales.evm_gate.ensure(|| async {
+            let results =
+                futures_util::future::join_all(CHAINS.iter().map(|spec| poll_chain(state, spec)))
+                    .await;
+            results.into_iter().any(|ok| ok)
+        }),
+        state.whales.bitcoin_gate.ensure(|| poll_bitcoin(state)),
+    );
+}
+
+pub fn spawn_pollers(state: Arc<AppState>) {
     for spec in CHAINS {
         let st = state.clone();
         tokio::spawn(async move {
-            let mut last: Option<u64> = None;
             // Wait briefly so the first prices are available for valuation.
             tokio::time::sleep(Duration::from_secs(4)).await;
             loop {
-                if let Err(e) = poll_evm_once(&st, spec, &mut last).await {
-                    tracing::warn!("{} whale poll failed: {e}", spec.key);
-                    let mut status = st
-                        .whales
-                        .status
-                        .read()
-                        .unwrap_or_else(|e| e.into_inner())
-                        .get(spec.key)
-                        .cloned()
-                        .unwrap_or(ChainStatus {
-                            chain: spec.key.into(),
-                            name: spec.name.into(),
-                            supported: true,
-                            ok: false,
-                            last_block: None,
-                            last_poll: None,
-                            note: String::new(),
-                        });
-                    status.ok = false;
-                    status.last_poll = Some(Utc::now());
-                    status.note = format!(
-                        "Last poll failed: {}",
-                        e.chars().take(120).collect::<String>()
-                    );
-                    st.whales.set_status(status);
-                }
+                poll_chain(&st, spec).await;
                 tokio::time::sleep(Duration::from_secs(spec.poll_secs)).await;
             }
         });
@@ -807,32 +921,7 @@ pub fn spawn_pollers(state: Arc<AppState>) {
     tokio::spawn(async move {
         tokio::time::sleep(Duration::from_secs(6)).await;
         loop {
-            if let Err(e) = poll_bitcoin_once(&st).await {
-                tracing::warn!("bitcoin whale poll failed: {e}");
-                let mut s = st
-                    .whales
-                    .status
-                    .read()
-                    .unwrap_or_else(|e| e.into_inner())
-                    .get("bitcoin")
-                    .cloned()
-                    .unwrap_or(ChainStatus {
-                        chain: "bitcoin".into(),
-                        name: "Bitcoin".into(),
-                        supported: true,
-                        ok: false,
-                        last_block: None,
-                        last_poll: None,
-                        note: String::new(),
-                    });
-                s.ok = false;
-                s.last_poll = Some(Utc::now());
-                s.note = format!(
-                    "Last poll failed: {}",
-                    e.chars().take(120).collect::<String>()
-                );
-                st.whales.set_status(s);
-            }
+            poll_bitcoin(&st).await;
             // The free Blockchair tier allows roughly one request a minute.
             tokio::time::sleep(Duration::from_secs(90)).await;
         }
@@ -878,6 +967,7 @@ pub async fn get_whales(
         .max(state.config.whale_min_usd);
     let limit = q.limit.unwrap_or(150).clamp(1, 500);
     let address = q.address.map(|a| a.to_ascii_lowercase());
+    ensure_fresh(&state).await;
     let events: Vec<WhaleEvent> = state
         .whales
         .events
@@ -932,6 +1022,22 @@ pub async fn get_whales(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn block_times_are_interpolated_between_two_known_blocks() {
+        assert_eq!(interpolate_timestamp(100, 1_000, 110, 121_000, 100), 1_000);
+        assert_eq!(interpolate_timestamp(100, 1_000, 110, 121_000, 105), 61_000);
+        assert_eq!(
+            interpolate_timestamp(100, 1_000, 110, 121_000, 110),
+            121_000
+        );
+        // Out of range blocks are clamped, and a single block span is safe.
+        assert_eq!(
+            interpolate_timestamp(100, 1_000, 110, 121_000, 500),
+            121_000
+        );
+        assert_eq!(interpolate_timestamp(100, 1_000, 100, 9_000, 100), 1_000);
+    }
 
     const USDC: &TokenSpec = &ETH_TOKENS[1];
 

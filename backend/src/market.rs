@@ -15,7 +15,7 @@ use axum::{
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 
-use crate::{error::Result, AppState};
+use crate::{error::Result, upstream::Gate, AppState};
 
 // ── Public types (camelCase JSON for the frontend) ───────────────────────────
 
@@ -86,11 +86,24 @@ pub struct Coin {
 
 // ── Store ────────────────────────────────────────────────────────────────────
 
-#[derive(Default)]
 pub struct MarketStore {
     pub overview: RwLock<Overview>,
     pub coins: RwLock<Vec<Coin>>,
     pub coins_updated_at: RwLock<Option<DateTime<Utc>>>,
+    coingecko_gate: Gate,
+    fng_gate: Gate,
+}
+
+impl Default for MarketStore {
+    fn default() -> Self {
+        Self {
+            overview: RwLock::default(),
+            coins: RwLock::default(),
+            coins_updated_at: RwLock::default(),
+            coingecko_gate: Gate::new(Duration::from_secs(60), Duration::from_secs(20)),
+            fng_gate: Gate::new(Duration::from_secs(600), Duration::from_secs(60)),
+        }
+    }
 }
 
 impl MarketStore {
@@ -369,14 +382,29 @@ async fn refresh_coingecko(state: &Arc<AppState>) -> bool {
     let key = cg_headers(state);
     let headers: Vec<(&str, &str)> = key.iter().map(|(k, v)| (*k, v.as_str())).collect();
     let base = &state.config.coingecko_base;
-    let mut ok = true;
 
     let global_url = format!("{base}/global");
-    match state
-        .up
-        .get_json_with::<serde_json::Value>("coingecko", &global_url, &[], &headers)
-        .await
-    {
+    let coins_url = format!("{base}/coins/markets");
+    let query = [
+        ("vs_currency", "usd".to_string()),
+        ("order", "market_cap_desc".to_string()),
+        ("per_page", "100".to_string()),
+        ("page", "1".to_string()),
+        ("sparkline", "true".to_string()),
+        ("price_change_percentage", "24h,7d,30d".to_string()),
+    ];
+    // Both calls run together so a cold start waits for one round trip, not two.
+    let (global, coins) = tokio::join!(
+        state
+            .up
+            .get_json_with::<serde_json::Value>("coingecko", &global_url, &[], &headers),
+        state
+            .up
+            .get_json_with::<serde_json::Value>("coingecko", &coins_url, &query, &headers),
+    );
+    let mut ok = true;
+
+    match global {
         Ok(v) => {
             if let Some(g) = parse_global(&v.to_string()) {
                 let mut ov = state
@@ -394,20 +422,7 @@ async fn refresh_coingecko(state: &Arc<AppState>) -> bool {
         }
     }
 
-    let coins_url = format!("{base}/coins/markets");
-    let query = [
-        ("vs_currency", "usd".to_string()),
-        ("order", "market_cap_desc".to_string()),
-        ("per_page", "100".to_string()),
-        ("page", "1".to_string()),
-        ("sparkline", "true".to_string()),
-        ("price_change_percentage", "24h,7d,30d".to_string()),
-    ];
-    match state
-        .up
-        .get_json_with::<serde_json::Value>("coingecko", &coins_url, &query, &headers)
-        .await
-    {
+    match coins {
         Ok(v) => {
             if let Some(coins) = parse_coins(&v.to_string()) {
                 let alt = compute_altseason(&coins);
@@ -442,7 +457,7 @@ async fn refresh_coingecko(state: &Arc<AppState>) -> bool {
     ok
 }
 
-async fn refresh_fng(state: &Arc<AppState>) {
+async fn refresh_fng(state: &Arc<AppState>) -> bool {
     let url = format!("{}?limit=30", state.config.fng_url);
     match state
         .up
@@ -459,9 +474,27 @@ async fn refresh_fng(state: &Arc<AppState>) {
                 ov.fear_greed = Some(f);
                 ov.updated_at = Some(Utc::now());
             }
+            true
         }
-        Err(e) => tracing::warn!("fear and greed failed: {e}"),
+        Err(e) => {
+            tracing::warn!("fear and greed failed: {e}");
+            false
+        }
     }
+}
+
+/// On demand mode: refreshes market data that is due. A no op when pollers run.
+pub async fn ensure_fresh(state: &Arc<AppState>) {
+    if !state.config.on_demand {
+        return;
+    }
+    tokio::join!(
+        state
+            .market
+            .coingecko_gate
+            .ensure(|| refresh_coingecko(state)),
+        state.market.fng_gate.ensure(|| refresh_fng(state)),
+    );
 }
 
 pub fn spawn_pollers(state: Arc<AppState>) {
@@ -491,6 +524,7 @@ pub fn spawn_pollers(state: Arc<AppState>) {
 // ── HTTP handlers ────────────────────────────────────────────────────────────
 
 pub async fn get_overview(State(state): State<Arc<AppState>>) -> Json<Overview> {
+    ensure_fresh(&state).await;
     Json(
         state
             .market
@@ -518,6 +552,7 @@ pub async fn get_coins(
     Query(q): Query<CoinsQuery>,
 ) -> Result<Json<CoinsResponse>> {
     let limit = q.limit.unwrap_or(100).clamp(1, 100);
+    ensure_fresh(&state).await;
     let coins: Vec<Coin> = state
         .market
         .coins

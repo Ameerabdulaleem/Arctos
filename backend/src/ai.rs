@@ -431,8 +431,7 @@ pub async fn chat(
     headers: HeaderMap,
     Json(req): Json<ChatRequest>,
 ) -> Result<Json<ChatReply>> {
-    let origin = headers.get("origin").and_then(|v| v.to_str().ok());
-    if !state.config.origin_allowed(origin) {
+    if !crate::origin_ok(&state.config, &headers) {
         return Err(AppError::Forbidden("origin not allowed".into()));
     }
     let Some(key) = state.config.anthropic_api_key.clone() else {
@@ -447,6 +446,8 @@ pub async fn chat(
         ));
     };
 
+    // On demand mode: make sure the prompt is built from current data.
+    crate::ensure_live_context(&state).await;
     let system = build_system_prompt(&state, &req.context);
     let model = state.config.anthropic_model.clone();
     let body = build_request_body(&model, &state.config.anthropic_effort, &system, &messages);

@@ -19,7 +19,7 @@ use tokio_tungstenite::{connect_async, tungstenite::Message as WsMsg};
 
 use crate::{
     error::{AppError, Result},
-    upstream::{KeyedCache, UpstreamError},
+    upstream::{Gate, KeyedCache, UpstreamError},
     AppState,
 };
 
@@ -69,6 +69,7 @@ pub struct BinanceStore {
     pub tickers: RwLock<HashMap<String, Ticker>>,
     pub tickers_source: RwLock<&'static str>,
     pub tx: broadcast::Sender<String>,
+    tickers_gate: Gate,
     klines: KeyedCache<Vec<Candle>>,
     depth: KeyedCache<Depth>,
     trades: KeyedCache<Vec<TradePrint>>,
@@ -81,6 +82,7 @@ impl BinanceStore {
             tickers: RwLock::new(HashMap::new()),
             tickers_source: RwLock::new("starting"),
             tx,
+            tickers_gate: Gate::new(Duration::from_secs(2), Duration::from_secs(1)),
             klines: KeyedCache::new(Duration::from_millis(900), Duration::from_secs(30)),
             depth: KeyedCache::new(Duration::from_millis(600), Duration::from_secs(10)),
             trades: KeyedCache::new(Duration::from_millis(600), Duration::from_secs(10)),
@@ -172,6 +174,42 @@ pub fn parse_rest_tickers(raw: &str, now_ms: i64) -> Vec<Ticker> {
                 change_24h_pct: f(item.get("priceChangePercent")?)?,
                 volume_base: f(item.get("volume")?)?,
                 volume_quote: f(item.get("quoteVolume")?)?,
+                updated_at: now_ms,
+            })
+        })
+        .collect()
+}
+
+/// Builds tickers from the market list (CoinGecko) for the tracked symbols.
+/// Used only when the exchange cannot be reached, so prices still show.
+pub fn tickers_from_coins(
+    coins: &[crate::market::Coin],
+    tracked: &[String],
+    now_ms: i64,
+) -> Vec<Ticker> {
+    tracked
+        .iter()
+        .filter_map(|base| {
+            let coin = coins.iter().find(|c| &c.symbol == base)?;
+            if !(coin.price.is_finite() && coin.price > 0.0) {
+                return None;
+            }
+            let change = coin.change_24h.unwrap_or(0.0);
+            let open = if change > -100.0 {
+                coin.price / (1.0 + change / 100.0)
+            } else {
+                coin.price
+            };
+            Some(Ticker {
+                symbol: format!("{base}USDT"),
+                base: base.clone(),
+                price: coin.price,
+                open_24h: open,
+                high_24h: coin.high_24h.unwrap_or(coin.price.max(open)),
+                low_24h: coin.low_24h.unwrap_or(coin.price.min(open)),
+                change_24h_pct: change,
+                volume_base: coin.volume_24h / coin.price,
+                volume_quote: coin.volume_24h,
                 updated_at: now_ms,
             })
         })
@@ -333,9 +371,35 @@ async fn refresh_tickers_rest(state: &Arc<AppState>) -> bool {
         }
         Err(e) => {
             tracing::warn!("ticker REST refresh failed: {e}");
-            false
+            refresh_tickers_from_market(state).await
         }
     }
+}
+
+/// Last resort when the exchange is unreachable (for example a regional
+/// block): prices from the market list. They move every minute instead of
+/// every second, and the source is reported so the app can say so.
+async fn refresh_tickers_from_market(state: &Arc<AppState>) -> bool {
+    crate::market::ensure_fresh(state).await;
+    let parsed = {
+        let coins = state.market.coins.read().unwrap_or_else(|e| e.into_inner());
+        tickers_from_coins(&coins, &state.config.tracked_symbols, now_ms())
+    };
+    if parsed.is_empty() {
+        return false;
+    }
+    {
+        let mut map = state
+            .binance
+            .tickers
+            .write()
+            .unwrap_or_else(|e| e.into_inner());
+        for t in parsed {
+            map.insert(t.symbol.clone(), t);
+        }
+    }
+    publish(state, "market-list");
+    true
 }
 
 async fn run_ticker_stream(state: &Arc<AppState>) -> std::result::Result<(), String> {
@@ -374,6 +438,18 @@ async fn run_ticker_stream(state: &Arc<AppState>) -> std::result::Result<(), Str
     }
 }
 
+/// On demand mode: refreshes exchange prices that are due. A no op when the stream runs.
+pub async fn ensure_tickers(state: &Arc<AppState>) {
+    if !state.config.on_demand {
+        return;
+    }
+    state
+        .binance
+        .tickers_gate
+        .ensure(|| refresh_tickers_rest(state))
+        .await;
+}
+
 pub fn spawn_pollers(state: Arc<AppState>) {
     tokio::spawn(async move {
         refresh_tickers_rest(&state).await;
@@ -407,6 +483,7 @@ pub struct TickersResponse {
 }
 
 pub async fn get_tickers(State(state): State<Arc<AppState>>) -> Result<Json<TickersResponse>> {
+    ensure_tickers(&state).await;
     let empty = state
         .binance
         .tickers
@@ -623,6 +700,34 @@ mod tests {
         assert_eq!(t[0].id, 2, "newest first");
         assert_eq!(t[0].side, "buy");
         assert_eq!(t[1].side, "sell");
+    }
+
+    #[test]
+    fn fallback_tickers_come_from_the_market_list() {
+        let coins = vec![
+            crate::market::Coin {
+                symbol: "BTC".into(),
+                price: 110.0,
+                change_24h: Some(10.0),
+                volume_24h: 2200.0,
+                high_24h: Some(120.0),
+                low_24h: Some(95.0),
+                ..Default::default()
+            },
+            crate::market::Coin {
+                symbol: "ETH".into(),
+                price: 0.0,
+                ..Default::default()
+            },
+        ];
+        let tracked = vec!["BTC".to_string(), "ETH".to_string(), "SOL".to_string()];
+        let t = tickers_from_coins(&coins, &tracked, 5);
+        assert_eq!(t.len(), 1, "coins without a usable price are skipped");
+        assert_eq!(t[0].symbol, "BTCUSDT");
+        assert!((t[0].open_24h - 100.0).abs() < 1e-9);
+        assert_eq!(t[0].high_24h, 120.0);
+        assert_eq!(t[0].volume_base, 20.0);
+        assert_eq!(t[0].updated_at, 5);
     }
 
     #[test]

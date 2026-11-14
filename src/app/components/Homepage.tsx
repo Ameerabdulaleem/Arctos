@@ -1,10 +1,12 @@
 import { useEffect, useState, type FormEvent } from 'react';
-import { ArrowRight, BarChart3, Brain, CheckCircle, Eye, Github, Loader2, Newspaper, Send, Target, Twitter } from 'lucide-react';
+import { ArrowRight, ArrowUpRight, CheckCircle, CircleNotch, Flask, GithubLogo, Lightning, RocketLaunch, ShieldCheck, TelegramLogo, Wallet, XLogo } from '@phosphor-icons/react';
 import { toast } from 'sonner';
 import arctosLogo from '../../assets/images/arctos-logo.png.png';
 import type { ViewId } from '../hooks/useHashView';
 import { LegalDialog, type LegalTopic } from './LegalDialog';
 import { LiveStatus } from './LiveStatus';
+import { IconTile, Skeleton } from './ui/common';
+import { NAV_GROUPS } from './navigation';
 import { useTickers } from '../hooks/useTickers';
 import { usePolling } from '../hooks/usePolling';
 import { marketService } from '../services/marketService';
@@ -28,13 +30,12 @@ const SOCIAL = {
 
 const HEADLINE = 'Arctos brings live market data, whale tracking, fundamental news and an AI assistant into one trading workspace.';
 
-const FEATURES = [
-  { icon: BarChart3, title: 'Live trading terminal', text: 'Real candles, order book and trades streamed from the exchange, with paper trading so you can practise without risking funds.', gradient: 'from-orange-500 to-red-500' },
-  { icon: Brain, title: 'AI that sees the market', text: 'Ask questions answered from live prices, headlines, whale moves and your own portfolio, not from stale training data.', gradient: 'from-blue-500 to-cyan-500' },
-  { icon: Target, title: 'Sniper engine', text: 'Watch brand new liquidity pools on five chains and see contract risk checks for honeypots, taxes and mint rights before you act.', gradient: 'from-purple-500 to-pink-500' },
-  { icon: Eye, title: 'Whale alerts', text: 'Large on chain transfers on Ethereum, BNB Chain, Base, Arbitrum and Bitcoin, with labels for known exchange wallets.', gradient: 'from-green-500 to-emerald-500' },
-  { icon: Newspaper, title: 'Fundamental news', text: 'Headlines from major crypto outlets, scored by likely market impact and refreshed every two minutes.', gradient: 'from-yellow-500 to-amber-500' },
-  { icon: CheckCircle, title: 'Honest by design', text: 'Every number on screen comes from a live source. When a source is down we tell you instead of showing made up data.', gradient: 'from-indigo-500 to-blue-500' },
+const TOOLS = NAV_GROUPS.flatMap((group) => group.items);
+
+const STEPS = [
+  { icon: RocketLaunch, tone: 'ice' as const, title: 'Open the app', text: 'Get started takes you straight in. There is no sign up, no wallet and no waiting list in the way.' },
+  { icon: Lightning, tone: 'amber' as const, title: 'Read the market', text: 'Prices, order books, whale transfers, new pools and headlines arrive from live sources as they change.' },
+  { icon: Flask, tone: 'violet' as const, title: 'Practise with paper money', text: 'Place simulated orders against the real order book, keep a trade book, and ask the assistant for a second opinion.' },
 ];
 
 function scrollTo(id: string) {
@@ -72,8 +73,8 @@ function WaitlistForm({ compact = false }: { compact?: boolean }) {
 
   if (result) {
     return (
-      <div role="status" className="flex items-center gap-2 text-emerald-400">
-        <CheckCircle className="w-5 h-5 shrink-0" aria-hidden />
+      <div role="status" className={`flex items-center gap-2 text-emerald-300 ${compact ? 'justify-center' : ''}`}>
+        <CheckCircle className="h-5 w-5 shrink-0" weight="fill" aria-hidden />
         <span className="font-medium">
           {result.alreadyJoined ? 'You are already on the list.' : 'You are on the list.'}
           {result.position !== null && ` You are number ${result.position.toLocaleString()}.`}
@@ -89,14 +90,14 @@ function WaitlistForm({ compact = false }: { compact?: boolean }) {
         <input
           id={`wl-${compact ? 'b' : 'a'}`} type="email" autoComplete="email" value={email} onChange={(e) => setEmail(e.target.value)}
           placeholder="Email for early access" disabled={busy}
-          className="flex-1 px-4 py-3 rounded-lg border bg-zinc-900 border-zinc-800 text-white placeholder-zinc-500 focus:outline-none focus:border-blue-500"
+          className="field h-12 flex-1 rounded-2xl px-4"
         />
-        <button type="submit" disabled={busy} className="px-5 py-3 bg-blue-600 hover:bg-blue-700 disabled:opacity-60 text-white rounded-lg font-medium inline-flex items-center justify-center gap-2">
-          {busy ? <Loader2 className="w-4 h-4 animate-spin" aria-hidden /> : null}
+        <button type="submit" disabled={busy} className="btn btn-secondary h-12 rounded-2xl px-5">
+          {busy ? <CircleNotch className="w-4 h-4 animate-spin" aria-hidden /> : null}
           {busy ? 'Joining...' : 'Join waitlist'}
         </button>
       </form>
-      {count !== null && count > 0 && <p className="mt-2 text-xs text-zinc-500">{count.toLocaleString()} {count === 1 ? 'person is' : 'people are'} on the list.</p>}
+      {count !== null && count > 0 && <p className={`mt-2 text-xs text-zinc-500 ${compact ? 'text-center' : ''}`}>{count.toLocaleString()} {count === 1 ? 'person is' : 'people are'} on the list.</p>}
     </div>
   );
 }
@@ -112,7 +113,7 @@ export function Homepage({ onLaunch, onOpenWaitlist, onOpenWallet }: Props) {
   const [typed, setTyped] = useState(reducedMotion ? HEADLINE.length : 0);
   useEffect(() => {
     if (reducedMotion) return;
-    const timer = setInterval(() => setTyped((n) => (n >= HEADLINE.length ? n : n + 1)), 28);
+    const timer = setInterval(() => setTyped((n) => (n >= HEADLINE.length ? n : n + 1)), 22);
     return () => clearInterval(timer);
   }, [reducedMotion]);
 
@@ -127,178 +128,263 @@ export function Homepage({ onLaunch, onOpenWaitlist, onOpenWallet }: Props) {
     { label: 'Bitcoin dominance', value: g ? `${g.btcDominance.toFixed(1)}%` : null },
     { label: 'Fear and Greed', value: fng ? `${fng.value} ${fng.label}` : null },
   ];
-  const strip = ['BTC', 'ETH', 'SOL', 'BNB'].map((s) => tickers[s]).filter(Boolean);
-  const nav = 'text-sm text-zinc-400 hover:text-white transition-colors';
+  const strip = ['BTC', 'ETH', 'SOL', 'BNB', 'XRP', 'DOGE'].map((s) => tickers[s]).filter(Boolean);
+  const link = 'text-sm text-zinc-400 transition hover:text-white';
+  const spark = btcCoin && btcCoin.sparkline7d.length > 2 ? sparklinePath(btcCoin.sparkline7d, 420, 110) : '';
+  const up = (btc?.change24hPct ?? 0) >= 0;
+  const stroke = up ? '#34d399' : '#fb7185';
 
   return (
-    <div className="min-h-screen bg-black text-zinc-100 relative overflow-x-hidden">
-      <div className="absolute inset-0 pointer-events-none overflow-hidden" aria-hidden>
-        <div className="absolute top-0 left-1/4 w-96 h-96 bg-blue-500/10 rounded-full blur-3xl" />
-        <div className="absolute top-1/4 right-1/4 w-96 h-96 bg-purple-500/10 rounded-full blur-3xl" />
-        <div className="absolute bottom-1/4 left-1/3 w-96 h-96 bg-cyan-500/10 rounded-full blur-3xl" />
-      </div>
+    <div className="relative min-h-dvh overflow-x-hidden text-zinc-100">
+      <a href="#features" className="sr-only focus:not-sr-only focus:fixed focus:left-3 focus:top-3 focus:z-[60] focus:rounded-lg focus:bg-white focus:px-3 focus:py-2 focus:text-sm focus:font-medium focus:text-black">Skip to content</a>
 
-      <nav className="fixed top-0 inset-x-0 z-40 bg-black/70 border-b border-zinc-800 backdrop-blur-md" aria-label="Primary">
-        <div className="max-w-7xl mx-auto px-5 h-14 flex items-center justify-between">
-          <div className="flex items-center gap-3">
-            <img src={arctosLogo} alt="" className="w-9 h-9 object-contain" />
-            <span className="text-lg font-semibold tracking-tight">Arctos</span>
+      {/* Floating navigation */}
+      <div className="sticky top-0 z-40 px-3 pt-3 sm:px-5">
+        <nav aria-label="Primary" className="glass mx-auto flex h-14 max-w-6xl items-center justify-between gap-3 rounded-2xl px-3 sm:px-4">
+          <div className="flex items-center gap-2.5">
+            <img src={arctosLogo} alt="" className="h-8 w-8 rounded-lg object-contain" />
+            <span className="text-[17px] font-semibold tracking-tight">Arctos</span>
           </div>
-          <div className="hidden md:flex items-center gap-6">
-            <button className={nav} onClick={() => scrollTo('features')}>Features</button>
-            <button className={nav} onClick={() => scrollTo('about')}>About</button>
-            <button className={nav} onClick={() => scrollTo('contact')}>Contact</button>
+          <div className="hidden items-center gap-7 md:flex">
+            <button className={link} onClick={() => scrollTo('features')}>Features</button>
+            <button className={link} onClick={() => scrollTo('how')}>How it works</button>
+            <button className={link} onClick={() => scrollTo('about')}>About</button>
+            <button className={link} onClick={() => scrollTo('contact')}>Contact</button>
           </div>
           <div className="flex items-center gap-2">
-            <button onClick={onOpenWaitlist} className="hidden sm:inline-flex px-3 py-1.5 rounded-lg border border-zinc-700 text-zinc-200 hover:bg-zinc-900 text-sm">Join waitlist</button>
-            <button onClick={onOpenWallet} className="hidden lg:inline-flex px-3 py-1.5 rounded-lg border border-zinc-700 text-zinc-200 hover:bg-zinc-900 text-sm">Connect wallet</button>
-            <button onClick={() => onLaunch()} className="px-4 py-1.5 bg-gradient-to-r from-blue-600 to-purple-600 hover:from-blue-700 hover:to-purple-700 text-white rounded-lg text-sm font-medium">Get started</button>
+            <button onClick={onOpenWaitlist} className="btn btn-ghost btn-sm hidden h-9 sm:inline-flex">Join waitlist</button>
+            <button onClick={onOpenWallet} className="btn btn-secondary btn-sm hidden h-9 lg:inline-flex">
+              <Wallet className="h-4 w-4" aria-hidden /> Connect wallet
+            </button>
+            <button onClick={() => onLaunch()} className="btn btn-primary btn-sm h-9 px-4">Get started</button>
           </div>
-        </div>
-        <div className="border-t border-zinc-800/50 bg-black/50">
-          <div className="max-w-7xl mx-auto px-5 py-1.5 flex items-center gap-5 text-xs overflow-x-auto whitespace-nowrap" aria-label="Live prices">
-            {strip.length === 0 ? (
-              <span className="text-zinc-500">Connecting to live prices...</span>
-            ) : (
-              strip.map((t) => (
-                <span key={t.base} className="flex items-center gap-2">
-                  <span className="font-semibold text-white">{t.base}</span>
-                  <span className="text-zinc-300 tabular-nums">{formatPrice(t.price)}</span>
-                  <span className={`tabular-nums ${pnlClass(t.change24hPct)}`}>{formatPct(t.change24hPct)}</span>
-                </span>
-              ))
-            )}
-            <span className="ml-auto pl-4"><LiveStatus /></span>
-          </div>
-        </div>
-      </nav>
+        </nav>
+      </div>
 
-      <header className="relative pt-36 pb-20 px-5">
-        <div className="max-w-7xl mx-auto grid md:grid-cols-2 gap-12 items-center">
-          <div className="order-2 md:order-1">
-            <span className="inline-block px-4 py-1 mb-5 rounded-full text-xs font-semibold text-blue-300 bg-blue-600/10 border border-blue-500/20">Early access</span>
-            <h1 className="text-4xl md:text-5xl font-extrabold leading-tight mb-6">
-              Trade with live market intelligence,{' '}
-              <span className="bg-gradient-to-r from-blue-500 to-cyan-400 bg-clip-text text-transparent">not guesses.</span>
+      {/* Hero */}
+      <header className="relative px-5 pb-16 pt-12 sm:pt-16 lg:pb-24">
+        <div className="pointer-events-none absolute inset-0 -top-24 overflow-hidden [mask-image:linear-gradient(to_bottom,#000_62%,transparent)]" aria-hidden>
+          <div className="bg-grid absolute inset-0" />
+          <div className="aurora -left-24 top-10 h-[420px] w-[520px] bg-blue-500/20" />
+          <div className="aurora right-[-120px] top-[-60px] h-[460px] w-[520px] bg-indigo-500/20 [animation-delay:-6s]" />
+          <div className="aurora bottom-[-180px] left-1/3 h-[380px] w-[560px] bg-teal-400/10 [animation-delay:-11s]" />
+        </div>
+
+        <div className="relative mx-auto grid max-w-6xl items-center gap-12 lg:grid-cols-[1.05fr_0.95fr]">
+          <div className="motion-safe:animate-fade-up">
+            <div className="mb-6 flex flex-wrap items-center gap-2">
+              <span className="chip border-blue-300/25 bg-blue-400/10 text-blue-200">
+                <Flask className="h-3.5 w-3.5" aria-hidden /> Paper trading is open
+              </span>
+              <LiveStatus />
+            </div>
+            <h1 className="text-[40px] font-semibold leading-[1.05] tracking-[-0.035em] text-white [text-wrap:balance] sm:text-[56px] lg:text-[62px]">
+              Trade with live market intelligence, <span className="text-gradient">not guesses.</span>
             </h1>
-            <p className="text-lg text-zinc-400 mb-7 min-h-[5.5rem]" aria-label={HEADLINE}>
+            <p className={`mt-6 min-h-[84px] max-w-xl text-lg leading-relaxed text-zinc-400 sm:min-h-[56px] ${typed < HEADLINE.length ? 'caret' : ''}`} aria-label={HEADLINE}>
               <span aria-hidden>{HEADLINE.slice(0, typed)}</span>
             </p>
-            <div className="flex flex-col sm:flex-row gap-3 mb-7">
-              <button onClick={() => onLaunch()} className="px-6 py-3 bg-gradient-to-r from-blue-600 to-purple-600 hover:from-blue-700 hover:to-purple-700 text-white rounded-lg font-semibold shadow-lg shadow-blue-600/20">Get started</button>
-              <button onClick={onOpenWallet} className="px-6 py-3 border border-zinc-700 text-zinc-200 hover:bg-zinc-900 rounded-lg font-medium">Connect wallet</button>
-            </div>
-            <WaitlistForm />
 
-            <dl className="mt-9 grid grid-cols-2 sm:grid-cols-4 gap-3">
-              {stats.map((s) => (
-                <div key={s.label} className="p-3.5 rounded-xl bg-zinc-900 border border-zinc-800">
-                  <dd className="text-lg font-bold text-white tabular-nums min-h-[1.75rem]">{s.value ?? <span className="text-zinc-600">...</span>}</dd>
-                  <dt className="text-xs text-zinc-500">{s.label}</dt>
-                </div>
+            <div className="mt-8 flex flex-col gap-3 sm:flex-row">
+              <button onClick={() => onLaunch()} className="btn btn-primary btn-lg group">
+                Get started
+                <ArrowRight className="h-4 w-4 transition group-hover:translate-x-0.5" weight="bold" aria-hidden />
+              </button>
+              <button onClick={onOpenWallet} className="btn btn-secondary btn-lg">
+                <Wallet className="h-[18px] w-[18px]" aria-hidden /> Connect wallet
+              </button>
+            </div>
+            <ul className="mt-5 flex flex-wrap gap-x-5 gap-y-2 text-sm text-zinc-400">
+              {['No sign up needed', 'No wallet required', 'Every number from a live source'].map((point) => (
+                <li key={point} className="flex items-center gap-1.5">
+                  <CheckCircle className="h-4 w-4 text-emerald-300" weight="fill" aria-hidden /> {point}
+                </li>
               ))}
-            </dl>
-            <p className="mt-2 text-xs text-zinc-600">Live market snapshot from CoinGecko and Alternative.me.</p>
+            </ul>
+
+            <div className="mt-9">
+              <p className="eyebrow mb-2.5">Get product updates</p>
+              <WaitlistForm />
+            </div>
           </div>
 
-          <div className="order-1 md:order-2">
-            <div className="rounded-2xl overflow-hidden shadow-2xl bg-zinc-900 border border-zinc-800">
-              <div className="px-4 py-3 flex items-center justify-between bg-zinc-950">
-                <div className="flex items-center gap-2" aria-hidden>
-                  <span className="w-3 h-3 rounded-full bg-red-500" />
-                  <span className="w-3 h-3 rounded-full bg-yellow-400" />
-                  <span className="w-3 h-3 rounded-full bg-green-400" />
+          {/* Live preview */}
+          <div className="relative motion-safe:animate-fade-up [animation-delay:120ms]">
+            <div className="absolute -inset-6 rounded-[36px] bg-gradient-to-br from-blue-400/20 via-transparent to-violet-500/20 blur-2xl" aria-hidden />
+            <div className="ring-gradient relative overflow-hidden rounded-3xl bg-zinc-950/80 shadow-2xl shadow-black/60 backdrop-blur-xl">
+              <div className="flex items-center justify-between border-b border-white/[0.06] px-5 py-3">
+                <div className="flex items-center gap-1.5" aria-hidden>
+                  <span className="h-2.5 w-2.5 rounded-full bg-rose-400/80" />
+                  <span className="h-2.5 w-2.5 rounded-full bg-amber-300/80" />
+                  <span className="h-2.5 w-2.5 rounded-full bg-emerald-400/80" />
                 </div>
-                <span className="text-xs text-zinc-400">Live preview</span>
+                <span className="eyebrow text-[10px]">Live preview</span>
               </div>
+
               <div className="p-5">
-                <div className="rounded-lg p-4 bg-gradient-to-br from-indigo-900/60 to-cyan-800/30">
-                  <div className="flex items-start justify-between">
-                    <div>
-                      <p className="text-xs text-zinc-300">BTC / USDT</p>
-                      <p className="text-3xl font-bold tabular-nums min-h-[2.25rem]">{btc ? formatPrice(btc.price) : <span className="text-zinc-500">...</span>}</p>
-                      {btc && <p className={`text-sm tabular-nums ${pnlClass(btc.change24hPct)}`}>{formatPct(btc.change24hPct)} in 24h</p>}
-                    </div>
-                    {btc && (
-                      <dl className="text-right text-xs text-zinc-300">
-                        <dt>24h high</dt><dd className="font-semibold tabular-nums mb-1">{formatPrice(btc.high24h)}</dd>
-                        <dt>24h low</dt><dd className="font-semibold tabular-nums">{formatPrice(btc.low24h)}</dd>
-                      </dl>
-                    )}
+                <div className="flex items-start justify-between gap-4">
+                  <div>
+                    <p className="text-xs font-medium text-zinc-400">BTC / USDT</p>
+                    <p className="num mt-1 text-4xl font-semibold tracking-tight text-white">{btc ? formatPrice(btc.price) : <Skeleton className="h-9 w-48" />}</p>
+                    {btc && <p className={`num mt-1 text-sm ${pnlClass(btc.change24hPct)}`}>{formatPct(btc.change24hPct)} in 24h</p>}
                   </div>
-                  {btcCoin && btcCoin.sparkline7d.length > 2 ? (
-                    <svg viewBox="0 0 170 36" className="w-full h-16 mt-3" role="img" aria-label="Bitcoin price over the last 7 days">
-                      <path d={sparklinePath(btcCoin.sparkline7d)} fill="none" stroke="#7dd3fc" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
-                    </svg>
-                  ) : (
-                    <div className="h-16 mt-3" />
+                  {btc && (
+                    <dl className="num space-y-1 text-right text-xs">
+                      <div><dt className="inline text-zinc-500">24h high </dt><dd className="inline text-zinc-200">{formatPrice(btc.high24h)}</dd></div>
+                      <div><dt className="inline text-zinc-500">24h low </dt><dd className="inline text-zinc-200">{formatPrice(btc.low24h)}</dd></div>
+                    </dl>
                   )}
-                  <p className="text-[11px] text-zinc-400">7 day price</p>
                 </div>
 
-                <p className="mt-4 mb-2 text-xs font-semibold uppercase tracking-wider text-zinc-500">Top movers, 24h</p>
-                <ul className="space-y-1.5 min-h-[7rem]">
-                  {movers.length === 0 && <li className="text-sm text-zinc-600">Loading...</li>}
-                  {movers.map((c) => (
-                    <li key={c.id} className="flex items-center justify-between text-sm px-3 py-2 rounded-lg bg-zinc-800/50">
-                      <span className="font-medium">{c.symbol} <span className="text-zinc-500 font-normal">{c.name}</span></span>
-                      <span className={`tabular-nums ${pnlClass(c.change24h)}`}>{formatPct(c.change24h)}</span>
-                    </li>
-                  ))}
-                </ul>
-                <button onClick={() => onLaunch('trading')} className="mt-4 w-full inline-flex items-center justify-center gap-2 px-4 py-2.5 rounded-lg bg-blue-600 hover:bg-blue-700 text-white font-medium">
-                  Open the terminal <ArrowRight className="w-4 h-4" aria-hidden />
+                <div className="mt-3 h-[110px]">
+                  {spark ? (
+                    <svg viewBox="0 0 420 110" className="h-full w-full" preserveAspectRatio="none" role="img" aria-label="Bitcoin price over the last 7 days">
+                      <defs>
+                        <linearGradient id="hero-fill" x1="0" y1="0" x2="0" y2="1">
+                          <stop offset="0%" stopColor={stroke} stopOpacity="0.28" />
+                          <stop offset="100%" stopColor={stroke} stopOpacity="0" />
+                        </linearGradient>
+                      </defs>
+                      <path d={`${spark} L420,110 L0,110 Z`} fill="url(#hero-fill)" />
+                      <path d={spark} fill="none" stroke={stroke} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" vectorEffect="non-scaling-stroke" />
+                    </svg>
+                  ) : (
+                    <Skeleton className="h-full w-full rounded-xl" />
+                  )}
+                </div>
+                <p className="mt-1 text-[11px] text-zinc-500">7 day price</p>
+
+                <div className="mt-4">
+                  <p className="eyebrow mb-2 text-[10px]">Top movers, 24h</p>
+                  <ul className="grid grid-cols-2 gap-2">
+                    {movers.length === 0 && [0, 1, 2, 3].map((i) => <li key={i}><Skeleton className="h-11 w-full rounded-xl" /></li>)}
+                    {movers.map((c) => (
+                      <li key={c.id} className="panel-inset flex items-center justify-between gap-2 px-3 py-2.5">
+                        <span className="min-w-0 truncate text-sm"><span className="font-semibold text-white">{c.symbol}</span> <span className="text-zinc-500">{c.name}</span></span>
+                        <span className={`num shrink-0 text-sm ${pnlClass(c.change24h)}`}>{formatPct(c.change24h)}</span>
+                      </li>
+                    ))}
+                  </ul>
+                </div>
+
+                <button onClick={() => onLaunch('trading')} className="btn btn-primary mt-4 h-11 w-full">
+                  Open the terminal <ArrowRight className="h-4 w-4" weight="bold" aria-hidden />
                 </button>
               </div>
             </div>
           </div>
         </div>
+
+        {/* Live price strip */}
+        <div className="relative mx-auto mt-14 max-w-6xl">
+          <div className="panel flex items-center gap-1 overflow-x-auto px-2 py-2" aria-label="Live prices">
+            {strip.length === 0 && <span className="px-3 py-1.5 text-sm text-zinc-500">Waiting for live prices...</span>}
+            {strip.map((t) => (
+              <span key={t.symbol} className="flex shrink-0 items-center gap-2 rounded-xl px-3 py-1.5 text-sm">
+                <span className="font-semibold text-zinc-200">{t.base}</span>
+                <span className="num text-white">{formatPrice(t.price)}</span>
+                <span className={`num text-xs ${pnlClass(t.change24hPct)}`}>{formatPct(t.change24hPct)}</span>
+              </span>
+            ))}
+          </div>
+          <dl className="mt-4 grid grid-cols-2 gap-3 lg:grid-cols-4">
+            {stats.map((s) => (
+              <div key={s.label} className="panel px-5 py-4">
+                <dt className="text-xs text-zinc-500">{s.label}</dt>
+                <dd className="num mt-1.5 text-2xl font-semibold tracking-tight text-white">{s.value ?? <Skeleton className="h-7 w-24" />}</dd>
+              </div>
+            ))}
+          </dl>
+          <p className="mt-3 text-xs text-zinc-600">Live market snapshot from CoinGecko and Alternative.me.</p>
+        </div>
       </header>
 
-      <section id="features" className="relative py-20 px-5 bg-zinc-950">
-        <div className="max-w-7xl mx-auto">
-          <div className="text-center mb-14">
-            <h2 className="text-4xl font-bold mb-3">What you get</h2>
-            <p className="text-lg text-zinc-400">Six tools, one workspace, all fed by live data.</p>
+      {/* Tools */}
+      <section id="features" className="relative scroll-mt-24 px-5 py-20">
+        <div className="mx-auto max-w-6xl">
+          <div className="mb-12 max-w-2xl">
+            <p className="eyebrow mb-3 text-blue-300">The workspace</p>
+            <h2 className="text-3xl font-semibold tracking-tight text-white sm:text-[40px] sm:leading-[1.1]">Eight tools, one screen, all fed by live data.</h2>
+            <p className="mt-4 text-lg text-zinc-400">Pick any tool to open it now. Nothing is locked.</p>
           </div>
-          <div className="grid md:grid-cols-2 lg:grid-cols-3 gap-6">
-            {FEATURES.map(({ icon: Icon, title, text, gradient }) => (
-              <article key={title} className="p-7 rounded-2xl bg-zinc-900/80 border border-zinc-800 hover:border-zinc-700 transition-colors">
-                <div className={`w-14 h-14 rounded-2xl bg-gradient-to-br ${gradient} flex items-center justify-center mb-5 shadow-lg`}>
-                  <Icon className="w-7 h-7 text-white" aria-hidden />
-                </div>
-                <h3 className="text-xl font-bold mb-2">{title}</h3>
-                <p className="text-zinc-400 leading-relaxed">{text}</p>
-              </article>
-            ))}
+          <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+            {TOOLS.map((tool) => {
+              const Icon = tool.icon;
+              return (
+                <button
+                  key={tool.id} onClick={() => onLaunch(tool.id)}
+                  className="panel panel-hover group relative flex flex-col items-start overflow-hidden p-5 text-left hover:-translate-y-0.5"
+                >
+                  <IconTile tone={tool.tone} size="lg"><Icon /></IconTile>
+                  <h3 className="mt-5 text-[17px] font-semibold text-white">{tool.label}</h3>
+                  <p className="mt-1.5 text-sm leading-relaxed text-zinc-400">{tool.blurb}</p>
+                  <span className="mt-5 inline-flex items-center gap-1 text-sm font-medium text-zinc-500 transition group-hover:text-blue-300">
+                    Open <ArrowUpRight className="h-3.5 w-3.5" weight="bold" aria-hidden />
+                  </span>
+                </button>
+              );
+            })}
+          </div>
+
+          <div className="ring-gradient mt-4 flex flex-col gap-4 rounded-2xl bg-gradient-to-r from-emerald-400/[0.07] via-white/[0.02] to-blue-400/[0.07] p-5 sm:flex-row sm:items-center">
+            <IconTile tone="mint" size="lg"><ShieldCheck /></IconTile>
+            <div>
+              <h3 className="text-[17px] font-semibold text-white">Honest by design</h3>
+              <p className="mt-1 text-sm leading-relaxed text-zinc-400">Every number on screen comes from a live source. When a source is down we tell you instead of showing made up data.</p>
+            </div>
           </div>
         </div>
       </section>
 
-      <section id="about" className="relative py-20 px-5">
-        <div className="max-w-7xl mx-auto grid md:grid-cols-2 gap-12 items-center">
+      {/* How it works */}
+      <section id="how" className="relative scroll-mt-24 px-5 py-20">
+        <div className="mx-auto max-w-6xl">
+          <div className="mb-12 max-w-2xl">
+            <p className="eyebrow mb-3 text-blue-300">How it works</p>
+            <h2 className="text-3xl font-semibold tracking-tight text-white sm:text-[40px] sm:leading-[1.1]">From landing page to live market in one click.</h2>
+          </div>
+          <ol className="grid gap-4 md:grid-cols-3">
+            {STEPS.map(({ icon: Icon, tone, title, text }, i) => (
+              <li key={title} className="panel relative p-6">
+                <span className="num absolute right-5 top-4 text-5xl font-semibold text-white/[0.05]" aria-hidden>{String(i + 1).padStart(2, '0')}</span>
+                <IconTile tone={tone} size="lg"><Icon /></IconTile>
+                <h3 className="mt-5 text-lg font-semibold text-white">{title}</h3>
+                <p className="mt-2 text-sm leading-relaxed text-zinc-400">{text}</p>
+              </li>
+            ))}
+          </ol>
+        </div>
+      </section>
+
+      {/* About */}
+      <section id="about" className="relative scroll-mt-24 px-5 py-20">
+        <div className="mx-auto grid max-w-6xl items-center gap-12 lg:grid-cols-2">
           <div>
-            <h2 className="text-4xl font-bold mb-5">Built for traders who want signal, not noise</h2>
-            <p className="text-lg text-zinc-400 mb-4">
+            <p className="eyebrow mb-3 text-blue-300">About</p>
+            <h2 className="text-3xl font-semibold tracking-tight text-white sm:text-[40px] sm:leading-[1.1]">Built for traders who want signal, not noise</h2>
+            <p className="mt-5 text-lg leading-relaxed text-zinc-400">
               Arctos pulls prices, order books, on chain transfers, new token launches and headlines into a single screen, so you can see what is moving and why.
             </p>
-            <p className="text-lg text-zinc-400 mb-6">
+            <p className="mt-4 text-lg leading-relaxed text-zinc-400">
               Trading in Arctos is paper trading for now. You can test ideas against live prices, keep a trade book, and ask the assistant for a second opinion without risking funds.
             </p>
-            <button onClick={() => onLaunch()} className="px-7 py-3 bg-blue-600 hover:bg-blue-700 text-white rounded-lg font-medium">Get started</button>
+            <button onClick={() => onLaunch()} className="btn btn-primary btn-lg mt-7">Get started</button>
           </div>
-          <div className="p-6 rounded-2xl bg-zinc-900 border border-zinc-800">
-            <p className="text-sm font-semibold text-zinc-300 mb-4">Right now, in memory</p>
-            <dl className="grid grid-cols-2 gap-4">
+          <div className="panel p-6">
+            <div className="mb-4 flex items-center justify-between">
+              <p className="text-sm font-semibold text-zinc-200">Right now, in the data service</p>
+              <LiveStatus />
+            </div>
+            <dl className="grid grid-cols-2 gap-3">
               {[
                 ['Coins tracked', status.data?.data.coins],
                 ['Live trading pairs', status.data?.data.tickers],
                 ['Headlines indexed', status.data?.data.newsArticles],
                 ['Whale transfers seen', status.data?.data.whaleEvents],
               ].map(([label, value]) => (
-                <div key={String(label)} className="p-4 rounded-xl bg-zinc-800/50">
-                  <dd className="text-2xl font-bold tabular-nums">{typeof value === 'number' ? value.toLocaleString() : <span className="text-zinc-600">...</span>}</dd>
-                  <dt className="text-xs text-zinc-500 mt-1">{label}</dt>
+                <div key={String(label)} className="panel-inset p-4">
+                  <dd className="num text-3xl font-semibold tracking-tight text-white">{typeof value === 'number' ? value.toLocaleString() : <Skeleton className="h-8 w-14" />}</dd>
+                  <dt className="mt-1 text-xs text-zinc-500">{label}</dt>
                 </div>
               ))}
             </dl>
@@ -307,53 +393,57 @@ export function Homepage({ onLaunch, onOpenWaitlist, onOpenWallet }: Props) {
         </div>
       </section>
 
-      <section className="relative py-20 px-5 bg-zinc-950">
-        <div className="max-w-3xl mx-auto text-center">
-          <h2 className="text-4xl font-bold mb-4">Get early access</h2>
-          <p className="text-lg text-zinc-400 mb-8">Leave your email and we will tell you when new features open up.</p>
-          <WaitlistForm compact />
+      {/* Call to action */}
+      <section className="relative px-5 py-20">
+        <div className="ring-gradient relative mx-auto max-w-4xl overflow-hidden rounded-3xl bg-zinc-950/70 px-6 py-14 text-center backdrop-blur-xl">
+          <div className="aurora left-1/2 top-[-140px] h-[280px] w-[620px] -translate-x-1/2 bg-blue-400/20" aria-hidden />
+          <div className="relative">
+            <h2 className="text-3xl font-semibold tracking-tight text-white sm:text-[40px] sm:leading-[1.1]">Get early access</h2>
+            <p className="mx-auto mt-4 max-w-xl text-lg text-zinc-400">Leave your email and we will tell you when new features open up.</p>
+            <div className="mt-8"><WaitlistForm compact /></div>
+          </div>
         </div>
       </section>
 
-      <footer id="contact" className="relative py-12 px-5 bg-black border-t border-zinc-800">
-        <div className="max-w-7xl mx-auto">
-          <div className="grid md:grid-cols-4 gap-10 mb-10">
+      <footer id="contact" className="relative scroll-mt-24 border-t border-white/[0.06] px-5 py-12">
+        <div className="mx-auto max-w-6xl">
+          <div className="mb-10 grid gap-10 md:grid-cols-4">
             <div className="md:col-span-2">
-              <div className="flex items-center gap-3 mb-3">
-                <img src={arctosLogo} alt="" className="w-10 h-10 object-contain" />
-                <span className="text-2xl font-bold">Arctos</span>
+              <div className="mb-3 flex items-center gap-3">
+                <img src={arctosLogo} alt="" className="h-10 w-10 rounded-xl object-contain" />
+                <span className="text-2xl font-semibold tracking-tight">Arctos</span>
               </div>
-              <p className="text-zinc-400 mb-5 max-w-md">Live market intelligence for crypto traders. Nothing here is financial advice.</p>
-              <div className="flex gap-3">
+              <p className="mb-5 max-w-md text-zinc-400">Live market intelligence for crypto traders. Nothing here is financial advice.</p>
+              <div className="flex gap-2">
                 {[
-                  { href: SOCIAL.x, label: 'Arctos on X', Icon: Twitter },
-                  { href: SOCIAL.github, label: 'Arctos on GitHub', Icon: Github },
-                  { href: SOCIAL.telegram, label: 'Arctos on Telegram', Icon: Send },
+                  { href: SOCIAL.x, label: 'Arctos on X', Icon: XLogo },
+                  { href: SOCIAL.github, label: 'Arctos on GitHub', Icon: GithubLogo },
+                  { href: SOCIAL.telegram, label: 'Arctos on Telegram', Icon: TelegramLogo },
                 ].map(({ href, label, Icon }) => (
-                  <a key={label} href={href} target="_blank" rel="noopener noreferrer" aria-label={label} className="w-10 h-10 rounded-lg bg-zinc-900 hover:bg-zinc-800 flex items-center justify-center">
-                    <Icon className="w-5 h-5 text-zinc-400" aria-hidden />
+                  <a key={label} href={href} target="_blank" rel="noopener noreferrer" aria-label={label} className="btn btn-secondary btn-icon h-10 w-10 text-zinc-300">
+                    <Icon className="h-5 w-5" aria-hidden />
                   </a>
                 ))}
               </div>
             </div>
             <div>
-              <h3 className="font-bold mb-3">Product</h3>
+              <h3 className="mb-3 text-sm font-semibold text-white">Product</h3>
               <ul className="space-y-2">
-                <li><button className={nav} onClick={() => scrollTo('features')}>Features</button></li>
-                <li><button className={nav} onClick={() => onLaunch()}>Dashboard</button></li>
-                <li><a className={nav} href={`${REPO_URL}#readme`} target="_blank" rel="noopener noreferrer">Documentation</a></li>
+                <li><button className={link} onClick={() => scrollTo('features')}>Features</button></li>
+                <li><button className={link} onClick={() => onLaunch()}>Dashboard</button></li>
+                <li><a className={link} href={`${REPO_URL}#readme`} target="_blank" rel="noopener noreferrer">Documentation</a></li>
               </ul>
             </div>
             <div>
-              <h3 className="font-bold mb-3">Legal</h3>
+              <h3 className="mb-3 text-sm font-semibold text-white">Legal</h3>
               <ul className="space-y-2">
-                <li><button className={nav} onClick={() => setLegal('privacy')}>Privacy</button></li>
-                <li><button className={nav} onClick={() => setLegal('terms')}>Terms of use</button></li>
-                <li><button className={nav} onClick={() => setLegal('risk')}>Risk disclosure</button></li>
+                <li><button className={link} onClick={() => setLegal('privacy')}>Privacy</button></li>
+                <li><button className={link} onClick={() => setLegal('terms')}>Terms of use</button></li>
+                <li><button className={link} onClick={() => setLegal('risk')}>Risk disclosure</button></li>
               </ul>
             </div>
           </div>
-          <p className="pt-6 border-t border-zinc-800 text-sm text-zinc-500">&copy; {new Date().getFullYear()} Arctos. All rights reserved.</p>
+          <p className="border-t border-white/[0.06] pt-6 text-sm text-zinc-500">&copy; {new Date().getFullYear()} Arctos. All rights reserved.</p>
         </div>
       </footer>
       <LegalDialog topic={legal} onClose={() => setLegal(null)} />

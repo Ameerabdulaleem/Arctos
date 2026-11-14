@@ -1,0 +1,29 @@
+# Vercel function that serves the Arctos data API from the same site as the web app.
+#
+# Vercel builds every `api/*.rs` file listed here as a `[[bin]]` into one function.
+# All the logic lives in the `backend` crate. This crate is only the adapter.
+[package]
+name = "arctos-api"
+version = "0.3.0"
+edition = "2021"
+publish = false
+description = "Arctos data API as a Vercel function (thin adapter around the backend crate)"
+
+[[bin]]
+name = "main"
+path = "api/main.rs"
+
+[dependencies]
+arctos-backend = { path = "backend" }
+axum = "0.7"
+tokio = { version = "1", features = ["rt-multi-thread", "macros"] }
+tower = { version = "0.5", features = ["util"] }
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+vercel_runtime = "2.4"
+
+[profile.release]
+opt-level = 3
+lto = "thin"
+codegen-units = 4
+strip = true

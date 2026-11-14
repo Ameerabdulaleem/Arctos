@@ -23,10 +23,10 @@ export class ErrorBoundary extends Component<Props, { failed: boolean }> {
   render() {
     if (!this.state.failed) return this.props.children;
     return (
-      <div role="alert" className="p-10 text-center">
-        <p className="text-white font-semibold mb-2">This section ran into a problem.</p>
-        <p className="text-zinc-400 text-sm mb-4">Your data is safe. Reload the page or switch to another section.</p>
-        <button onClick={() => window.location.reload()} className="px-4 py-2 rounded-lg bg-blue-600 hover:bg-blue-700 text-white text-sm font-medium">
+      <div role="alert" className="panel mx-auto mt-10 max-w-md p-8 text-center">
+        <p className="mb-2 font-semibold text-white">This section ran into a problem.</p>
+        <p className="mb-5 text-sm text-zinc-400">Your data is safe. Reload the page or switch to another section.</p>
+        <button onClick={() => window.location.reload()} className="btn btn-primary">
           Reload
         </button>
       </div>

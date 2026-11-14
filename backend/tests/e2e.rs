@@ -93,15 +93,15 @@ fn fake_upstream() -> Router {
         .route("/rpc", post(|Json(_): Json<Value>| async { Json(json!({"jsonrpc": "2.0", "id": 1, "result": "0x10"})) }))
 }
 
-async fn boot() -> (String, Arc<arctos_backend::AppState>) {
-    let up = serve(fake_upstream()).await;
-    let base = format!("http://{up}");
+/// A configuration that points every provider at the local fake.
+fn test_config(base: &str) -> Config {
     let mut cfg = Config::from_env();
     cfg.enable_pollers = true;
+    cfg.on_demand = false;
     cfg.database_url = None;
     cfg.frontend_origins = vec![];
     cfg.coingecko_base = format!("{base}/cg");
-    cfg.binance_rest_bases = vec![base.clone()];
+    cfg.binance_rest_bases = vec![base.to_string()];
     cfg.binance_ws_url = "ws://127.0.0.1:1/never".into();
     cfg.fng_url = format!("{base}/fng/");
     cfg.geckoterminal_base = format!("{base}/gt");
@@ -121,6 +121,22 @@ async fn boot() -> (String, Arc<arctos_backend::AppState>) {
         *rpc = format!("{base}/rpc");
     }
     cfg.blockchair_base = format!("{base}/blockchair");
+    cfg
+}
+
+/// Server mode: pollers run in the background.
+async fn boot() -> (String, Arc<arctos_backend::AppState>) {
+    let up = serve(fake_upstream()).await;
+    let state = build_state(test_config(&format!("http://{up}"))).await;
+    spawn_background(state.clone());
+    let addr = serve(build_router(state.clone())).await;
+    (format!("http://{addr}"), state)
+}
+
+/// On demand mode, as in a serverless function: nothing runs between requests.
+async fn boot_on_demand() -> (String, Arc<arctos_backend::AppState>) {
+    let up = serve(fake_upstream()).await;
+    let cfg = test_config(&format!("http://{up}")).into_on_demand();
     let state = build_state(cfg).await;
     spawn_background(state.clone());
     let addr = serve(build_router(state.clone())).await;
@@ -442,4 +458,163 @@ async fn origin_allow_list_is_enforced_for_costly_endpoints() {
         403,
         "a missing Origin is rejected once an allow list is configured"
     );
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn on_demand_mode_serves_live_data_on_the_first_request() {
+    let (base, _state) = boot_on_demand().await;
+    let c = reqwest::Client::new();
+    let cache = |r: &reqwest::Response| {
+        r.headers()
+            .get("cache-control")
+            .and_then(|v| v.to_str().ok())
+            .unwrap_or_default()
+            .to_string()
+    };
+
+    // No poller has run, yet the very first request already carries data.
+    let r = c
+        .get(format!("{base}/api/market/overview"))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(r.status(), 200);
+    assert_eq!(
+        cache(&r),
+        "public, max-age=0, s-maxage=30, stale-while-revalidate=120"
+    );
+    let ov: Value = r.json().await.unwrap();
+    assert_eq!(ov["global"]["btcDominance"], 55.0);
+    assert_eq!(ov["fearGreed"]["value"], 61);
+    assert_eq!(ov["altseason"]["total"], 50);
+
+    let r = c
+        .get(format!("{base}/api/market/tickers"))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(
+        cache(&r),
+        "public, max-age=0, s-maxage=2",
+        "prices get a short life"
+    );
+    let t: Value = r.json().await.unwrap();
+    assert_eq!(t["tickers"][0]["price"], 65000.5);
+    assert_eq!(t["source"], "rest");
+
+    let (_, coins) = get_json(&c, format!("{base}/api/market/coins?limit=3")).await;
+    assert_eq!(coins["coins"].as_array().unwrap().len(), 3);
+
+    let (_, n) = get_json(&c, format!("{base}/api/news")).await;
+    assert_eq!(n["articles"][0]["title"], "SEC approves Bitcoin ETF");
+
+    let (s, new) = get_json(&c, format!("{base}/api/sniper/new?chain=ethereum")).await;
+    assert_eq!(s, 200);
+    assert_eq!(new["tokens"][0]["symbol"], "NEW");
+    assert!(new["updatedAt"].is_string());
+
+    let (s, st) = get_json(&c, format!("{base}/api/stocks?symbols=COIN")).await;
+    assert_eq!(s, 200);
+    assert_eq!(st["quotes"][0]["changePct"], 10.0);
+
+    // The whale scan runs inside the request and reports every chain.
+    let (s, w) = get_json(&c, format!("{base}/api/whales")).await;
+    assert_eq!(s, 200);
+    let chains = w["chains"].as_array().unwrap();
+    assert!(chains
+        .iter()
+        .any(|ch| ch["chain"] == "solana" && ch["supported"] == false));
+    assert!(
+        chains.iter().any(|ch| ch["chain"] == "ethereum"),
+        "the scan ran"
+    );
+
+    // Status says how the service runs, and is never cached.
+    let r = c.get(format!("{base}/api/status")).send().await.unwrap();
+    assert_eq!(cache(&r), "no-store");
+    let status: Value = r.json().await.unwrap();
+    assert_eq!(status["mode"], "on_demand");
+    assert_eq!(status["realtime"], false);
+
+    // Errors are never cached.
+    let r = c
+        .get(format!(
+            "{base}/api/market/klines?symbol=BTCUSDT&interval=7m"
+        ))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(r.status(), 400);
+    assert_eq!(cache(&r), "no-store");
+
+    // Live streams are switched off, so the web app knows to poll.
+    let r = c
+        .get(format!("{base}/ws/market"))
+        .header("connection", "Upgrade")
+        .header("upgrade", "websocket")
+        .header("sec-websocket-version", "13")
+        .header("sec-websocket-key", "dGhlIHNhbXBsZSBub25jZQ==")
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(r.status(), 501);
+
+    // Other sites get no CORS permission.
+    let r = c
+        .get(format!("{base}/api/news"))
+        .header("origin", "https://evil.example")
+        .send()
+        .await
+        .unwrap();
+    assert!(r.headers().get("access-control-allow-origin").is_none());
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn on_demand_mode_accepts_the_same_site_only() {
+    let (base, _state) = boot_on_demand().await;
+    let c = reqwest::Client::new();
+    let body = json!({"messages": [{"role": "user", "content": "How is BTC?"}]});
+
+    // The web app and the API share a host, so its Origin matches the Host header.
+    let r = c
+        .post(format!("{base}/api/ai/chat"))
+        .header("origin", &base)
+        .json(&body)
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(r.status(), 200);
+    let v: Value = r.json().await.unwrap();
+    assert_eq!(
+        v["reply"], "live context included btc price: true",
+        "prices were loaded on demand for the prompt"
+    );
+
+    for origin in [Some("https://evil.example"), None] {
+        let mut req = c.post(format!("{base}/api/ai/chat")).json(&body);
+        if let Some(o) = origin {
+            req = req.header("origin", o);
+        }
+        assert_eq!(req.send().await.unwrap().status(), 403, "{origin:?}");
+    }
+
+    let r = c
+        .post(format!("{base}/api/waitlist"))
+        .header("origin", "https://evil.example")
+        .json(&json!({"email": "person@example.com"}))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(r.status(), 403);
+    let ok: Value = c
+        .post(format!("{base}/api/waitlist"))
+        .header("origin", &base)
+        .json(&json!({"email": "person@example.com"}))
+        .send()
+        .await
+        .unwrap()
+        .json()
+        .await
+        .unwrap();
+    assert_eq!(ok["ok"], true);
 }
