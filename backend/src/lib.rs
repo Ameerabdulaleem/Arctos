@@ -16,6 +16,7 @@ pub mod ai;
 pub mod binance;
 pub mod config;
 pub mod error;
+pub mod keeper;
 pub mod launchpad;
 pub mod market;
 pub mod news;
@@ -69,6 +70,7 @@ pub struct AppState {
     pub whales: whales::WhaleStore,
     pub sniper: sniper::SniperStore,
     pub launchpad: launchpad::LaunchpadStore,
+    pub keeper: keeper::Keeper,
     pub news: news::NewsStore,
     pub stock_cache: KeyedCache<stocks::Quote>,
     pub portfolio_cache: KeyedCache<portfolio::PortfolioResponse>,
@@ -86,6 +88,7 @@ pub async fn build_state(config: Config) -> Arc<AppState> {
     let _ = rustls::crypto::ring::default_provider().install_default();
     let db = waitlist::connect(config.database_url.as_deref(), config.on_demand).await;
     Arc::new(AppState {
+        keeper: keeper::Keeper::new(db.clone(), config.on_demand),
         db,
         db_ready: tokio::sync::OnceCell::new(),
         up: Upstream::new(),
@@ -93,7 +96,7 @@ pub async fn build_state(config: Config) -> Arc<AppState> {
         market: market::MarketStore::default(),
         binance: binance::BinanceStore::new(),
         whales: whales::WhaleStore::new(),
-        sniper: sniper::SniperStore::new(),
+        sniper: sniper::SniperStore::with_price_cache(Duration::from_millis(config.price_cache_ms)),
         launchpad: launchpad::LaunchpadStore::new(),
         news: news::NewsStore::default(),
         stock_cache: KeyedCache::new(Duration::from_secs(45), Duration::from_secs(600)),
@@ -118,6 +121,7 @@ pub fn spawn_background(state: Arc<AppState>) {
     whales::spawn_pollers(state.clone());
     sniper::spawn_pollers(state.clone());
     news::spawn_pollers(state.clone());
+    keeper::spawn_loop(state.clone());
     let limiter = state.clone();
     tokio::spawn(async move {
         loop {
@@ -175,6 +179,7 @@ struct StatusResponse {
     sources: Vec<SourceHealth>,
     database: DbStatus,
     ai: AiStatus,
+    keeper: KeeperStatus,
     data: DataCounts,
 }
 
@@ -187,6 +192,14 @@ struct DbStatus {
 #[derive(Serialize)]
 struct AiStatus {
     configured: bool,
+}
+
+#[derive(Serialize)]
+struct KeeperStatus {
+    /// True when open snipes are managed with nobody online.
+    offline: bool,
+    /// True when they also survive a restart of the service.
+    durable: bool,
 }
 
 #[derive(Serialize)]
@@ -217,6 +230,10 @@ async fn status(State(state): State<Arc<AppState>>) -> Json<StatusResponse> {
         },
         ai: AiStatus {
             configured: state.config.anthropic_api_key.is_some(),
+        },
+        keeper: KeeperStatus {
+            offline: state.keeper.offline(),
+            durable: state.keeper.durable(),
         },
         data: DataCounts {
             tickers: state
@@ -319,7 +336,7 @@ async fn cache_headers(State(state): State<Arc<AppState>>, req: Request, next: N
 fn cors_layer(config: &Config) -> CorsLayer {
     let base = CorsLayer::new()
         .allow_methods([Method::GET, Method::POST, Method::OPTIONS])
-        .allow_headers([header::CONTENT_TYPE])
+        .allow_headers([header::CONTENT_TYPE, header::AUTHORIZATION])
         .max_age(Duration::from_secs(600));
     if config.open_to_any_origin() {
         tracing::warn!("FRONTEND_ORIGINS is not set: accepting any origin. Set it in production.");
@@ -355,6 +372,15 @@ pub fn build_router(state: Arc<AppState>) -> Router {
         .route("/api/sniper/search", get(sniper::search))
         .route("/api/sniper/tokens", get(sniper::refresh_tokens))
         .route("/api/sniper/security", get(sniper::security))
+        // Trade keeper: exit plans for open snipes
+        .route(
+            "/api/sniper/keeper/sync",
+            post(keeper::sync).layer(DefaultBodyLimit::max(64 * 1024)),
+        )
+        .route(
+            "/api/sniper/keeper/tick",
+            get(keeper::tick).post(keeper::tick),
+        )
         // Content
         .route("/api/news", get(news::get_news))
         .route("/api/stocks", get(stocks::get_quotes))
@@ -411,6 +437,8 @@ mod tests {
             "/api/ai/status",
             "/api/ai/chat",
             "/api/waitlist",
+            "/api/sniper/keeper/sync",
+            "/api/sniper/keeper/tick",
             "/health",
             "/ws/market",
         ] {

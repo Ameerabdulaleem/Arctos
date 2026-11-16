@@ -1144,6 +1144,27 @@ async fn fetch_intel(state: &Arc<AppState>, chain: ChainInfo, address: String) -
         .ok()
 }
 
+/// A fresh look at one token, skipping the long lived check cache. The trade
+/// keeper uses it to see whether the developer's holding has moved. Returns
+/// `None` when the provider is resting after a rate limit or the call fails.
+pub(crate) async fn fresh_intel(
+    state: &AppState,
+    chain: &ChainInfo,
+    address: &str,
+) -> Option<Intel> {
+    if state.launchpad.paused() {
+        return None;
+    }
+    let path = format!("/networks/{}/tokens/{}/info", chain.gecko_network, address);
+    match gecko(state, &path, &[]).await {
+        Ok(raw) => parse_intel(&raw),
+        Err(e) => {
+            tracing::warn!("developer check on {} failed: {e}", chain.key);
+            None
+        }
+    }
+}
+
 async fn build_feed(
     state: &Arc<AppState>,
     chain: ChainInfo,

@@ -43,6 +43,7 @@ dependencies = [
  "lettre",
  "quick-xml",
  "reqwest",
+ "ring",
  "rustls",
  "serde",
  "serde_json",

@@ -225,6 +225,11 @@ pub struct SniperStore {
 
 impl SniperStore {
     pub fn new() -> Self {
+        Self::with_price_cache(Duration::from_secs(8))
+    }
+
+    /// `price_cache` is how long a live price is reused before the provider is asked again.
+    pub fn with_price_cache(price_cache: Duration) -> Self {
         let (tx, _) = broadcast::channel(128);
         Self {
             latest: RwLock::new(HashMap::new()),
@@ -233,7 +238,7 @@ impl SniperStore {
             tx,
             security: KeyedCache::new(Duration::from_secs(300), Duration::from_secs(3600)),
             search: KeyedCache::new(Duration::from_secs(20), Duration::from_secs(120)),
-            refresh: KeyedCache::new(Duration::from_secs(8), Duration::from_secs(60)),
+            refresh: KeyedCache::new(price_cache, Duration::from_secs(60)),
             new_pools: KeyedCache::new(Duration::from_secs(20), Duration::from_secs(300)),
         }
     }
@@ -933,6 +938,34 @@ pub async fn search(
     Ok(Json(tokens))
 }
 
+/// Live price, liquidity and pool for up to 30 tokens on one chain, from DexScreener.
+/// Shared by the price refresh endpoint and the trade keeper.
+pub(crate) async fn market_for(
+    state: &Arc<AppState>,
+    chain: &str,
+    mut addresses: Vec<String>,
+) -> std::result::Result<Vec<SniperToken>, UpstreamError> {
+    addresses.sort();
+    addresses.dedup();
+    addresses.truncate(30);
+    let key = format!("{chain}|{}", addresses.join(","));
+    let st = state.clone();
+    let only = chain.to_string();
+    state
+        .sniper
+        .refresh
+        .get_or_fetch(&key, || async move {
+            let url = format!(
+                "{}/latest/dex/tokens/{}",
+                st.config.dexscreener_base,
+                addresses.join(",")
+            );
+            let v: Value = st.up.get_json("dexscreener", &url).await?;
+            Ok::<_, UpstreamError>(parse_dexscreener(&v.to_string(), Some(&only)))
+        })
+        .await
+}
+
 #[derive(Deserialize)]
 pub struct IdsQuery {
     ids: String,
@@ -960,23 +993,7 @@ pub async fn refresh_tokens(
     }
     let mut out: Vec<SniperToken> = Vec::new();
     for (chain, addresses) in by_chain {
-        let key = format!("{chain}|{}", addresses.join(","));
-        let st = state.clone();
-        let only = chain.clone();
-        let tokens = state
-            .sniper
-            .refresh
-            .get_or_fetch(&key, || async move {
-                let url = format!(
-                    "{}/latest/dex/tokens/{}",
-                    st.config.dexscreener_base,
-                    addresses.join(",")
-                );
-                let v: Value = st.up.get_json("dexscreener", &url).await?;
-                Ok::<_, UpstreamError>(parse_dexscreener(&v.to_string(), Some(&only)))
-            })
-            .await?;
-        out.extend(tokens);
+        out.extend(market_for(&state, &chain, addresses).await?);
     }
     Ok(Json(out))
 }
