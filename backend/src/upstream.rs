@@ -53,7 +53,20 @@ pub struct Upstream {
 
 impl Upstream {
     pub fn new() -> Self {
-        let client = reqwest::Client::builder()
+        let mut builder = reqwest::Client::builder();
+        // Behind a TLS inspecting proxy (some company networks and test
+        // sandboxes) the operator can name an extra CA bundle to trust.
+        if let Ok(path) = std::env::var("ARCTOS_EXTRA_CA_FILE") {
+            match std::fs::read(&path).map(|pem| reqwest::Certificate::from_pem_bundle(&pem)) {
+                Ok(Ok(certs)) => {
+                    for cert in certs {
+                        builder = builder.add_root_certificate(cert);
+                    }
+                }
+                _ => tracing::warn!("ARCTOS_EXTRA_CA_FILE could not be read as a PEM bundle"),
+            }
+        }
+        let client = builder
             .timeout(Duration::from_secs(12))
             .connect_timeout(Duration::from_secs(6))
             .user_agent("Mozilla/5.0 (compatible; ArctosDataService/0.3)")
@@ -253,6 +266,38 @@ impl<V: Clone> KeyedCache<V> {
             stale_for,
             slots: Mutex::new(HashMap::new()),
         }
+    }
+
+    /// The cached value for `key`, if one is still usable (fresh or within the
+    /// stale window). Never fetches. Returns `None` while a fetch holds the slot.
+    pub fn peek(&self, key: &str) -> Option<V> {
+        let slot = {
+            let map = self.slots.lock().unwrap_or_else(|e| e.into_inner());
+            map.get(key)?.clone()
+        };
+        let guard = slot.try_lock().ok()?;
+        match guard.as_ref() {
+            Some((stamp, value)) if stamp.elapsed() < self.stale_for.max(self.ttl) => {
+                Some(value.clone())
+            }
+            _ => None,
+        }
+    }
+
+    /// True when `key` holds a value that is still inside its fresh window.
+    pub fn is_fresh(&self, key: &str) -> bool {
+        let slot = {
+            let map = self.slots.lock().unwrap_or_else(|e| e.into_inner());
+            match map.get(key) {
+                Some(slot) => slot.clone(),
+                None => return false,
+            }
+        };
+        slot.try_lock().ok().is_some_and(|guard| {
+            guard
+                .as_ref()
+                .is_some_and(|(stamp, _)| stamp.elapsed() < self.ttl)
+        })
     }
 
     pub async fn get_or_fetch<F, Fut, E>(&self, key: &str, fetch: F) -> Result<V, E>

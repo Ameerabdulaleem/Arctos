@@ -16,6 +16,7 @@ pub mod ai;
 pub mod binance;
 pub mod config;
 pub mod error;
+pub mod launchpad;
 pub mod market;
 pub mod news;
 pub mod portfolio;
@@ -67,6 +68,7 @@ pub struct AppState {
     pub binance: binance::BinanceStore,
     pub whales: whales::WhaleStore,
     pub sniper: sniper::SniperStore,
+    pub launchpad: launchpad::LaunchpadStore,
     pub news: news::NewsStore,
     pub stock_cache: KeyedCache<stocks::Quote>,
     pub portfolio_cache: KeyedCache<portfolio::PortfolioResponse>,
@@ -92,6 +94,7 @@ pub async fn build_state(config: Config) -> Arc<AppState> {
         binance: binance::BinanceStore::new(),
         whales: whales::WhaleStore::new(),
         sniper: sniper::SniperStore::new(),
+        launchpad: launchpad::LaunchpadStore::new(),
         news: news::NewsStore::default(),
         stock_cache: KeyedCache::new(Duration::from_secs(45), Duration::from_secs(600)),
         portfolio_cache: KeyedCache::new(Duration::from_secs(20), Duration::from_secs(120)),
@@ -277,7 +280,8 @@ pub fn cdn_cache_policy(path: &str) -> Option<(u32, u32)> {
         "/api/market/klines" => (3, 0),
         "/api/market/overview" | "/api/market/coins" => (30, 120),
         "/api/whales" => (10, 60),
-        "/api/sniper/new" => (10, 60),
+        "/api/sniper/new" | "/api/sniper/feed" => (10, 60),
+        "/api/sniper/chains" => (3600, 86400),
         "/api/sniper/search" => (15, 60),
         "/api/sniper/tokens" => (5, 30),
         "/api/sniper/security" => (300, 3600),
@@ -345,6 +349,8 @@ pub fn build_router(state: Arc<AppState>) -> Router {
         .route("/api/whales", get(whales::get_whales))
         .route("/api/portfolio/:address", get(portfolio::get_portfolio))
         // Sniper discovery
+        .route("/api/sniper/chains", get(launchpad::get_chains))
+        .route("/api/sniper/feed", get(launchpad::get_feed))
         .route("/api/sniper/new", get(sniper::get_new))
         .route("/api/sniper/search", get(sniper::search))
         .route("/api/sniper/tokens", get(sniper::refresh_tokens))

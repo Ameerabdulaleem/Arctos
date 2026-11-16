@@ -59,9 +59,9 @@ const tokAddr = (net, i) => (net === 'solana' ? String.fromCharCode(65 + i).repe
 const pool = (net, i, sym) => ({
   id: `${net}_pool${i}`, type: 'pool',
   attributes: { name: `${sym} / WETH`, address: `0xpool${i}`, base_token_price_usd: String(0.0004 * (i + 1)), pool_created_at: new Date(now() - (i + 1) * 420000).toISOString(),
-    fdv_usd: String(150000 * (i + 1)), market_cap_usd: null, price_change_percentage: { m5: String(i), h1: '3.1', h24: String(40 - i * 9) }, transactions: { h24: { buys: 40 + i, sells: 22 } },
-    volume_usd: { h24: String(18000 * (i + 1)) }, reserve_in_usd: String(32000 * (i + 1)) },
-  relationships: { base_token: { data: { id: `${net}_${tokAddr(net, i)}`, type: 'token' } }, dex: { data: { id: 'uniswap_v3' } } },
+    fdv_usd: String(150000 * (i + 1)), market_cap_usd: null, price_change_percentage: { m5: String(i), h1: '3.1', h24: String(40 - i * 9) }, transactions: { m5: { buys: 6, sells: 2, buyers: 6, sellers: 2 }, h1: { buys: 300 - i * 70, sells: 90 + i * 60, buyers: 210 - i * 50, sellers: 70 + i * 40 }, h24: { buys: 40 + i, sells: 22, buyers: 30 + i, sellers: 18 } },
+    volume_usd: { h1: String(4000 * (i + 1)), h24: String(18000 * (i + 1)) }, reserve_in_usd: String(32000 * (i + 1)) },
+  relationships: { base_token: { data: { id: `${net}_${tokAddr(net, i)}`, type: 'token' } }, dex: { data: { id: net === 'solana' ? 'pump-fun' : net === 'bsc' ? 'four-meme' : 'uniswap_v3' } } },
 });
 
 const dexPair = (chainId, addr, sym, liq) => ({
@@ -105,7 +105,12 @@ http.createServer((req, res) => {
   if (p === '/api/v3/trades') { const pr = PRICES[(url.searchParams.get('symbol') || 'BTCUSDT').replace('USDT', '')] ?? 10; return json(res, Array.from({ length: 30 }, (_, i) => ({ id: 1000 + i, price: String(pr * (1 + (rnd() - 0.5) * 0.0004)), qty: String(0.01 + rnd()), time: now() - (30 - i) * 900, isBuyerMaker: rnd() > 0.5 }))); }
   if (p === '/rss') { res.writeHead(200, { 'content-type': 'application/rss+xml' }); return res.end(rss()); }
   if (p.startsWith('/yahoo/v8/finance/chart/')) { const sym = p.split('/').pop(); const prev = 100 + sym.length * 17; return json(res, { chart: { result: [{ meta: { symbol: sym, currency: 'USD', exchangeName: 'NMS', longName: `${sym} Corporation`, regularMarketPrice: prev * 1.021, chartPreviousClose: prev, regularMarketTime: Math.floor(now() / 1000) }, indicators: { quote: [{ close: Array.from({ length: 60 }, (_, i) => prev * (1 + (i / 60) * 0.021 + (rnd() - 0.5) * 0.004)) }] } }], error: null } }); }
-  if (/^\/gt\/networks\/[^/]+\/new_pools$/.test(p)) { const net = p.split('/')[3]; return json(res, { data: ['PEPEX', 'MOONI', 'WAGMI', 'SNIPE'].map((s, i) => pool(net, i, s)), included: ['PEPEX', 'MOONI', 'WAGMI', 'SNIPE'].map((s, i) => ({ id: `${net}_${tokAddr(net, i)}`, type: 'token', attributes: { address: tokAddr(net, i), name: `${s} Coin`, symbol: s, image_url: null } })) }); }
+  // The pool data provider is reachable as the public API (/gt) and as the keyed on chain API (/cg/onchain).
+  const gt = p.replace(/^\/cg\/onchain\//, '/gt/');
+  if (/^\/gt\/networks\/[^/]+\/(trending_pools|dexes\/[^/]+\/pools)$/.test(gt)) { const net = gt.split('/')[3]; return json(res, { data: ['PEPEX', 'MOONI', 'WAGMI', 'SNIPE'].map((s, i) => pool(net, i, s)), included: ['PEPEX', 'MOONI', 'WAGMI', 'SNIPE'].map((s, i) => ({ id: `${net}_${tokAddr(net, i)}`, type: 'token', attributes: { address: tokAddr(net, i), name: `${s} Coin`, symbol: s, image_url: null } })) }); }
+  if (/^\/gt\/networks\/[^/]+\/tokens\/multi\//.test(gt)) return json(res, { data: decodeURIComponent(gt.split('/').pop()).split(',').map((a, i) => ({ attributes: { address: a, launchpad_details: { graduation_percentage: 88 - i * 25, completed: false } } })) });
+  if (/^\/gt\/networks\/[^/]+\/tokens\/[^/]+\/info$/.test(gt)) { const a = gt.split('/')[5]; return json(res, { data: { attributes: { address: a, developer_address: a.startsWith('0x') ? '0x' + 'd'.repeat(40) : 'D'.repeat(44), developer_holding_percentage: 2.4, holders: { count: 4200, distribution_percentage: { top_10: '22.5' } }, mint_authority: 'no', freeze_authority: 'no', is_honeypot: 'no', twitter_handle: 'fixture', websites: [] } } }); }
+  if (/^\/gt\/networks\/[^/]+\/new_pools$/.test(gt)) { const net = gt.split('/')[3]; return json(res, { data: ['PEPEX', 'MOONI', 'WAGMI', 'SNIPE'].map((s, i) => pool(net, i, s)), included: ['PEPEX', 'MOONI', 'WAGMI', 'SNIPE'].map((s, i) => ({ id: `${net}_${tokAddr(net, i)}`, type: 'token', attributes: { address: tokAddr(net, i), name: `${s} Coin`, symbol: s, image_url: null } })) }); }
   if (p === '/dex/latest/dex/search') return json(res, { pairs: [dexPair('ethereum', '0x6982508145454Ce325dDbE47a25d4ec3d2311933', 'PEPE', 91000000), dexPair('solana', 'DezXAZ8z7PnrnRJjz3wXBoRgixCa6xjnB7YaB1pPB263', 'BONK', 12000000)] });
   if (p.startsWith('/dex/latest/dex/tokens/')) { const addrs = p.split('/').pop().split(','); return json(res, { pairs: addrs.map((a) => dexPair(a.startsWith('0x') ? 'ethereum' : 'solana', a, 'TRK', 500000)) }); }
   if (p.startsWith('/goplus/token_security/') || p === '/goplus/solana/token_security') {

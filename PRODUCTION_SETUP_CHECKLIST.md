@@ -18,7 +18,7 @@ Add these in Vercel, Project Settings, Environment Variables, then redeploy.
 - [ ] `ANTHROPIC_API_KEY` for the AI assistant. Optionally `ANTHROPIC_MODEL`.
 - [ ] `DATABASE_URL` for real waitlist positions.
 - [ ] `MAIL_USERNAME`, `MAIL_PASSWORD`, `MAIL_FROM` for the welcome email.
-- [ ] `COINGECKO_API_KEY` if CoinGecko starts limiting requests.
+- [ ] `COINGECKO_API_KEY` (a free demo key from CoinGecko). It protects the market data from rate limits and makes the sniper check tokens about three times faster.
 
 ## 3. Optional: a standalone server
 

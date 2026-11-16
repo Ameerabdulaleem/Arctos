@@ -55,6 +55,8 @@ pub struct Config {
     pub whale_min_usd: f64,
     pub news_feeds: Vec<(String, String)>,
     pub stock_watchlist: Vec<String>,
+    /// Pause between calls to the pool data provider, in milliseconds.
+    pub provider_call_spacing_ms: u64,
     /// Set to false in tests to avoid starting pollers.
     pub enable_pollers: bool,
     /// On demand mode: no background pollers and no live streams. Every request
@@ -200,6 +202,10 @@ impl Config {
             .into_iter()
             .map(|s| s.to_ascii_uppercase())
             .collect(),
+            provider_call_spacing_ms: var("PROVIDER_CALL_SPACING_MS")
+                .and_then(|v| v.parse().ok())
+                // The public tier rejects calls that arrive less than about three seconds apart.
+                .unwrap_or(3200),
             enable_pollers: !on_demand && !truthy("DISABLE_POLLERS"),
             on_demand,
         }
