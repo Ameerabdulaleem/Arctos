@@ -68,11 +68,46 @@ Three honest limits:
 * **A developer's record is built from what this service has observed.** There is no free public index of every wallet's past launches, so the record starts empty and grows as tokens are checked. It is kept in memory, so it resets when the service restarts.
 * **Checks are paced.** GeckoTerminal's free tier wants calls about three seconds apart, so roughly three tokens a minute get a full check per feed. Add a free CoinGecko API key (`COINGECKO_API_KEY`) and the same data comes from a tier with its own allowance, which triples that.
 
+### The exit plan
+
+Every snipe is sold by one exit plan, set on the sniper page. A change to the plan also applies to snipes that are already open.
+
+* **Take profit 1, 2 and 3.** Each target has its own profit percentage and its own share of the position to sell, for example sell 60% at +80%, 20% at +400% and 20% at +1000%. Each has a switch, so you can run one, two or all three. Whatever the targets do not sell keeps riding.
+* **Stop loss.** Sells everything when the price is a set percentage below what you paid.
+* **Developer exit guard.** Sells everything when the developer is seen leaving: their share of the supply has dropped by a quarter or more since you bought, or about 30% of the pool's liquidity has been withdrawn beyond what the price move explains.
+
+The rules live in one place, the trade keeper in the data service (`backend/src/keeper.rs`). The web app reports its open snipes to the keeper every few seconds and books the sales the keeper decides on.
+
+What the exit plan cannot do:
+
+* **Sales are simulated at the price seen when a check runs.** Between two checks a price can jump past a target or through a stop, and the sale is booked at the price that was actually seen.
+* **The guard is a set of warning signs, not a prediction.** The developer wallet is read about once a minute per token, a developer can move tokens through other wallets, and on a bonding curve there is no pool to watch. A fast rug pull can be over before any check sees it.
+
+### Managing trades while you are away
+
+Where a trade's progress is kept decides whether it is managed with Arctos closed:
+
+| Setup | Managed with every tab closed? |
+| --- | --- |
+| Vercel with no database (the default) | No. Open snipes are managed while Arctos is open in at least one browser tab, on any page. |
+| Vercel with a PostgreSQL database | Yes. The keeper stores the open snipes and a scheduled job checks them every minute or so. |
+| The standalone server | Yes. It checks every 20 seconds on its own. With no database the trades are forgotten if the server restarts. |
+
+To switch it on for a Vercel site:
+
+1. In Vercel, open the project, go to Storage, create a Postgres database (Neon has a free tier) and connect it to the project. This adds `DATABASE_URL` for you. Pick a region close to Frankfurt, where the function runs.
+2. Redeploy. `/api/status` then shows `"keeper": {"offline": true, "durable": true}`.
+3. Nothing else is needed. The workflow in `.github/workflows/keeper.yml` already calls the site every five minutes and, while snipes are open, checks them about once a minute. It runs on GitHub's free scheduler, which can run late when GitHub is busy and is switched off after 60 days without a commit (re-enable it under Actions).
+
+On Vercel's Pro plan you can use Vercel Cron instead, by adding `"crons": [{"path": "/api/sniper/keeper/tick", "schedule": "* * * * *"}]` to `vercel.json`. The Hobby plan only allows one cron run a day, which is why this is not switched on by default. Set `CRON_SECRET` in Vercel if you want the scheduled check to refuse callers that do not know it, and add the same value as a repository secret so the GitHub workflow can still call it.
+
+The paper account stays in your browser either way. The keeper only knows a hash of a random key your browser generates, the token, the size and the plan. Sales made while you were away are booked, and shown, the next time you open Arctos on the same browser. Snipes nobody has come back to for 30 days are dropped.
+
 ## What is simulated, and what is not covered
 
 Be clear about these before you rely on the app:
 
-* **Trading is paper trading.** Orders in the terminal and the sniper are simulated against the real order book and real prices, with a 0.1 percent fee, limit orders, take profit and stop loss. No real funds move and no wallet signature is ever requested. Real execution through a DEX aggregator needs a signing flow that deserves its own careful build and testing.
+* **Trading is paper trading.** Orders in the terminal and the sniper are simulated against the real order book and real prices, with a 0.1 percent fee, limit orders, take profit and stop loss. Sniper trades are sold by the exit plan described above. No real funds move and no wallet signature is ever requested. Real execution through a DEX aggregator needs a signing flow that deserves its own careful build and testing.
 * **PRE-IPO cards are static.** Private companies have no free live price feed. The listings and valuations in `src/app/data/preIpoListings.ts` are maintained by hand and are labelled as possibly out of date. Update them when you refresh the cards.
 * **Solana whale alerts are not available yet.** A reliable Solana feed needs a dedicated RPC provider. The page says so.
 * **DeFi positions and NFTs are not read.** Wallet balances cover native coins and major tokens (stablecoins, wrapped ETH, BNB and BTC). Positions need an indexer.
@@ -124,7 +159,8 @@ Data service (`backend/.env.example`):
 | `FRONTEND_ORIGINS` | Comma separated site origins allowed to call the service. Needed for a standalone server. On Vercel the site and the API share one host, which is accepted automatically. |
 | `TRUST_PROXY` | `true` behind your own proxy so rate limits see the real client IP. |
 | `ANTHROPIC_API_KEY`, `ANTHROPIC_MODEL`, `ANTHROPIC_EFFORT` | AI assistant. The default model is `claude-opus-5-5`. |
-| `DATABASE_URL` | PostgreSQL for real waitlist positions (optional). |
+| `DATABASE_URL` | PostgreSQL (optional). Gives the waitlist real positions and lets the trade keeper manage open snipes while nobody has the app open. `POSTGRES_URL` is read too. |
+| `CRON_SECRET` | Optional. When set, the keeper's scheduled check only answers callers that send it as a bearer token. |
 | `MAIL_*`, `PUBLIC_SITE_URL` | SMTP settings for the welcome email (optional). |
 | `COINGECKO_API_KEY`, `BLOCKCHAIR_API_KEY` | Optional keys that raise provider limits. A CoinGecko key also speeds up the sniper's token checks. |
 | `*_RPC_URL`, `TRACKED_SYMBOLS`, `WHALE_MIN_USD`, `STOCK_WATCHLIST`, `NEWS_FEEDS` | Optional tuning. |
@@ -139,7 +175,7 @@ Every provider base URL can also be overridden, which is how the fixtures work.
 * Live market data, whales, news, stocks and the sniper work with no environment variables.
 * Add these in Vercel, Project Settings, Environment Variables, when you want the feature:
   * `ANTHROPIC_API_KEY` switches on the AI assistant.
-  * `DATABASE_URL` gives the waitlist real positions, and `MAIL_USERNAME`, `MAIL_PASSWORD` and `MAIL_FROM` send the welcome email.
+  * `DATABASE_URL` gives the waitlist real positions and keeps open snipes managed while you are away (see the sniper section). `MAIL_USERNAME`, `MAIL_PASSWORD` and `MAIL_FROM` send the welcome email.
   * `COINGECKO_API_KEY` and `BLOCKCHAIR_API_KEY` raise provider limits.
 * After a deploy, open `/api/status` on your site. It lists every provider and whether it is reachable.
 
@@ -162,9 +198,10 @@ The function runs in Frankfurt (`fra1` in `vercel.json`). Binance refuses reques
 ## Tests
 
 ```bash
-npm test                          # unit tests for the paper trading engine, formatting, trade book, password hashing
+npm test                          # unit tests for the paper trading engine, exit plan, sniper filters, formatting, trade book, password hashing
 npm run lint && npm run build
-cd backend && cargo test          # 67 unit tests and 9 end to end tests against a fake upstream, in both modes
+cd backend && cargo test          # 90 unit tests and 14 end to end tests against a fake upstream, in both modes
+                                  # set KEEPER_TEST_DATABASE_URL to also run the trade keeper against a real PostgreSQL
 cargo build                       # the Vercel function crate (repository root)
 cd backend && cargo clippy --all-targets -- -D warnings
 ```
@@ -178,10 +215,10 @@ src/app/            React app: components, services (API clients), contexts, hoo
 src/styles/         Design system: tokens and shared classes (panel, btn, field, seg, icon-tile)
 api/main.rs         Vercel function: a thin adapter around the backend crate
 Cargo.toml          The function crate (depends on backend/)
-backend/src/        Rust service: market, binance, whales, sniper, news, stocks, portfolio, ai, waitlist
+backend/src/        Rust service: market, binance, whales, sniper, launchpad, keeper, news, stocks, portfolio, ai, waitlist
 backend/tests/      End to end tests with a fake upstream
 scripts/            Dev fixtures and the browser walkthrough
-.github/workflows/  CI
+.github/workflows/  CI, and the schedule that keeps open snipes managed while nobody is online
 ```
 
 ## Disclaimer

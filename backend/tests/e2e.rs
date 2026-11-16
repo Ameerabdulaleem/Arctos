@@ -1118,19 +1118,19 @@ async fn offline_flow(base: &str, mint: &str, device_key: &str, durable: bool) {
     let c = reqwest::Client::new();
     let tick = || async {
         // Another check may have run a moment ago (the gap is shared), so wait for our turn.
-        for _ in 0..100 {
-            let report: Value = c
+        // One try a second stays well inside the keeper's request limit.
+        for _ in 0..40 {
+            let r = c
                 .post(format!("{base}/api/sniper/keeper/tick"))
                 .send()
                 .await
-                .unwrap()
-                .json()
-                .await
                 .unwrap();
+            assert_eq!(r.status(), 200);
+            let report: Value = r.json().await.unwrap();
             if report["ran"] == true {
                 return report;
             }
-            tokio::time::sleep(Duration::from_millis(250)).await;
+            tokio::time::sleep(Duration::from_secs(1)).await;
         }
         panic!("the background check never got its turn");
     };

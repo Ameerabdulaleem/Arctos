@@ -115,6 +115,7 @@ export function PaperProvider({ children }: { children: ReactNode }) {
     const held = Object.values(accountRef.current.positions).filter((p) => p.source === 'sniper');
     if (held.length === 0 && pendingAck.current.length === 0 && !keeperMayHold.current) return;
     syncing.current = true;
+    let followUp = false;
     try {
       const plan = toPlan(loadExit());
       const sentAck = pendingAck.current;
@@ -129,6 +130,7 @@ export function PaperProvider({ children }: { children: ReactNode }) {
       const result = bookKeeperSales(accountRef.current, response.executions, response.positions);
       if (result.account !== accountRef.current) commit(result.account);
       pendingAck.current = result.booked;
+      followUp = result.booked.length > 0;
       keeperMayHold.current = response.mode === 'offline' && (response.positions.length > 0 || response.executions.length > 0);
       announceKeeper(result.fills, response.executions, response.checkedAt);
       setDexPrices((prev) => {
@@ -146,7 +148,8 @@ export function PaperProvider({ children }: { children: ReactNode }) {
       syncing.current = false;
     }
     // Tell the keeper straight away that its sales are booked, so it stops offering them.
-    if (pendingAck.current.length > 0) setTimeout(() => void keeperRound(), 600);
+    // After a failed round the regular interval tries again instead.
+    if (followUp) setTimeout(() => void keeperRound(), 600);
   }, [commit]);
 
   // With several tabs open only one of them talks to the keeper at a time.

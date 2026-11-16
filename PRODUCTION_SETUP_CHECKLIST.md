@@ -16,7 +16,8 @@ The site and its data API deploy together. There is nothing to configure for liv
 Add these in Vercel, Project Settings, Environment Variables, then redeploy.
 
 - [ ] `ANTHROPIC_API_KEY` for the AI assistant. Optionally `ANTHROPIC_MODEL`.
-- [ ] `DATABASE_URL` for real waitlist positions.
+- [ ] A Postgres database, connected under Storage in the Vercel project (this sets `DATABASE_URL`). It gives the waitlist real positions and lets open snipes be managed while nobody has the site open. After a redeploy, `/api/status` should show `"keeper": {"offline": true, "durable": true}`.
+- [ ] Check that the "Trade keeper" workflow is running under Actions on GitHub. It is what checks open snipes while you are away. Optionally set `CRON_SECRET` in Vercel and as a repository secret to lock the scheduled check.
 - [ ] `MAIL_USERNAME`, `MAIL_PASSWORD`, `MAIL_FROM` for the welcome email.
 - [ ] `COINGECKO_API_KEY` (a free demo key from CoinGecko). It protects the market data from rate limits and makes the sniper check tokens about three times faster.
 

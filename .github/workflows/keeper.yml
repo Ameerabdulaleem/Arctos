@@ -1,0 +1,48 @@
+name: Trade keeper
+
+# Calls the trade keeper on the live site every few minutes, so open paper snipes keep
+# following their exit plan while nobody has Arctos open. It only does something when the
+# site has a database (see "Managing trades while you are away" in the README). Without one
+# the site answers at once and the job ends.
+#
+# GitHub switches scheduled workflows off after 60 days without a commit to the repository.
+# If that happens, press "Enable workflow" on this workflow's page under Actions.
+
+on:
+  schedule:
+    - cron: '*/5 * * * *'
+  workflow_dispatch:
+
+permissions: {}
+
+concurrency:
+  group: trade-keeper
+  cancel-in-progress: false
+
+jobs:
+  check:
+    name: Check open snipes
+    runs-on: ubuntu-latest
+    timeout-minutes: 6
+    env:
+      # Set the repository variable ARCTOS_SITE_URL if the site lives on another address.
+      SITE_URL: ${{ vars.ARCTOS_SITE_URL || 'https://arctos-fi.vercel.app' }}
+      # Only needed when CRON_SECRET is set on the site. Add the same value as a repository secret.
+      CRON_SECRET: ${{ secrets.CRON_SECRET }}
+    steps:
+      - name: Check about once a minute until the next run
+        run: |
+          set -u
+          args=(--silent --show-error --max-time 75 --request POST)
+          if [ -n "${CRON_SECRET:-}" ]; then args+=(--header "Authorization: Bearer $CRON_SECRET"); fi
+          for round in 1 2 3 4 5; do
+            if ! body=$(curl "${args[@]}" "$SITE_URL/api/sniper/keeper/tick"); then
+              echo "::warning::The site did not answer. The next run tries again."
+              break
+            fi
+            echo "$body"
+            open=$(echo "$body" | jq -r '.open // 0' 2>/dev/null || echo 0)
+            # Nothing to watch: stop here and look again on the next run.
+            if [ "$open" = "0" ]; then break; fi
+            if [ "$round" -lt 5 ]; then sleep 50; fi
+          done

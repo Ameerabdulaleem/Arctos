@@ -621,6 +621,9 @@ pub struct PgStore {
     ready: tokio::sync::OnceCell<()>,
 }
 
+/// An arbitrary number that names the keeper's migration lock in PostgreSQL.
+const MIGRATION_LOCK: i64 = 0x4152_4354_4f53;
+
 const MIGRATIONS: &[&str] = &[
     "CREATE TABLE IF NOT EXISTS keeper_positions (
         owner      TEXT    NOT NULL,
@@ -654,13 +657,21 @@ impl PgStore {
     async fn pool(&self) -> StoreResult<&PgPool> {
         self.ready
             .get_or_try_init(|| async {
+                // Several instances can start at once. The lock makes them create
+                // the tables one after another instead of tripping over each other.
+                let mut tx = self.pool.begin().await.map_err(|e| e.to_string())?;
+                sqlx::query("SELECT pg_advisory_xact_lock($1)")
+                    .bind(MIGRATION_LOCK)
+                    .execute(&mut *tx)
+                    .await
+                    .map_err(|e| e.to_string())?;
                 for statement in MIGRATIONS {
                     sqlx::query(statement)
-                        .execute(&self.pool)
+                        .execute(&mut *tx)
                         .await
                         .map_err(|e| e.to_string())?;
                 }
-                Ok::<_, String>(())
+                tx.commit().await.map_err(|e| e.to_string())
             })
             .await?;
         Ok(&self.pool)
@@ -1141,11 +1152,13 @@ fn same_secret(a: &str, b: &str) -> bool {
 
 /// Fetches this round's market signals for a set of positions. At most
 /// `dev_budget` developer wallets are read, the longest unchecked first,
-/// because the provider only allows a slow trickle of those calls.
+/// because the provider only allows a slow trickle of those calls. A
+/// `patient` caller waits for the provider, others skip the read when it is busy.
 async fn gather(
     state: &Arc<AppState>,
     positions: &[&Position],
     dev_budget: usize,
+    patient: bool,
     now_ms: i64,
 ) -> HashMap<String, Signals> {
     let mut out: HashMap<String, Signals> = HashMap::new();
@@ -1197,7 +1210,7 @@ async fn gather(
         let Some(chain) = chain_info(&p.chain) else {
             continue;
         };
-        let Some(intel) = launchpad::fresh_intel(state, &chain, &p.address).await else {
+        let Some(intel) = launchpad::fresh_intel(state, &chain, &p.address, patient).await else {
             // Rate limited or unreachable. Try again on a later round.
             break;
         };
@@ -1399,7 +1412,7 @@ pub async fn sync(
             .filter(|p| p.open())
             .collect();
         // One developer check per sync keeps the answer quick.
-        gather(&state, &all, 1, now).await
+        gather(&state, &all, 1, false, now).await
     };
     let mut new_id = || keeper.new_id();
     if let Some((store, owner)) = held {
@@ -1496,7 +1509,7 @@ pub async fn run_tick(state: &Arc<AppState>) -> TickReport {
         };
         let signals = {
             let positions: Vec<&Position> = rows.iter().map(|r| &r.position).collect();
-            gather(state, &positions, dev_budget, now).await
+            gather(state, &positions, dev_budget, true, now).await
         };
         let mut new_id = || keeper.new_id();
         for row in &mut rows {

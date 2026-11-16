@@ -15,9 +15,10 @@ Read `README.md` first. It explains the architecture, what is live and what is s
 2. **No secrets in the browser.** Never put keys in `VITE_` variables. Anything that needs a key goes through the Rust service.
 3. **External text is untrusted.** Sanitise it in Rust, render it as text in React, and only open http or https links (`safeHref`).
 4. **Never promise results.** The sniper score ranks candidates. Do not add copy or defaults that claim a win rate. Show the measured record instead.
-5. **Trading is paper trading.** Do not add real order execution without a reviewed signing flow and tests.
-6. **Effects must not return values.** In React effects use a block body, not an expression body, so a returned value is never treated as a cleanup function.
-7. **Do not poll in a loop on failure.** Failed requests must be remembered or backed off, never retried on every render.
+5. **One set of exit rules.** Take profit targets, the stop loss and the developer exit guard are decided in `backend/src/keeper.rs` only. The web app reports open snipes and books the sales it is told about. Do not evaluate exits for sniper trades in the browser.
+6. **Trading is paper trading.** Do not add real order execution without a reviewed signing flow and tests.
+7. **Effects must not return values.** In React effects use a block body, not an expression body, so a returned value is never treated as a cleanup function.
+8. **Do not poll in a loop on failure.** Failed requests must be remembered or backed off, never retried on every render.
 
 ## Commands
 
