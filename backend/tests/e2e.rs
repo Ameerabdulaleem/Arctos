@@ -1281,7 +1281,13 @@ async fn keeper_keeps_trades_in_postgres() {
     // A fresh key and token on every run, so earlier runs cannot interfere.
     let run = chrono::Utc::now().timestamp_nanos_opt().unwrap();
     let key = format!("pg-test-device-key-{run:032}");
-    let mint = format!("PG{run:040}").chars().take(44).collect::<String>();
+    // Digits spelled as letters keep the address valid base58.
+    let letters: String = run
+        .to_string()
+        .bytes()
+        .map(|d| (b'a' + (d - b'0')) as char)
+        .collect();
+    let mint = format!("{:A<44}", format!("PG{letters}"));
     offline_flow(&base, &mint, &key, true).await;
 }
 
