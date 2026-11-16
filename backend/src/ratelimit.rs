@@ -22,6 +22,8 @@ pub enum Bucket {
     Ai,
     Waitlist,
     Portfolio,
+    /// The trade keeper. An open app syncs about five times a minute.
+    Keeper,
 }
 
 impl Bucket {
@@ -31,6 +33,7 @@ impl Bucket {
             Bucket::Ai => (12, Duration::from_secs(60)),
             Bucket::Waitlist => (6, Duration::from_secs(600)),
             Bucket::Portfolio => (30, Duration::from_secs(60)),
+            Bucket::Keeper => (120, Duration::from_secs(60)),
         }
     }
 }
@@ -100,6 +103,8 @@ fn bucket_for(method: &Method, path: &str) -> Bucket {
         Bucket::Waitlist
     } else if path.starts_with("/api/portfolio") {
         Bucket::Portfolio
+    } else if path.starts_with("/api/sniper/keeper") {
+        Bucket::Keeper
     } else {
         Bucket::General
     }
@@ -163,6 +168,14 @@ mod tests {
         assert_eq!(
             bucket_for(&Method::GET, "/api/portfolio/0xabc"),
             Bucket::Portfolio
+        );
+        assert_eq!(
+            bucket_for(&Method::POST, "/api/sniper/keeper/sync"),
+            Bucket::Keeper
+        );
+        assert_eq!(
+            bucket_for(&Method::GET, "/api/sniper/feed"),
+            Bucket::General
         );
     }
 }

@@ -369,6 +369,21 @@ impl LaunchpadStore {
         *next = Instant::now() + spacing;
     }
 
+    /// Takes a turn only if one is free within `max_wait`. Callers that answer a
+    /// person, and must not queue behind others, use this instead of [`Self::turn`].
+    async fn turn_soon(&self, spacing: Duration, max_wait: Duration) -> bool {
+        let Ok(mut next) = self.next_call.try_lock() else {
+            return false;
+        };
+        let wait = next.saturating_duration_since(Instant::now());
+        if wait > max_wait {
+            return false;
+        }
+        tokio::time::sleep(wait).await;
+        *next = Instant::now() + spacing;
+        true
+    }
+
     fn check_failed_recently(&self, key: &str) -> bool {
         self.failed_checks
             .lock()
@@ -999,6 +1014,15 @@ async fn gecko(
         .launchpad
         .turn(Duration::from_millis(state.config.provider_call_spacing_ms))
         .await;
+    gecko_now(state, path, query).await
+}
+
+/// The call itself. The caller has already taken its turn.
+async fn gecko_now(
+    state: &AppState,
+    path: &str,
+    query: &[(&str, String)],
+) -> std::result::Result<String, UpstreamError> {
     let accept = ("accept", "application/json;version=20230302");
     let keyed = match &state.config.coingecko_api_key {
         Some(key) => {
@@ -1142,6 +1166,43 @@ async fn fetch_intel(state: &Arc<AppState>, chain: ChainInfo, address: String) -
         .await
         .map_err(|e| tracing::warn!("token check on {} failed: {e}", chain.key))
         .ok()
+}
+
+/// A fresh look at one token, skipping the long lived check cache. The trade
+/// keeper uses it to see whether the developer's holding has moved. Returns
+/// `None` when the provider is resting after a rate limit or the call fails.
+///
+/// A `patient` caller (the background check) waits for its turn. Any other
+/// caller is answering a person, so it gives up at once when the provider is
+/// busy and tries again on a later round. That also keeps a flood of requests
+/// from piling up behind the provider's pace.
+pub(crate) async fn fresh_intel(
+    state: &AppState,
+    chain: &ChainInfo,
+    address: &str,
+    patient: bool,
+) -> Option<Intel> {
+    if state.launchpad.paused() {
+        return None;
+    }
+    let spacing = Duration::from_millis(state.config.provider_call_spacing_ms);
+    if patient {
+        state.launchpad.turn(spacing).await;
+    } else if !state
+        .launchpad
+        .turn_soon(spacing, Duration::from_millis(1500))
+        .await
+    {
+        return None;
+    }
+    let path = format!("/networks/{}/tokens/{}/info", chain.gecko_network, address);
+    match gecko_now(state, &path, &[]).await {
+        Ok(raw) => parse_intel(&raw),
+        Err(e) => {
+            tracing::warn!("developer check on {} failed: {e}", chain.key);
+            None
+        }
+    }
 }
 
 async fn build_feed(

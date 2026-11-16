@@ -24,6 +24,8 @@ reqwest       = { version = "0.12", default-features = false, features = ["json"
 tokio-tungstenite = { version = "0.24", features = ["rustls-tls-webpki-roots"] }
 # One TLS stack everywhere (rustls with ring): no system OpenSSL needed at build or run time.
 rustls        = { version = "0.23", default-features = false, features = ["ring", "std", "tls12", "logging"] }
+# Hashing and random ids for the trade keeper. Already in the tree through rustls.
+ring          = "0.17"
 chrono        = { version = "0.4", features = ["serde"] }
 dotenv        = "0.15"
 thiserror     = "1"

@@ -10,8 +10,11 @@ use std::env;
 pub struct Config {
     pub host: String,
     pub port: u16,
-    /// Optional. Only the waitlist needs a database.
+    /// Optional. The waitlist stores signups in it, and the trade keeper needs it
+    /// to go on managing open snipes while nobody has the app open.
     pub database_url: Option<String>,
+    /// Optional. When set, the keeper's scheduled check only runs for callers that send it.
+    pub cron_secret: Option<String>,
     /// Comma separated list of allowed browser origins. Empty means "development mode".
     pub frontend_origins: Vec<String>,
     /// Trust `X-Forwarded-For` / `Fly-Client-IP` (set when running behind a proxy you control).
@@ -57,6 +60,8 @@ pub struct Config {
     pub stock_watchlist: Vec<String>,
     /// Pause between calls to the pool data provider, in milliseconds.
     pub provider_call_spacing_ms: u64,
+    /// How long a live token price is reused before the provider is asked again, in milliseconds.
+    pub price_cache_ms: u64,
     /// Set to false in tests to avoid starting pollers.
     pub enable_pollers: bool,
     /// On demand mode: no background pollers and no live streams. Every request
@@ -131,7 +136,9 @@ impl Config {
         Self {
             host: var_or("HOST", "0.0.0.0"),
             port: var("PORT").and_then(|v| v.parse().ok()).unwrap_or(4000),
-            database_url: var("DATABASE_URL"),
+            // Vercel's Postgres integrations name the variable either way.
+            database_url: var("DATABASE_URL").or_else(|| var("POSTGRES_URL")),
+            cron_secret: var("CRON_SECRET"),
             frontend_origins: list("FRONTEND_ORIGINS", &[]),
             // Vercel overwrites the forwarding headers itself, so they can be trusted there.
             trust_proxy: truthy("TRUST_PROXY") || truthy("VERCEL"),
@@ -206,6 +213,9 @@ impl Config {
                 .and_then(|v| v.parse().ok())
                 // The public tier rejects calls that arrive less than about three seconds apart.
                 .unwrap_or(3200),
+            price_cache_ms: var("PRICE_CACHE_MS")
+                .and_then(|v| v.parse().ok())
+                .unwrap_or(8000),
             enable_pollers: !on_demand && !truthy("DISABLE_POLLERS"),
             on_demand,
         }
@@ -265,6 +275,7 @@ impl Config {
         c.on_demand = false;
         c.frontend_origins = Vec::new();
         c.database_url = None;
+        c.cron_secret = None;
         c
     }
 }

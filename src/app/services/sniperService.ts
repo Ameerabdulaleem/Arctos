@@ -136,8 +136,6 @@ export interface SniperFilters {
   maxRiskScore: number;
   maxTaxPct: number;
   maxPositionUsd: number;
-  takeProfitPct: number;
-  stopLossPct: number;
 }
 
 /** Strict by default: only well rated, fully checked tokens with buyers in control. */
@@ -150,8 +148,6 @@ export const DEFAULT_FILTERS: SniperFilters = {
   maxRiskScore: 25,
   maxTaxPct: 8,
   maxPositionUsd: 250,
-  takeProfitPct: 60,
-  stopLossPct: 20,
 };
 
 export const sniperService = {
@@ -214,24 +210,64 @@ export function judge(token: FeedToken, f: SniperFilters, chainHasRiskChecks: bo
 }
 
 export interface SnipeRecord {
+  /** Snipes that have been sold out completely. */
   closed: number;
   wins: number;
   /** 0 to 100, or null before any snipe has been closed. */
   winRatePct: number | null;
+  /** Profit booked so far, part sales of snipes that are still open included. */
   realizedUsd: number;
 }
 
-/** The sniper's real record, measured from closed paper snipes. */
-export function snipeRecord(fills: Array<{ key: string; side: string; realizedPnlUsd?: number | null }>): SnipeRecord {
+interface RecordFill {
+  key: string;
+  side: string;
+  qty: number;
+  time: number;
+  realizedPnlUsd?: number | null;
+}
+
+/**
+ * The sniper's real record, measured from paper snipes. A snipe sold in several steps (take
+ * profit 1, then 2, then the rest) counts as one trade, won if the steps add up to a profit.
+ */
+export function snipeRecord(fills: RecordFill[]): SnipeRecord {
   // Sniper positions are keyed "chain:address". Terminal positions are keyed by symbol.
-  const closed = fills.filter((f) => f.side === 'sell' && f.realizedPnlUsd != null && f.key.includes(':'));
-  const wins = closed.filter((f) => (f.realizedPnlUsd ?? 0) > 0).length;
-  return {
-    closed: closed.length,
-    wins,
-    winRatePct: closed.length > 0 ? (wins / closed.length) * 100 : null,
-    realizedUsd: closed.reduce((sum, f) => sum + (f.realizedPnlUsd ?? 0), 0),
-  };
+  const byToken = new Map<string, RecordFill[]>();
+  // Fills are stored newest first. Reversing first keeps same instant sales in the order they happened.
+  for (const f of [...fills].reverse()) {
+    if (!f.key.includes(':')) continue;
+    const list = byToken.get(f.key);
+    if (list) list.push(f);
+    else byToken.set(f.key, [f]);
+  }
+  let closed = 0;
+  let wins = 0;
+  let realizedUsd = 0;
+  for (const list of byToken.values()) {
+    let held = 0;
+    let bought = 0;
+    let pnl = 0;
+    for (const f of list.sort((a, b) => a.time - b.time)) {
+      if (f.side === 'buy') {
+        held += f.qty;
+        bought += f.qty;
+        continue;
+      }
+      held -= f.qty;
+      pnl += f.realizedPnlUsd ?? 0;
+      realizedUsd += f.realizedPnlUsd ?? 0;
+      // Nothing left (or the buy has dropped off the end of the history): the trade is finished.
+      if (held <= Math.max(bought, f.qty) * 1e-6) {
+        closed += 1;
+        if (pnl > 0) wins += 1;
+        held = 0;
+        bought = 0;
+        pnl = 0;
+      }
+    }
+  }
+  return { closed, wins, winRatePct: closed > 0 ? (wins / closed) * 100 : null, realizedUsd };
 }
 
 const CHAIN_NAMES: Record<string, string> = {

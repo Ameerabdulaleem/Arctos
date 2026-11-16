@@ -5,6 +5,19 @@
 const { chromium } = require('playwright');
 const SC = process.argv[2] || 'e2e-output';
 const BASE = process.env.BASE_URL || 'http://127.0.0.1:5173';
+// The trade keeper checks move the fixture market and call the service's scheduled check directly.
+const FIXTURES = process.env.FIXTURE_URL || 'http://127.0.0.1:4999';
+const API = process.env.API_URL || 'http://127.0.0.1:4000';
+const market = (query) => fetch(`${FIXTURES}/__market?${query}`).then((r) => r.json());
+const backgroundCheck = async () => {
+  // One try a second stays well inside the keeper's request limit.
+  for (let i = 0; i < 40; i++) {
+    const report = await (await fetch(`${API}/api/sniper/keeper/tick`, { method: 'POST' })).json();
+    if (report.ran) return report;
+    await new Promise((done) => setTimeout(done, 1000));
+  }
+  throw new Error('the background check never got its turn');
+};
 require('node:fs').mkdirSync(SC + '/shots', { recursive: true });
 (async () => {
   const browser = await chromium.launch();
@@ -52,6 +65,33 @@ require('node:fs').mkdirSync(SC + '/shots', { recursive: true });
   await check('sniper: paper snipe opens a position', async () => { await page.getByRole('button', { name: /Paper snipe/ }).first().click(); await page.getByText('Open snipes').first().waitFor({ timeout: 6000 }); });
   await check('sniper: search finds token', async () => { await page.getByLabel('Search tokens').fill('pepe'); await page.getByRole('button', { name: 'Search', exact: true }).click(); await page.getByText('Search results').waitFor({ timeout: 8000 }); });
   await page.waitForTimeout(500); await shot('04-sniper');
+
+  // Exit plan and the trade keeper. The market is moved through the fixtures.
+  await market('mult=1&dev=2.4&liq=1');
+  await check('exit plan: three take profit targets side by side, each with its own switch', async () => {
+    const boxes = []; for (const n of [1, 2, 3]) { await page.getByRole('switch', { name: `Take profit ${n}` }).waitFor({ timeout: 6000 }); await page.locator(`#tp${n}-sell`).waitFor(); boxes.push(await page.locator(`#tp${n}-gain`).boundingBox()); }
+    if (!(boxes[0].y === boxes[1].y && boxes[1].y === boxes[2].y && boxes[0].x < boxes[1].x && boxes[1].x < boxes[2].x)) throw new Error('targets are not in one row: ' + JSON.stringify(boxes));
+    await page.getByText('The whole position is sold across 3 targets.').waitFor();
+  });
+  await check('exit plan: a single target can be used on its own', async () => {
+    await page.getByRole('switch', { name: 'Take profit 2' }).click(); await page.getByRole('switch', { name: 'Take profit 3' }).click();
+    await page.getByText(/40% keeps riding after the last target/).waitFor({ timeout: 4000 });
+    await page.getByRole('button', { name: 'Reset exit plan' }).click(); await page.getByText('The whole position is sold across 3 targets.').waitFor({ timeout: 4000 });
+  });
+  await check('exit plan: developer exit guard can be switched', async () => { const guard = page.getByRole('switch', { name: 'Developer exit guard' }); if ((await guard.getAttribute('aria-checked')) !== 'true') throw new Error('guard should start on'); });
+  await check('keeper: the open snipe is managed around the clock', async () => { await page.getByRole('listitem').filter({ hasText: 'Managed around the clock' }).first().waitFor({ timeout: 20000 }); await page.getByText(/Developer holds 2\.4%/).first().waitFor({ timeout: 20000 }); });
+  await check('keeper: take profit 1 sells while the app is closed', async () => {
+    await page.goto('about:blank'); await market('mult=1.9'); const report = await backgroundCheck(); if (report.sold < 1) throw new Error('nothing was sold: ' + JSON.stringify(report));
+    await page.goto(BASE + '/#/sniper'); await page.getByText(/Take profit 1 hit: sold PEPEX while you were away/).first().waitFor({ timeout: 20000 });
+    await page.getByText('TP1 sold').first().waitFor({ timeout: 8000 }); await page.getByText(/40% left/).first().waitFor({ timeout: 8000 });
+    return report.sold + ' sale made in the background';
+  });
+  await page.waitForTimeout(400); await shot('04b-exit-plan');
+  await check('keeper: stop loss sells the rest while the app is open', async () => {
+    await market('mult=0.5'); await page.getByText(/Stop loss hit: sold PEPEX/).first().waitFor({ timeout: 30000 });
+    await page.getByText('1 won', { exact: false }).first().waitFor({ timeout: 8000 });
+  });
+  await market('mult=1&dev=2.4&liq=1');
 
   await page.getByRole('button', { name: 'Trade Book' }).click();
   await check('tradebook: add trade and see live P/L', async () => {

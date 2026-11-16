@@ -86,6 +86,15 @@ export function Pill({ tone, children }: { tone: 'green' | 'amber' | 'red' | 'bl
   return <span className={`inline-flex items-center gap-1.5 whitespace-nowrap rounded-full border px-2.5 py-1 text-[11px] font-medium ${tones[tone]}`}>{children}</span>;
 }
 
+/** An on or off control. `label` names it for screen readers. */
+export function Switch({ checked, onChange, label }: { checked: boolean; onChange: (next: boolean) => void; label: string }) {
+  return (
+    <button type="button" role="switch" aria-checked={checked} aria-label={label} onClick={() => onChange(!checked)} className="switch">
+      <span className="switch-thumb" />
+    </button>
+  );
+}
+
 export function PaperBadge() {
   return (
     <span

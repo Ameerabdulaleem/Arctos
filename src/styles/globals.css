@@ -196,6 +196,19 @@
     @apply text-xs font-medium text-zinc-400;
   }
 
+  .switch {
+    @apply relative inline-flex h-5 w-9 shrink-0 cursor-pointer items-center rounded-full border border-white/10 bg-white/[0.08] transition-colors duration-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-400/50;
+  }
+  .switch[aria-checked='true'] {
+    @apply border-emerald-300/40 bg-emerald-400/80;
+  }
+  .switch-thumb {
+    @apply pointer-events-none inline-block h-3.5 w-3.5 translate-x-0.5 rounded-full bg-white shadow transition-transform duration-200;
+  }
+  .switch[aria-checked='true'] .switch-thumb {
+    @apply translate-x-[1.125rem];
+  }
+
   /* ── Text ───────────────────────────────────────────────────────────────── */
   .eyebrow {
     @apply text-[11px] font-semibold uppercase tracking-[0.14em] text-zinc-500;

@@ -20,6 +20,8 @@ export interface ServiceStatus {
   sources: SourceHealth[];
   database: { configured: boolean; connected: boolean };
   ai: { configured: boolean };
+  /** Whether open sniper trades are managed with the app closed, and whether that survives a restart. */
+  keeper?: { offline: boolean; durable: boolean };
   data: { tickers: number; tickersSource: string; coins: number; newsArticles: number; whaleEvents: number };
 }
 

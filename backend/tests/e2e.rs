@@ -33,6 +33,38 @@ const MINT_A: &str = "AAAAsniperTokenAAAAAAAAAAAAAAAAAAAAAAAAApump";
 const MINT_B: &str = "BBBBsniperTokenBBBBBBBBBBBBBBBBBBBBBBBBBpump";
 const MINT_C: &str = "CCCCsniperTokenCCCCCCCCCCCCCCCCCCCCCCCCCpump";
 
+/// What the fake providers report for a token: price, pool liquidity and the
+/// developer's share of supply. Tests move these to act out a market. Each
+/// test uses its own token address, so they do not disturb each other.
+#[derive(Clone, Copy)]
+struct Quote {
+    price: f64,
+    liquidity: f64,
+    dev_pct: f64,
+}
+
+static BOARD: std::sync::Mutex<Option<std::collections::HashMap<String, Quote>>> =
+    std::sync::Mutex::new(None);
+
+fn set_quote(address: &str, price: f64, liquidity: f64, dev_pct: f64) {
+    BOARD
+        .lock()
+        .unwrap()
+        .get_or_insert_with(Default::default)
+        .insert(
+            address.to_string(),
+            Quote {
+                price,
+                liquidity,
+                dev_pct,
+            },
+        );
+}
+
+fn quote(address: &str) -> Option<Quote> {
+    BOARD.lock().unwrap().as_ref()?.get(address).copied()
+}
+
 fn launchpad_pool(mint: &str, symbol: &str, buys: u64, sells: u64) -> Value {
     json!({"id": format!("solana_pool_{symbol}"), "type": "pool", "attributes": {"name": format!("{symbol} / SOL"), "address": format!("Pool{mint}"),
         "base_token_price_usd": "0.0002", "fdv_usd": "150000", "reserve_in_usd": "9000", "pool_created_at": chrono::Utc::now().to_rfc3339(),
@@ -58,7 +90,8 @@ fn launchpad_provider() -> Router {
             Json(json!({"data": data}))
         }))
         .route("/networks/:net/tokens/:address/info", get(|Path((_net, address)): Path<(String, String)>| async move {
-            Json(json!({"data": {"attributes": {"address": address, "developer_address": DEV_WALLET, "developer_holding_percentage": 2.5,
+            let dev_pct = quote(&address).map_or(2.5, |q| q.dev_pct);
+            Json(json!({"data": {"attributes": {"address": address, "developer_address": DEV_WALLET, "developer_holding_percentage": dev_pct,
                 "holders": {"count": 640, "distribution_percentage": {"top_10": "41.0"}},
                 "mint_authority": "no", "freeze_authority": "no", "is_honeypot": "no", "twitter_handle": "alpha", "websites": []}}}))
         }))
@@ -119,6 +152,15 @@ fn fake_upstream() -> Router {
                 "relationships": {"base_token": {"data": {"id": format!("{net}_0xtoken")}}, "dex": {"data": {"id": "uniswap"}}}}],
                 "included": [{"id": format!("{net}_0xtoken"), "type": "token", "attributes": {"address": "0xtoken", "name": "New Token", "symbol": "NEW"}}]}))
         }))
+        .route("/dex/latest/dex/tokens/:addresses", get(|Path(addresses): Path<String>| async move {
+            let pairs: Vec<Value> = addresses.split(',').filter_map(|a| {
+                let q = quote(a)?;
+                Some(json!({"chainId": "solana", "dexId": "pumpswap", "pairAddress": format!("pool-{a}"),
+                    "baseToken": {"address": a, "symbol": "KEEP", "name": "Keeper Test"},
+                    "priceUsd": q.price.to_string(), "liquidity": {"usd": q.liquidity}}))
+            }).collect();
+            Json(json!({"pairs": pairs}))
+        }))
         .route("/goplus/token_security/:chain", get(|| async {
             Json(json!({"code": 1, "result": {"0x6982508145454ce325ddbe47a25d4ec3d2311933": {"is_honeypot": "0", "buy_tax": "0", "sell_tax": "0.02", "is_open_source": "1", "holder_count": "1000"}}}))
         }))
@@ -137,8 +179,10 @@ fn test_config(base: &str) -> Config {
     cfg.enable_pollers = true;
     cfg.on_demand = false;
     cfg.provider_call_spacing_ms = 0;
+    cfg.price_cache_ms = 0;
     cfg.coingecko_api_key = None;
     cfg.database_url = None;
+    cfg.cron_secret = None;
     cfg.frontend_origins = vec![];
     cfg.coingecko_base = format!("{base}/cg");
     cfg.binance_rest_bases = vec![base.to_string()];
@@ -442,6 +486,7 @@ async fn ai_reports_when_it_is_not_configured() {
     let mut cfg = Config::from_env();
     cfg.enable_pollers = false;
     cfg.database_url = None;
+    cfg.cron_secret = None;
     cfg.frontend_origins = vec![];
     cfg.anthropic_api_key = None;
     let _ = up;
@@ -779,5 +824,558 @@ async fn launchpad_feed_stays_inside_the_public_allowance() {
     assert_eq!(
         tokens[0]["graduation"]["percent"], 82.5,
         "progress is known from the bulk call"
+    );
+}
+
+// ── Trade keeper ─────────────────────────────────────────────────────────────
+
+fn exit_plan() -> Value {
+    json!({"takeProfits": [
+        {"level": 1, "gainPct": 80, "sellPct": 60},
+        {"level": 2, "gainPct": 400, "sellPct": 20},
+        {"level": 3, "gainPct": 1000, "sellPct": 20}],
+        "stopLossPct": 20, "devExit": true})
+}
+
+/// One sync from the web app: what it holds, the state it kept, and the sales it has booked.
+async fn keeper_sync(
+    c: &reqwest::Client,
+    base: &str,
+    device_key: Option<&str>,
+    positions: Value,
+    ack: Value,
+) -> (u16, Value) {
+    let mut req = c
+        .post(format!("{base}/api/sniper/keeper/sync"))
+        .header("origin", base)
+        .json(&json!({"positions": positions, "ack": ack}));
+    if let Some(key) = device_key {
+        req = req.bearer_auth(key);
+    }
+    let r = req.send().await.unwrap();
+    let status = r.status().as_u16();
+    (status, r.json().await.unwrap_or(Value::Null))
+}
+
+fn held(mint: &str, qty: f64, state: Option<&Value>) -> Value {
+    json!({"key": format!("solana:{mint}"), "symbol": "KEEP", "qty": qty, "entryPrice": 1.0,
+        "plan": exit_plan(), "devHoldingPct": 8.0, "openedAt": 1, "state": state})
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn keeper_manages_trades_from_the_browser_when_nothing_can_be_stored() {
+    let (base, _state) = boot_on_demand().await;
+    let c = reqwest::Client::new();
+    let mint = "PAGEkeeperTokenAAAAAAAAAAAAAAAAAAAAAAAAAAAAA";
+    set_quote(mint, 1.0, 50_000.0, 8.0);
+
+    let status: Value = c
+        .get(format!("{base}/api/status"))
+        .send()
+        .await
+        .unwrap()
+        .json()
+        .await
+        .unwrap();
+    assert_eq!(
+        status["keeper"],
+        json!({"offline": false, "durable": false})
+    );
+
+    // First sight: nothing to sell, and the app is told it has to stay open.
+    let (s, v) = keeper_sync(
+        &c,
+        &base,
+        Some(&"k".repeat(43)),
+        json!([held(mint, 1000.0, None)]),
+        json!([]),
+    )
+    .await;
+    assert_eq!(s, 200, "{v}");
+    assert_eq!(
+        (v["mode"].as_str(), v["durable"].as_bool()),
+        (Some("page"), Some(false))
+    );
+    assert_eq!(v["executions"], json!([]));
+    let state = v["positions"][0].clone();
+    assert_eq!(state["offline"], false);
+    assert_eq!(state["last"]["priceUsd"], 1.0);
+    assert_eq!(state["guard"]["devBasePct"], 8.0);
+    assert!(
+        state["guard"]["devCheckedAt"].is_i64(),
+        "the developer wallet was looked at"
+    );
+    assert_eq!(state["guard"]["liqRefUsd"], 50_000.0);
+
+    // The price reaches the first target: 60 percent is sold at the price seen.
+    set_quote(mint, 1.9, 60_000.0, 8.0);
+    let (_, v) = keeper_sync(
+        &c,
+        &base,
+        None,
+        json!([held(mint, 1000.0, Some(&state))]),
+        json!([]),
+    )
+    .await;
+    let sold = v["executions"].as_array().unwrap();
+    assert_eq!(sold.len(), 1, "{v}");
+    assert_eq!(
+        (
+            sold[0]["rule"].as_str(),
+            sold[0]["qty"].as_f64(),
+            sold[0]["priceUsd"].as_f64()
+        ),
+        (Some("tp1"), Some(600.0), Some(1.9))
+    );
+    assert_eq!(sold[0]["note"], "Take profit 1 hit");
+    let state = v["positions"][0].clone();
+    assert_eq!(
+        (state["qty"].as_f64(), &state["tpDone"]),
+        (Some(400.0), &json!([1]))
+    );
+
+    // The app booked the sale and echoes the new state: the target does not fire again.
+    let (_, v) = keeper_sync(
+        &c,
+        &base,
+        None,
+        json!([held(mint, 400.0, Some(&state))]),
+        json!([]),
+    )
+    .await;
+    assert_eq!(v["executions"], json!([]));
+
+    // If the answer had been lost the app would still hold the old state, and
+    // the same sale is simply decided again. Nothing is booked twice.
+    let first = json!({"key": format!("solana:{mint}"), "chain": "solana", "address": mint, "symbol": "KEEP",
+        "entryPrice": 1.0, "qty": 1000.0, "basisQty": 1000.0, "plan": exit_plan(), "openedAt": 1});
+    let (_, again) = keeper_sync(
+        &c,
+        &base,
+        None,
+        json!([held(mint, 1000.0, Some(&first))]),
+        json!([]),
+    )
+    .await;
+    assert_eq!(again["executions"].as_array().unwrap().len(), 1);
+
+    // Later the developer unloads most of their tokens. The guard sells the rest.
+    set_quote(mint, 1.7, 60_000.0, 1.5);
+    let mut aged = v["positions"][0].clone();
+    aged["guard"]["devCheckedAt"] = json!(1);
+    let (_, v) = keeper_sync(
+        &c,
+        &base,
+        None,
+        json!([held(mint, 400.0, Some(&aged))]),
+        json!([]),
+    )
+    .await;
+    let sold = v["executions"].as_array().unwrap();
+    assert_eq!(
+        (sold[0]["rule"].as_str(), sold[0]["qty"].as_f64()),
+        (Some("dev_exit"), Some(400.0)),
+        "{v}"
+    );
+    assert_eq!(
+        sold[0]["detail"],
+        "The developer's share of supply fell from 8.0% to 1.5%."
+    );
+    assert_eq!(v["positions"][0]["closed"], "dev_exit");
+
+    // With nowhere to keep trades there is nothing for a scheduler to do.
+    let r = c
+        .post(format!("{base}/api/sniper/keeper/tick"))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(r.status(), 200);
+    assert_eq!(r.headers()["cache-control"], "no-store");
+    let report: Value = r.json().await.unwrap();
+    assert_eq!(
+        (report["offline"].as_bool(), report["ran"].as_bool()),
+        (Some(false), Some(false))
+    );
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn keeper_rejects_what_it_should_not_trust() {
+    let (base, _state) = boot_on_demand().await;
+    let c = reqwest::Client::new();
+    let mint = "BADkeeperTokenAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA";
+
+    // Another site cannot drive it, and neither can a request with no Origin.
+    for origin in [Some("https://evil.example"), None] {
+        let mut req = c
+            .post(format!("{base}/api/sniper/keeper/sync"))
+            .json(&json!({"positions": []}));
+        if let Some(o) = origin {
+            req = req.header("origin", o);
+        }
+        assert_eq!(req.send().await.unwrap().status(), 403, "{origin:?}");
+    }
+    // A position the keeper cannot use is turned away on its own. The others are still managed.
+    set_quote(mint, 1.0, 50_000.0, 8.0);
+    for bad in [
+        json!({"key": "solana:not an address", "qty": 1, "entryPrice": 1}),
+        json!({"key": "moon:abc", "qty": 1, "entryPrice": 1}),
+        json!({"key": format!("solana:{mint}"), "qty": -5, "entryPrice": 1}),
+        json!({"key": format!("solana:{mint}"), "qty": 1, "entryPrice": 0}),
+    ] {
+        let good = "GoodKeeperTokenAAAAAAAAAAAAAAAAAAAAAAAAAAAAA";
+        let (s, v) = keeper_sync(
+            &c,
+            &base,
+            None,
+            json!([bad, held(good, 2.0, None)]),
+            json!([]),
+        )
+        .await;
+        assert_eq!(s, 200, "{bad} -> {v}");
+        assert_eq!(v["rejected"].as_array().unwrap().len(), 1, "{v}");
+        assert_eq!(v["rejected"][0]["key"], bad["key"]);
+        assert_eq!(v["positions"].as_array().unwrap().len(), 1);
+        assert_eq!(v["positions"][0]["qty"], 2.0);
+    }
+    let (_, v) = keeper_sync(
+        &c,
+        &base,
+        None,
+        json!([held(mint, 1.0, None), held(mint, 1.0, None)]),
+        json!([]),
+    )
+    .await;
+    assert_eq!(
+        (
+            v["positions"].as_array().unwrap().len(),
+            v["rejected"][0]["reason"].as_str()
+        ),
+        (1, Some("It was sent twice."))
+    );
+    let many: Vec<Value> = (0..14)
+        .map(|i| {
+            held(
+                &format!(
+                    "ManyKeeperToken{}",
+                    ["A", "B", "C", "D", "E", "F", "G", "H", "J", "K", "L", "M", "N", "P"][i]
+                        .repeat(29)
+                ),
+                1.0,
+                None,
+            )
+        })
+        .collect();
+    let (_, v) = keeper_sync(&c, &base, None, Value::Array(many), json!([])).await;
+    assert_eq!(
+        (
+            v["positions"].as_array().unwrap().len(),
+            v["rejected"].as_array().unwrap().len()
+        ),
+        (12, 2),
+        "{v}"
+    );
+    // A request that is not shaped like a sync at all is refused outright.
+    let r = c
+        .post(format!("{base}/api/sniper/keeper/sync"))
+        .header("origin", &base)
+        .json(&json!({"positions": "everything"}))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(r.status(), 422);
+    // A made up state is ignored, not trusted and not an error.
+    let forged = json!({"key": format!("solana:{mint}"), "qty": "all of it", "tpDone": [7]});
+    let (s, v) = keeper_sync(
+        &c,
+        &base,
+        None,
+        json!([held(mint, 5.0, Some(&forged))]),
+        json!([]),
+    )
+    .await;
+    assert_eq!(s, 200, "{v}");
+    assert_eq!(
+        (
+            v["positions"][0]["qty"].as_f64(),
+            &v["positions"][0]["tpDone"]
+        ),
+        (Some(5.0), &json!([]))
+    );
+    // An oversized body is cut off.
+    let huge = json!({"positions": [], "ack": ["a".repeat(80_000)]});
+    let r = c
+        .post(format!("{base}/api/sniper/keeper/sync"))
+        .header("origin", &base)
+        .json(&huge)
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(r.status(), 413);
+}
+
+/// Everything the keeper does with nobody online, against whichever store the service was booted with.
+async fn offline_flow(base: &str, mint: &str, device_key: &str, durable: bool) {
+    let c = reqwest::Client::new();
+    let tick = || async {
+        // Another check may have run a moment ago (the gap is shared), so wait for our turn.
+        // One try a second stays well inside the keeper's request limit.
+        for _ in 0..40 {
+            let r = c
+                .post(format!("{base}/api/sniper/keeper/tick"))
+                .send()
+                .await
+                .unwrap();
+            assert_eq!(r.status(), 200);
+            let report: Value = r.json().await.unwrap();
+            if report["ran"] == true {
+                return report;
+            }
+            tokio::time::sleep(Duration::from_secs(1)).await;
+        }
+        panic!("the background check never got its turn");
+    };
+    set_quote(mint, 1.0, 50_000.0, 8.0);
+
+    // The app registers the trade once, then goes away.
+    let (s, v) = keeper_sync(
+        &c,
+        base,
+        Some(device_key),
+        json!([held(mint, 1000.0, None)]),
+        json!([]),
+    )
+    .await;
+    assert_eq!(s, 200, "{v}");
+    assert_eq!(
+        (v["mode"].as_str(), v["durable"].as_bool()),
+        (Some("offline"), Some(durable))
+    );
+    assert_eq!(v["positions"][0]["offline"], true);
+
+    // While it is away the price reaches the first target. The scheduler's check sells.
+    set_quote(mint, 1.9, 60_000.0, 8.0);
+    let report = tick().await;
+    assert_eq!(report["offline"], true);
+    assert!(report["sold"].as_u64().unwrap() >= 1, "{report}");
+    assert!(report["open"].as_i64().unwrap() >= 1);
+    // A second check straight after stands down, and would have nothing to sell anyway.
+    let again: Value = c
+        .post(format!("{base}/api/sniper/keeper/tick"))
+        .send()
+        .await
+        .unwrap()
+        .json()
+        .await
+        .unwrap();
+    assert_eq!(
+        (again["ran"].as_bool(), again["sold"].as_u64()),
+        (Some(false), Some(0))
+    );
+
+    // Someone else's browser sees none of it.
+    let (_, other) = keeper_sync(&c, base, Some(&"z".repeat(48)), json!([]), json!([])).await;
+    assert_eq!(
+        (&other["positions"], &other["executions"]),
+        (&json!([]), &json!([]))
+    );
+
+    // The app comes back still thinking it holds everything, and is handed the sale.
+    let (_, v) = keeper_sync(
+        &c,
+        base,
+        Some(device_key),
+        json!([held(mint, 1000.0, None)]),
+        json!([]),
+    )
+    .await;
+    let sold = v["executions"].as_array().unwrap().clone();
+    assert_eq!(sold.len(), 1, "{v}");
+    assert_eq!(
+        (
+            sold[0]["rule"].as_str(),
+            sold[0]["qty"].as_f64(),
+            sold[0]["priceUsd"].as_f64()
+        ),
+        (Some("tp1"), Some(600.0), Some(1.9))
+    );
+    assert_eq!(
+        (
+            v["positions"][0]["qty"].as_f64(),
+            &v["positions"][0]["tpDone"]
+        ),
+        (Some(400.0), &json!([1]))
+    );
+    assert!(v["lastBackgroundCheck"].as_i64().unwrap() > 0);
+
+    // Until the app says it booked the sale, the sale keeps being offered.
+    let (_, v) = keeper_sync(
+        &c,
+        base,
+        Some(device_key),
+        json!([held(mint, 1000.0, None)]),
+        json!([]),
+    )
+    .await;
+    assert_eq!(v["executions"].as_array().unwrap().len(), 1);
+    let (_, v) = keeper_sync(
+        &c,
+        base,
+        Some(device_key),
+        json!([held(mint, 400.0, None)]),
+        json!([sold[0]["id"]]),
+    )
+    .await;
+    assert_eq!(v["executions"], json!([]));
+    assert_eq!(v["positions"][0]["qty"], 400.0);
+
+    // Away again: the price collapses and the stop loss sells the rest.
+    set_quote(mint, 0.5, 30_000.0, 8.0);
+    tick().await;
+    let (_, v) = keeper_sync(
+        &c,
+        base,
+        Some(device_key),
+        json!([held(mint, 400.0, None)]),
+        json!([]),
+    )
+    .await;
+    let sold = v["executions"].as_array().unwrap().clone();
+    assert_eq!(
+        (sold[0]["rule"].as_str(), sold[0]["qty"].as_f64()),
+        (Some("stop_loss"), Some(400.0)),
+        "{v}"
+    );
+    assert_eq!(v["positions"][0]["closed"], "stop_loss");
+
+    // Booked and no longer held: the keeper forgets the trade.
+    let (_, v) = keeper_sync(
+        &c,
+        base,
+        Some(device_key),
+        json!([]),
+        json!([sold[0]["id"]]),
+    )
+    .await;
+    assert_eq!(
+        (&v["positions"], &v["executions"]),
+        (&json!([]), &json!([]))
+    );
+
+    // A trade sold by hand is dropped the same way.
+    set_quote(mint, 1.0, 50_000.0, 8.0);
+    let (_, v) = keeper_sync(
+        &c,
+        base,
+        Some(device_key),
+        json!([held(mint, 50.0, None)]),
+        json!([]),
+    )
+    .await;
+    assert_eq!(v["positions"][0]["qty"], 50.0);
+    let (_, v) = keeper_sync(&c, base, Some(device_key), json!([]), json!([])).await;
+    assert_eq!(v["positions"], json!([]));
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn keeper_manages_trades_with_nobody_online() {
+    let (base, _state) = boot().await;
+    let status: Value = reqwest::get(format!("{base}/api/status"))
+        .await
+        .unwrap()
+        .json()
+        .await
+        .unwrap();
+    assert_eq!(status["keeper"], json!({"offline": true, "durable": false}));
+    offline_flow(
+        &base,
+        "MEMkeeperTokenAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA",
+        &"m".repeat(43),
+        false,
+    )
+    .await;
+
+    // Without a device key there is no owner to keep trades for, so they stay with the browser.
+    let c = reqwest::Client::new();
+    let (_, v) = keeper_sync(
+        &c,
+        &base,
+        None,
+        json!([held(
+            "MEMkeeperTokenAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA",
+            10.0,
+            None
+        )]),
+        json!([]),
+    )
+    .await;
+    assert_eq!(
+        (v["mode"].as_str(), v["positions"][0]["offline"].as_bool()),
+        (Some("page"), Some(false))
+    );
+}
+
+/// The same flow against a real PostgreSQL, as a serverless deployment uses it:
+/// nothing is kept in the process, every request reads and writes the database.
+/// Runs when KEEPER_TEST_DATABASE_URL points at a disposable database.
+#[tokio::test(flavor = "multi_thread")]
+async fn keeper_keeps_trades_in_postgres() {
+    let Ok(url) = std::env::var("KEEPER_TEST_DATABASE_URL") else {
+        eprintln!("skipped: KEEPER_TEST_DATABASE_URL is not set");
+        return;
+    };
+    let up = serve(fake_upstream()).await;
+    let mut cfg = test_config(&format!("http://{up}")).into_on_demand();
+    cfg.database_url = Some(url);
+    let state = build_state(cfg).await;
+    let addr = serve(build_router(state)).await;
+    let base = format!("http://{addr}");
+    let status: Value = reqwest::get(format!("{base}/api/status"))
+        .await
+        .unwrap()
+        .json()
+        .await
+        .unwrap();
+    assert_eq!(status["keeper"], json!({"offline": true, "durable": true}));
+    // A fresh key and token on every run, so earlier runs cannot interfere.
+    let run = chrono::Utc::now().timestamp_nanos_opt().unwrap();
+    let key = format!("pg-test-device-key-{run:032}");
+    // Digits spelled as letters keep the address valid base58.
+    let letters: String = run
+        .to_string()
+        .bytes()
+        .map(|d| (b'a' + (d - b'0')) as char)
+        .collect();
+    let mint = format!("{:A<44}", format!("PG{letters}"));
+    offline_flow(&base, &mint, &key, true).await;
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn keeper_schedule_can_be_locked_with_a_secret() {
+    let up = serve(fake_upstream()).await;
+    let mut cfg = test_config(&format!("http://{up}"));
+    cfg.enable_pollers = false;
+    cfg.cron_secret = Some("s3cret-for-the-scheduler".into());
+    let addr = serve(build_router(build_state(cfg).await)).await;
+    let c = reqwest::Client::new();
+    let url = format!("http://{addr}/api/sniper/keeper/tick");
+    assert_eq!(c.post(&url).send().await.unwrap().status(), 403);
+    assert_eq!(
+        c.get(&url)
+            .bearer_auth("wrong")
+            .send()
+            .await
+            .unwrap()
+            .status(),
+        403
+    );
+    // Vercel Cron calls with GET and sends the secret as a bearer token.
+    assert_eq!(
+        c.get(&url)
+            .bearer_auth("s3cret-for-the-scheduler")
+            .send()
+            .await
+            .unwrap()
+            .status(),
+        200
     );
 }
