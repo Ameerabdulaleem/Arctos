@@ -1,13 +1,29 @@
 import { apiGet } from './api';
 
-export type SniperChain = 'solana' | 'ethereum' | 'bsc' | 'base' | 'arbitrum';
+/** A chain key such as "solana" or "bsc". The full list comes from the data service. */
+export type SniperChain = string;
 
-export const SNIPER_CHAINS: Array<{ value: SniperChain; label: string }> = [
-  { value: 'solana', label: 'Solana' },
-  { value: 'bsc', label: 'BNB Chain' },
-  { value: 'base', label: 'Base' },
-  { value: 'ethereum', label: 'Ethereum' },
-  { value: 'arbitrum', label: 'Arbitrum' },
+export interface Launchpad {
+  id: string;
+  name: string;
+}
+
+export interface ChainOption {
+  key: SniperChain;
+  name: string;
+  /** True when contract risk checks are available on this chain. */
+  riskChecks: boolean;
+  launchpads: Launchpad[];
+}
+
+/** Shown until the data service answers with the full list. */
+export const FALLBACK_CHAINS: ChainOption[] = [
+  { key: 'solana', name: 'Solana', riskChecks: true, launchpads: [] },
+  { key: 'bsc', name: 'BNB Chain', riskChecks: true, launchpads: [] },
+  { key: 'base', name: 'Base', riskChecks: true, launchpads: [] },
+  { key: 'avalanche', name: 'Avalanche', riskChecks: true, launchpads: [] },
+  { key: 'near', name: 'NEAR', riskChecks: false, launchpads: [] },
+  { key: 'robinhood', name: 'Robinhood Chain', riskChecks: false, launchpads: [] },
 ];
 
 export interface SniperToken {
@@ -44,7 +60,78 @@ export interface Security {
   source: string;
 }
 
+export interface Flow {
+  buys: number;
+  sells: number;
+  buyers: number;
+  sellers: number;
+}
+
+export interface DevRecord {
+  /** Earlier launches by this wallet that the service has observed. */
+  launchesSeen: number;
+  successes: number;
+  /** 0 to 100, or null until at least two earlier launches are known. */
+  successRate: number | null;
+  avgBuyRatio: number | null;
+}
+
+export interface Developer {
+  address: string;
+  holdingPct: number | null;
+  record: DevRecord;
+  verdict: 'proven' | 'mixed' | 'poor' | 'first';
+}
+
+export interface SnipeScore {
+  total: number;
+  grade: 'A' | 'B' | 'C' | 'D' | 'F';
+  parts: { demand: number; developer: number; safety: number; liquidity: number; momentum: number };
+  reasons: string[];
+  warnings: string[];
+  /** A serious risk was found. Never buy. */
+  blocked: boolean;
+  /** False until the developer, holders and contract have been checked. */
+  checked: boolean;
+}
+
+/** A token from the launchpad feed, with its score and everything the score is based on. */
+export interface FeedToken extends SniperToken {
+  launchpad: string | null;
+  /** True while the token still trades against a bonding curve, which has no ordinary pool. */
+  onCurve: boolean;
+  graduation: { percent: number; completed: boolean } | null;
+  flow1h: Flow;
+  flow24h: Flow;
+  buyRatioPct: number | null;
+  holders: number | null;
+  top10Pct: number | null;
+  developer: Developer | null;
+  security: Security | null;
+  score: SnipeScore;
+}
+
+export type FeedView = 'new' | 'active';
+
+export interface FeedResponse {
+  chain: string;
+  launchpad: string;
+  view: FeedView;
+  tokens: FeedToken[];
+  checked: number;
+  developersKnown: number;
+  updatedAt: string;
+}
+
 export interface SniperFilters {
+  /** Lowest snipe score (0 to 100) the auto sniper will buy. */
+  minScore: number;
+  /** Lowest share of recent trades that must be buys, in percent. */
+  minBuyRatioPct: number;
+  /** Lowest developer success rate in percent. 0 also accepts developers with no record yet. */
+  minDevSuccessPct: number;
+  /** Highest share of supply the developer may still hold, in percent. */
+  maxDevHoldingPct: number;
   minLiquidityUsd: number;
   maxRiskScore: number;
   maxTaxPct: number;
@@ -53,16 +140,24 @@ export interface SniperFilters {
   stopLossPct: number;
 }
 
+/** Strict by default: only well rated, fully checked tokens with buyers in control. */
 export const DEFAULT_FILTERS: SniperFilters = {
-  minLiquidityUsd: 25_000,
-  maxRiskScore: 30,
-  maxTaxPct: 10,
+  minScore: 75,
+  minBuyRatioPct: 58,
+  minDevSuccessPct: 0,
+  maxDevHoldingPct: 12,
+  minLiquidityUsd: 15_000,
+  maxRiskScore: 25,
+  maxTaxPct: 8,
   maxPositionUsd: 250,
-  takeProfitPct: 100,
-  stopLossPct: 30,
+  takeProfitPct: 60,
+  stopLossPct: 20,
 };
 
 export const sniperService = {
+  chains: (signal?: AbortSignal) => apiGet<ChainOption[]>('/api/sniper/chains', { signal }),
+  feed: (chain: SniperChain, launchpad: string, view: FeedView, signal?: AbortSignal) =>
+    apiGet<FeedResponse>(`/api/sniper/feed?chain=${encodeURIComponent(chain)}&launchpad=${encodeURIComponent(launchpad)}&view=${view}`, { signal, timeoutMs: 30_000 }),
   newPairs: (chain: SniperChain, signal?: AbortSignal) =>
     apiGet<{ chain: string; tokens: SniperToken[]; updatedAt: string | null }>(`/api/sniper/new?chain=${chain}`, { signal }),
   search: (q: string, chain?: SniperChain, signal?: AbortSignal) =>
@@ -73,7 +168,7 @@ export const sniperService = {
     apiGet<Security>(`/api/sniper/security?chain=${chain}&address=${encodeURIComponent(address)}`, { signal }),
 };
 
-/** Whether a token passes the user's filters. A missing risk report never counts as safe. */
+/** Whether a plain token (search result or tracked token) passes the basic filters. A missing risk report never counts as safe. */
 export function passesFilters(token: SniperToken, security: Security | undefined, f: SniperFilters): { ok: boolean; reasons: string[] } {
   const reasons: string[] = [];
   if (token.liquidityUsd < f.minLiquidityUsd) reasons.push('Liquidity is below your minimum');
@@ -88,6 +183,63 @@ export function passesFilters(token: SniperToken, security: Security | undefined
   return { ok: reasons.length === 0, reasons };
 }
 
+/**
+ * Whether a scored feed token passes every filter. This is what the auto sniper obeys.
+ * Anything unknown counts against the token: unchecked, no trades to read, no risk report.
+ */
+export function judge(token: FeedToken, f: SniperFilters, chainHasRiskChecks: boolean): { ok: boolean; reasons: string[] } {
+  const reasons: string[] = [];
+  const { score, developer, security } = token;
+  if (!score.checked) reasons.push('Still being checked');
+  if (score.blocked) reasons.push(score.warnings[0] ?? 'A serious risk was found');
+  if (score.total < f.minScore) reasons.push(`Score ${score.total} is below your minimum of ${f.minScore}`);
+  if (token.buyRatioPct == null) reasons.push('Too few trades to read demand');
+  else if (token.buyRatioPct < f.minBuyRatioPct) reasons.push(`Only ${token.buyRatioPct.toFixed(0)}% of recent trades are buys`);
+  // A bonding curve takes the other side of every trade, so pool depth does not apply to it.
+  if (!token.onCurve && token.liquidityUsd < f.minLiquidityUsd) reasons.push('Liquidity is below your minimum');
+  if (developer?.holdingPct != null && developer.holdingPct > f.maxDevHoldingPct) reasons.push(`Developer holds ${developer.holdingPct.toFixed(1)}%`);
+  if (f.minDevSuccessPct > 0) {
+    const rate = developer?.record.successRate;
+    if (rate == null) reasons.push('Developer has no track record yet');
+    else if (rate < f.minDevSuccessPct) reasons.push(`Developer success rate is ${rate.toFixed(0)}%`);
+  }
+  if (security?.available) {
+    if (security.isHoneypot) reasons.push('Flagged as a honeypot');
+    if (security.riskScore > f.maxRiskScore) reasons.push(`Risk score ${security.riskScore} is above your limit`);
+    if (Math.max(security.buyTaxPct ?? 0, security.sellTaxPct ?? 0) > f.maxTaxPct) reasons.push('Trade tax is above your limit');
+  } else if (chainHasRiskChecks && score.checked) {
+    reasons.push('No contract risk data available');
+  }
+  return { ok: reasons.length === 0, reasons };
+}
+
+export interface SnipeRecord {
+  closed: number;
+  wins: number;
+  /** 0 to 100, or null before any snipe has been closed. */
+  winRatePct: number | null;
+  realizedUsd: number;
+}
+
+/** The sniper's real record, measured from closed paper snipes. */
+export function snipeRecord(fills: Array<{ key: string; side: string; realizedPnlUsd?: number | null }>): SnipeRecord {
+  // Sniper positions are keyed "chain:address". Terminal positions are keyed by symbol.
+  const closed = fills.filter((f) => f.side === 'sell' && f.realizedPnlUsd != null && f.key.includes(':'));
+  const wins = closed.filter((f) => (f.realizedPnlUsd ?? 0) > 0).length;
+  return {
+    closed: closed.length,
+    wins,
+    winRatePct: closed.length > 0 ? (wins / closed.length) * 100 : null,
+    realizedUsd: closed.reduce((sum, f) => sum + (f.realizedPnlUsd ?? 0), 0),
+  };
+}
+
+const CHAIN_NAMES: Record<string, string> = {
+  solana: 'Solana', bsc: 'BNB Chain', base: 'Base', avalanche: 'Avalanche', near: 'NEAR', robinhood: 'Robinhood Chain',
+  ethereum: 'Ethereum', arbitrum: 'Arbitrum', polygon: 'Polygon', sui: 'Sui', ton: 'TON', tron: 'Tron', monad: 'Monad',
+  abstract: 'Abstract', hyperevm: 'HyperEVM', sonic: 'Sonic', berachain: 'Berachain',
+};
+
 export function chainLabel(chain: string): string {
-  return SNIPER_CHAINS.find((c) => c.value === chain)?.label ?? chain;
+  return CHAIN_NAMES[chain] ?? chain;
 }

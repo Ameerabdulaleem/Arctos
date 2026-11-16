@@ -47,7 +47,8 @@ require('node:fs').mkdirSync(SC + '/shots', { recursive: true });
   await check('terminal: switch pair resets form', async () => { await page.getByRole('tab', { name: /^ETH\/USDT/ }).click(); const v = await page.locator('input[type=number]').first().inputValue(); if (v !== '') throw new Error('form kept ' + v); });
 
   await page.getByRole('button', { name: 'Sniper Engine' }).click();
-  await check('sniper: new pools listed with risk', async () => { await page.getByText('PEPEX').first().waitFor({ timeout: 15000 }); await page.getByText(/Low risk/).first().waitFor({ timeout: 15000 }); });
+  await check('sniper: launchpad feed with score, developer and risk', async () => { await page.getByText('PEPEX').first().waitFor({ timeout: 15000 }); await page.getByText(/Low risk/).first().waitFor({ timeout: 15000 }); await page.getByText('Pump.fun').first().waitFor(); await page.getByText(/% buys/).first().waitFor(); await page.getByText(/earlier launch|First launch we have seen/).first().waitFor({ timeout: 8000 }); await page.getByRole('img', { name: /Snipe score \d+ out of 100/ }).first().waitFor(); });
+  await check('sniper: chain and launchpad pickers', async () => { for (const c of ['Solana', 'BNB Chain', 'Base', 'Avalanche', 'NEAR', 'Robinhood Chain']) await page.getByRole('tab', { name: c, exact: true }).waitFor({ timeout: 8000 }); await page.getByRole('tab', { name: 'BNB Chain', exact: true }).click(); await page.getByRole('tab', { name: 'Four.meme', exact: true }).waitFor({ timeout: 8000 }); await page.getByRole('tab', { name: 'Solana', exact: true }).click(); await page.getByRole('tab', { name: 'Pump.fun', exact: true }).click(); await page.getByText('PEPEX').first().waitFor({ timeout: 15000 }); await page.getByText('Measured results').waitFor(); });
   await check('sniper: paper snipe opens a position', async () => { await page.getByRole('button', { name: /Paper snipe/ }).first().click(); await page.getByText('Open snipes').first().waitFor({ timeout: 6000 }); });
   await check('sniper: search finds token', async () => { await page.getByLabel('Search tokens').fill('pepe'); await page.getByRole('button', { name: 'Search', exact: true }).click(); await page.getByText('Search results').waitFor({ timeout: 8000 }); });
   await page.waitForTimeout(500); await shot('04-sniper');
@@ -87,7 +88,7 @@ require('node:fs').mkdirSync(SC + '/shots', { recursive: true });
   await shot('09-chat');
 
   await page.getByRole('button', { name: 'Settings' }).click();
-  await check('settings: data sources health', async () => { await page.getByText('coingecko').waitFor({ timeout: 10000 }); await page.getByRole('heading', { name: 'Data sources' }).waitFor(); });
+  await check('settings: data sources health', async () => { await page.getByText('coingecko', { exact: true }).waitFor({ timeout: 10000 }); await page.getByRole('heading', { name: 'Data sources' }).waitFor(); });
   await shot('10-settings');
 
   await check('wallet modal opens and reports missing wallet', async () => {

@@ -28,6 +28,42 @@ async fn serve(app: Router) -> SocketAddr {
     addr
 }
 
+const DEV_WALLET: &str = "DevWa11et1111111111111111111111111111111111";
+const MINT_A: &str = "AAAAsniperTokenAAAAAAAAAAAAAAAAAAAAAAAAApump";
+const MINT_B: &str = "BBBBsniperTokenBBBBBBBBBBBBBBBBBBBBBBBBBpump";
+const MINT_C: &str = "CCCCsniperTokenCCCCCCCCCCCCCCCCCCCCCCCCCpump";
+
+fn launchpad_pool(mint: &str, symbol: &str, buys: u64, sells: u64) -> Value {
+    json!({"id": format!("solana_pool_{symbol}"), "type": "pool", "attributes": {"name": format!("{symbol} / SOL"), "address": format!("Pool{mint}"),
+        "base_token_price_usd": "0.0002", "fdv_usd": "150000", "reserve_in_usd": "9000", "pool_created_at": chrono::Utc::now().to_rfc3339(),
+        "price_change_percentage": {"m5": "2", "h1": "18", "h24": "40"},
+        "transactions": {"m5": {"buys": 5, "sells": 2, "buyers": 5, "sellers": 2},
+            "h1": {"buys": buys, "sells": sells, "buyers": buys * 7 / 10, "sellers": sells * 7 / 10},
+            "h24": {"buys": buys * 3, "sells": sells * 3, "buyers": buys * 2, "sellers": sells * 2}},
+        "volume_usd": {"h1": "20000", "h24": "90000"}},
+        "relationships": {"base_token": {"data": {"id": format!("solana_{mint}")}}, "dex": {"data": {"id": "pump-fun"}}}})
+}
+
+/// The pool data provider as the launchpad feed uses it. Mounted twice: as the
+/// public API and as the keyed CoinGecko on chain API.
+fn launchpad_provider() -> Router {
+    Router::new()
+        .route("/networks/:net/dexes/:dex/pools", get(|| async {
+            Json(json!({"data": [launchpad_pool(MINT_A, "ALPHA", 320, 80), launchpad_pool(MINT_B, "BETA", 200, 150), launchpad_pool(MINT_C, "GAMMA", 40, 260)],
+                "included": [{"id": format!("solana_{MINT_A}"), "type": "token", "attributes": {"address": MINT_A, "name": "Alpha Coin", "symbol": "ALPHA"}}]}))
+        }))
+        .route("/networks/:net/tokens/multi/:addresses", get(|Path((_net, addresses)): Path<(String, String)>| async move {
+            let data: Vec<Value> = addresses.split(',').map(|a| json!({"attributes": {"address": a,
+                "launchpad_details": {"graduation_percentage": if a == MINT_A { 82.5 } else { 20.0 }, "completed": false}}})).collect();
+            Json(json!({"data": data}))
+        }))
+        .route("/networks/:net/tokens/:address/info", get(|Path((_net, address)): Path<(String, String)>| async move {
+            Json(json!({"data": {"attributes": {"address": address, "developer_address": DEV_WALLET, "developer_holding_percentage": 2.5,
+                "holders": {"count": 640, "distribution_percentage": {"top_10": "41.0"}},
+                "mint_authority": "no", "freeze_authority": "no", "is_honeypot": "no", "twitter_handle": "alpha", "websites": []}}}))
+        }))
+}
+
 fn fake_upstream() -> Router {
     let coins: Vec<Value> = (0..60)
         .map(|i| {
@@ -43,6 +79,8 @@ fn fake_upstream() -> Router {
         })
         .collect();
     Router::new()
+        .nest("/gt", launchpad_provider())
+        .nest("/cg/onchain", launchpad_provider())
         .route("/cg/global", get(|| async {
             Json(json!({"data": {"active_cryptocurrencies": 100, "total_market_cap": {"usd": 3.0e12}, "total_volume": {"usd": 1.0e11},
                 "market_cap_percentage": {"btc": 55.0, "eth": 12.0, "usdt": 5.0, "bnb": 3.0, "sol": 2.0}, "market_cap_change_percentage_24h_usd": 1.5}}))
@@ -98,6 +136,8 @@ fn test_config(base: &str) -> Config {
     let mut cfg = Config::from_env();
     cfg.enable_pollers = true;
     cfg.on_demand = false;
+    cfg.provider_call_spacing_ms = 0;
+    cfg.coingecko_api_key = None;
     cfg.database_url = None;
     cfg.frontend_origins = vec![];
     cfg.coingecko_base = format!("{base}/cg");
@@ -617,4 +657,127 @@ async fn on_demand_mode_accepts_the_same_site_only() {
         .await
         .unwrap();
     assert_eq!(ok["ok"], true);
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn launchpad_feed_ranks_tokens_and_explains_the_score() {
+    let up = serve(fake_upstream()).await;
+    let mut cfg = test_config(&format!("http://{up}")).into_on_demand();
+    // The keyed tier allows three extra calls a rebuild: progress plus two full checks.
+    cfg.coingecko_api_key = Some("demo-key".into());
+    let state = build_state(cfg).await;
+    let addr = serve(build_router(state)).await;
+    let base = format!("http://{addr}");
+    let c = reqwest::Client::new();
+
+    let (s, feed) = get_json(
+        &c,
+        format!("{base}/api/sniper/feed?chain=solana&launchpad=pump-fun&view=active"),
+    )
+    .await;
+    assert_eq!(s, 200, "{feed}");
+    let tokens = feed["tokens"].as_array().unwrap();
+    assert_eq!(tokens.len(), 3);
+    assert_eq!(
+        feed["checked"], 2,
+        "two tokens fit in the first rebuild's budget"
+    );
+
+    // Best first: buyers lead ALPHA, sellers lead GAMMA.
+    assert_eq!(tokens[0]["symbol"], "ALPHA");
+    assert_eq!(tokens[2]["symbol"], "GAMMA");
+    let alpha = &tokens[0];
+    assert_eq!(alpha["launchpad"], "Pump.fun");
+    assert_eq!(alpha["onCurve"], true);
+    assert_eq!(alpha["graduation"]["percent"], 82.5);
+    assert_eq!(alpha["buyRatioPct"], 80.0);
+    assert_eq!(alpha["flow1h"]["buys"], 320);
+    assert_eq!(alpha["holders"], 640);
+    assert_eq!(alpha["score"]["checked"], true);
+    assert_eq!(alpha["score"]["blocked"], false);
+    assert!(
+        alpha["score"]["total"].as_u64().unwrap() > tokens[2]["score"]["total"].as_u64().unwrap()
+    );
+    let reasons = alpha["score"]["reasons"].to_string();
+    assert!(
+        reasons.contains("80% of recent trades are buys"),
+        "{reasons}"
+    );
+    assert!(
+        reasons.contains("Mint and freeze authority are both renounced"),
+        "{reasons}"
+    );
+
+    // The developer is identified, and the other checked token counts as their earlier launch.
+    assert_eq!(alpha["developer"]["address"], DEV_WALLET);
+    assert_eq!(alpha["developer"]["holdingPct"], 2.5);
+    assert_eq!(alpha["developer"]["record"]["launchesSeen"], 1);
+    assert_eq!(feed["developersKnown"], 1);
+
+    // The token that was not checked yet says so and stays out of the top grades.
+    let unchecked = tokens
+        .iter()
+        .find(|t| t["score"]["checked"] == false)
+        .unwrap();
+    assert!(unchecked["developer"].is_null());
+    assert!(unchecked["score"]["total"].as_u64().unwrap() < 65);
+    assert!(tokens[2]["score"]["warnings"]
+        .to_string()
+        .contains("Sellers lead"));
+
+    // Only chains and launchpads from the registry are accepted.
+    for bad in [
+        "chain=dogechain",
+        "chain=solana&launchpad=..%2Fadmin",
+        "chain=bsc&launchpad=pump-fun",
+        "chain=solana&view=everything",
+    ] {
+        let (s, _) = get_json(&c, format!("{base}/api/sniper/feed?{bad}")).await;
+        assert_eq!(s, 400, "{bad}");
+    }
+
+    let (s, chains) = get_json(&c, format!("{base}/api/sniper/chains")).await;
+    assert_eq!(s, 200);
+    let chains = chains.as_array().unwrap().clone();
+    for wanted in ["solana", "bsc", "base", "avalanche", "near", "robinhood"] {
+        assert!(
+            chains.iter().any(|ch| ch["key"] == wanted),
+            "{wanted} is offered"
+        );
+    }
+    let solana = chains.iter().find(|ch| ch["key"] == "solana").unwrap();
+    assert!(solana["launchpads"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .any(|l| l["id"] == "pump-fun" && l["curve"] == true));
+    assert_eq!(solana["riskChecks"], true);
+    assert_eq!(
+        chains.iter().find(|ch| ch["key"] == "near").unwrap()["riskChecks"],
+        false
+    );
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn launchpad_feed_stays_inside_the_public_allowance() {
+    let (base, _state) = boot_on_demand().await;
+    let c = reqwest::Client::new();
+    // Without a key one extra call is allowed. It goes to launchpad progress
+    // first, so no token is fully checked yet and none is presented as checked.
+    let (s, feed) = get_json(
+        &c,
+        format!("{base}/api/sniper/feed?chain=solana&launchpad=pump-fun&view=active"),
+    )
+    .await;
+    assert_eq!(s, 200, "{feed}");
+    assert_eq!(feed["checked"], 0);
+    let tokens = feed["tokens"].as_array().unwrap();
+    assert_eq!(tokens.len(), 3);
+    assert!(tokens
+        .iter()
+        .all(|t| t["score"]["checked"] == false && t["developer"].is_null()));
+    assert_eq!(
+        tokens[0]["graduation"]["percent"], 82.5,
+        "progress is known from the bulk call"
+    );
 }

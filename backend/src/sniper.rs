@@ -27,45 +27,129 @@ use crate::{
     AppState,
 };
 
+/// How addresses and risk checks work on a chain.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum ChainKind {
+    Evm,
+    Solana,
+    /// Anything else (NEAR, Sui, TON, Tron): market data only.
+    Other,
+}
+
 #[derive(Clone, Copy)]
 pub struct ChainInfo {
     pub key: &'static str,
+    pub name: &'static str,
+    pub kind: ChainKind,
+    /// Network id on GeckoTerminal.
     pub gecko_network: &'static str,
+    /// Chain id on DexScreener, used for search.
     pub dex_chain: &'static str,
+    /// EVM chain id on GoPlus, when GoPlus covers the chain.
     pub goplus_id: Option<&'static str>,
 }
 
+const fn chain(
+    key: &'static str,
+    name: &'static str,
+    kind: ChainKind,
+    gecko_network: &'static str,
+    dex_chain: &'static str,
+    goplus_id: Option<&'static str>,
+) -> ChainInfo {
+    ChainInfo {
+        key,
+        name,
+        kind,
+        gecko_network,
+        dex_chain,
+        goplus_id,
+    }
+}
+
+/// Every chain the sniper can watch. Network ids were checked against the
+/// GeckoTerminal network list.
 pub const CHAINS: &[ChainInfo] = &[
-    ChainInfo {
-        key: "solana",
-        gecko_network: "solana",
-        dex_chain: "solana",
-        goplus_id: None,
-    },
-    ChainInfo {
-        key: "ethereum",
-        gecko_network: "eth",
-        dex_chain: "ethereum",
-        goplus_id: Some("1"),
-    },
-    ChainInfo {
-        key: "bsc",
-        gecko_network: "bsc",
-        dex_chain: "bsc",
-        goplus_id: Some("56"),
-    },
-    ChainInfo {
-        key: "base",
-        gecko_network: "base",
-        dex_chain: "base",
-        goplus_id: Some("8453"),
-    },
-    ChainInfo {
-        key: "arbitrum",
-        gecko_network: "arbitrum",
-        dex_chain: "arbitrum",
-        goplus_id: Some("42161"),
-    },
+    chain(
+        "solana",
+        "Solana",
+        ChainKind::Solana,
+        "solana",
+        "solana",
+        None,
+    ),
+    chain("bsc", "BNB Chain", ChainKind::Evm, "bsc", "bsc", Some("56")),
+    chain("base", "Base", ChainKind::Evm, "base", "base", Some("8453")),
+    chain(
+        "avalanche",
+        "Avalanche",
+        ChainKind::Evm,
+        "avax",
+        "avalanche",
+        Some("43114"),
+    ),
+    chain("near", "NEAR", ChainKind::Other, "near", "near", None),
+    chain(
+        "robinhood",
+        "Robinhood Chain",
+        ChainKind::Evm,
+        "robinhood",
+        "robinhood",
+        None,
+    ),
+    chain(
+        "ethereum",
+        "Ethereum",
+        ChainKind::Evm,
+        "eth",
+        "ethereum",
+        Some("1"),
+    ),
+    chain(
+        "arbitrum",
+        "Arbitrum",
+        ChainKind::Evm,
+        "arbitrum",
+        "arbitrum",
+        Some("42161"),
+    ),
+    chain(
+        "polygon",
+        "Polygon",
+        ChainKind::Evm,
+        "polygon_pos",
+        "polygon",
+        Some("137"),
+    ),
+    chain("sui", "Sui", ChainKind::Other, "sui-network", "sui", None),
+    chain("ton", "TON", ChainKind::Other, "ton", "ton", None),
+    chain("tron", "Tron", ChainKind::Other, "tron", "tron", None),
+    chain("monad", "Monad", ChainKind::Evm, "monad", "monad", None),
+    chain(
+        "abstract",
+        "Abstract",
+        ChainKind::Evm,
+        "abstract",
+        "abstract",
+        None,
+    ),
+    chain(
+        "hyperevm",
+        "HyperEVM",
+        ChainKind::Evm,
+        "hyperevm",
+        "hyperevm",
+        None,
+    ),
+    chain("sonic", "Sonic", ChainKind::Evm, "sonic", "sonic", None),
+    chain(
+        "berachain",
+        "Berachain",
+        ChainKind::Evm,
+        "berachain",
+        "berachain",
+        None,
+    ),
 ];
 
 pub fn chain_info(key: &str) -> Option<ChainInfo> {
@@ -112,7 +196,7 @@ pub struct Security {
 }
 
 impl Security {
-    fn unavailable() -> Self {
+    pub(crate) fn unavailable() -> Self {
         Self {
             available: false,
             risk_score: 0,
@@ -155,6 +239,13 @@ impl SniperStore {
     }
 }
 
+impl SniperStore {
+    /// A cached contract risk result, if there is one. Never fetches.
+    pub(crate) fn security_peek(&self, key: &str) -> Option<Security> {
+        self.security.peek(key)
+    }
+}
+
 impl Default for SniperStore {
     fn default() -> Self {
         Self::new()
@@ -173,17 +264,28 @@ pub fn valid_solana_address(a: &str) -> bool {
             .all(|b| b.is_ascii_alphanumeric() && b != b'0' && b != b'O' && b != b'I' && b != b'l')
 }
 
+/// Addresses on chains that are neither EVM nor Solana come in several shapes
+/// (NEAR account names, Sui type paths, TON and Tron base58). They are only
+/// ever placed in a URL path, so a conservative character allow list is enough.
+pub fn valid_generic_address(a: &str) -> bool {
+    (2..=160).contains(&a.len())
+        && a.chars()
+            .all(|c| c.is_ascii_alphanumeric() || matches!(c, '.' | '_' | '-' | ':'))
+        && !a.contains("..")
+}
+
 pub fn valid_address_for(chain: &str, a: &str) -> bool {
-    if chain == "solana" {
-        valid_solana_address(a)
-    } else {
-        valid_evm_address(a)
+    match chain_info(chain).map(|c| c.kind) {
+        Some(ChainKind::Solana) => valid_solana_address(a),
+        Some(ChainKind::Evm) => valid_evm_address(a),
+        Some(ChainKind::Other) => valid_generic_address(a),
+        None => false,
     }
 }
 
 // ── Parsing ──────────────────────────────────────────────────────────────────
 
-fn num(v: Option<&Value>) -> Option<f64> {
+pub(crate) fn num(v: Option<&Value>) -> Option<f64> {
     match v? {
         Value::Number(n) => n.as_f64(),
         Value::String(s) => s.parse().ok(),
@@ -191,13 +293,13 @@ fn num(v: Option<&Value>) -> Option<f64> {
     }
 }
 
-fn safe_http_url(u: Option<&str>) -> Option<String> {
+pub(crate) fn safe_http_url(u: Option<&str>) -> Option<String> {
     let u = u?;
     (u.starts_with("https://") || u.starts_with("http://")).then(|| u.to_string())
 }
 
-fn token_id(chain: &str, address: &str) -> String {
-    if chain == "solana" {
+pub(crate) fn token_id(chain: &str, address: &str) -> String {
+    if chain_info(chain).is_none_or(|c| c.kind != ChainKind::Evm) {
         format!("{chain}:{address}")
     } else {
         format!("{chain}:{}", address.to_ascii_lowercase())
@@ -563,9 +665,11 @@ async fn fetch_security(
     address: &str,
 ) -> std::result::Result<Security, UpstreamError> {
     let base = &state.config.goplus_base;
-    let url = match chain.goplus_id {
-        Some(id) => format!("{base}/token_security/{id}"),
-        None => format!("{base}/solana/token_security"),
+    let url = match (chain.kind, chain.goplus_id) {
+        (ChainKind::Solana, _) => format!("{base}/solana/token_security"),
+        (ChainKind::Evm, Some(id)) => format!("{base}/token_security/{id}"),
+        // No contract risk source covers this chain. Say so instead of guessing.
+        _ => return Ok(Security::unavailable()),
     };
     let query = [("contract_addresses", address.to_string())];
     let v: Value = state.up.get_json_with("goplus", &url, &query, &[]).await?;
@@ -577,14 +681,35 @@ async fn fetch_security(
     });
     Ok(match entry {
         Some(e) if e.is_object() && !e.as_object().is_none_or(|o| o.is_empty()) => {
-            if chain.goplus_id.is_some() {
-                score_evm(e)
-            } else {
+            if chain.kind == ChainKind::Solana {
                 score_solana(e)
+            } else {
+                score_evm(e)
             }
         }
         _ => Security::unavailable(),
     })
+}
+
+/// Contract risk for one token, cached. A failed lookup is reported as
+/// unavailable, never as safe.
+pub(crate) async fn security_for(
+    state: &Arc<AppState>,
+    chain: ChainInfo,
+    address: &str,
+) -> Security {
+    let key = token_id(chain.key, address);
+    let st = state.clone();
+    let owned = address.to_string();
+    state
+        .sniper
+        .security
+        .get_or_fetch(
+            &key,
+            || async move { fetch_security(&st, &chain, &owned).await },
+        )
+        .await
+        .unwrap_or_else(|_| Security::unavailable())
 }
 
 async fn fetch_new_pools(
@@ -871,18 +996,7 @@ pub async fn security(
     if !valid_address_for(chain.key, &q.address) {
         return Err(AppError::BadRequest("invalid contract address".into()));
     }
-    let key = token_id(chain.key, &q.address);
-    let st = state.clone();
-    let address = q.address.clone();
-    let result = state
-        .sniper
-        .security
-        .get_or_fetch(&key, || async move {
-            fetch_security(&st, &chain, &address).await
-        })
-        .await;
-    // A failed risk lookup must never look like "safe": report it as unavailable.
-    Ok(Json(result.unwrap_or_else(|_| Security::unavailable())))
+    Ok(Json(security_for(&state, chain, &q.address).await))
 }
 
 #[cfg(test)]

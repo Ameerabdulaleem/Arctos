@@ -46,6 +46,28 @@ The web app asks `/api/status` which mode it is talking to and adapts, so nothin
 
 Two numbers are computed by the service from real coin data, not copied from somewhere: the **altseason index** (share of the top 50 coins that beat Bitcoin over 30 days) and the **market cap trend** (top 10 coins over 7 days).
 
+## The sniper engine
+
+The sniper watches launchpads on 17 chains (Solana, BNB Chain, Base, Avalanche, NEAR, Robinhood Chain, Ethereum, Arbitrum, Polygon, Sui, TON, Tron, Monad, Abstract, HyperEVM, Sonic and Berachain). On Solana that includes Pump.fun, PumpSwap, LetsBonk, Raydium LaunchLab, Meteora DBC, Moonshot and more. Four.meme is covered on BNB Chain, Virtuals and Bankr on Base, The Arena on Avalanche, and Hoodit, Clanker and Virtuals on Robinhood Chain.
+
+Every token gets a snipe score out of 100, built from live data and shown with its reasons:
+
+| Part | Points | What it reads |
+| --- | --- | --- |
+| Demand | 30 | Real buy and sell counts, and how many separate wallets are buying against selling |
+| Developer | 25 | The launch wallet, how much it still holds, and its record on earlier launches |
+| Safety | 25 | Mint and freeze authority, honeypot flags, trade taxes, holder spread |
+| Liquidity | 10 | Pool depth and age, or bonding curve progress while a token is still on its curve |
+| Momentum | 10 | Recent price action and how close the token is to graduating |
+
+A serious risk (honeypot, active mint or freeze authority, a very high tax, a developer holding a large share) blocks a token whatever else looks good. A token that has not been fully checked yet says so, stays out of the top grades, and is never bought by the auto sniper.
+
+Three honest limits:
+
+* **No win rate can be promised.** Most newly launched tokens lose value. The score ranks candidates. The page shows the sniper's real win rate, measured from its own closed paper snipes, so you can judge the filters on results.
+* **A developer's record is built from what this service has observed.** There is no free public index of every wallet's past launches, so the record starts empty and grows as tokens are checked. It is kept in memory, so it resets when the service restarts.
+* **Checks are paced.** GeckoTerminal's free tier wants calls about three seconds apart, so roughly three tokens a minute get a full check per feed. Add a free CoinGecko API key (`COINGECKO_API_KEY`) and the same data comes from a tier with its own allowance, which triples that.
+
 ## What is simulated, and what is not covered
 
 Be clear about these before you rely on the app:
@@ -104,7 +126,7 @@ Data service (`backend/.env.example`):
 | `ANTHROPIC_API_KEY`, `ANTHROPIC_MODEL`, `ANTHROPIC_EFFORT` | AI assistant. The default model is `claude-opus-5-5`. |
 | `DATABASE_URL` | PostgreSQL for real waitlist positions (optional). |
 | `MAIL_*`, `PUBLIC_SITE_URL` | SMTP settings for the welcome email (optional). |
-| `COINGECKO_API_KEY`, `BLOCKCHAIR_API_KEY` | Optional keys that raise provider limits. |
+| `COINGECKO_API_KEY`, `BLOCKCHAIR_API_KEY` | Optional keys that raise provider limits. A CoinGecko key also speeds up the sniper's token checks. |
 | `*_RPC_URL`, `TRACKED_SYMBOLS`, `WHALE_MIN_USD`, `STOCK_WATCHLIST`, `NEWS_FEEDS` | Optional tuning. |
 
 Every provider base URL can also be overridden, which is how the fixtures work.
@@ -142,7 +164,7 @@ The function runs in Frankfurt (`fra1` in `vercel.json`). Binance refuses reques
 ```bash
 npm test                          # unit tests for the paper trading engine, formatting, trade book, password hashing
 npm run lint && npm run build
-cd backend && cargo test          # 56 unit tests and 7 end to end tests against a fake upstream, in both modes
+cd backend && cargo test          # 67 unit tests and 9 end to end tests against a fake upstream, in both modes
 cargo build                       # the Vercel function crate (repository root)
 cd backend && cargo clippy --all-targets -- -D warnings
 ```
