@@ -16,6 +16,10 @@ export interface PaperPosition {
   source: 'terminal' | 'sniper';
   takeProfitPct?: number;
   stopLossPct?: number;
+  /** Sniper trades: the developer's share of supply when the trade was opened, in percent. */
+  devHoldingPct?: number;
+  /** Sniper trades: the state the trade keeper returned last, sent back to it on the next sync. */
+  keeper?: Record<string, unknown>;
 }
 
 export interface PaperOrder {
@@ -49,6 +53,8 @@ export interface PaperAccount {
   positions: Record<string, PaperPosition>;
   orders: PaperOrder[];
   fills: PaperFill[];
+  /** Ids of trade keeper sales already booked, so none is ever booked twice. */
+  keeperBooked?: string[];
 }
 
 export interface AssetMeta {
@@ -100,7 +106,7 @@ export function buy(
   qty: number,
   price: number,
   now: number,
-  options: { takeProfitPct?: number; stopLossPct?: number; note?: string } = {},
+  options: { takeProfitPct?: number; stopLossPct?: number; devHoldingPct?: number; note?: string } = {},
 ): TradeResult {
   const invalid = validQtyPrice(qty, price);
   if (invalid) return { ok: false, error: invalid };
@@ -122,6 +128,8 @@ export function buy(
     openedAt: existing?.openedAt ?? now,
     takeProfitPct: options.takeProfitPct ?? existing?.takeProfitPct,
     stopLossPct: options.stopLossPct ?? existing?.stopLossPct,
+    devHoldingPct: existing?.devHoldingPct ?? options.devHoldingPct,
+    keeper: existing?.keeper,
   };
   const fill: PaperFill = {
     id: newId(), key: meta.key, symbol: meta.symbol, side: 'buy', qty, price, feeUsd: fee, time: now,
@@ -217,11 +225,15 @@ export function matchOrders(account: PaperAccount, prices: Record<string, number
   return { account: acc, fills };
 }
 
-/** Closes positions that reached their take profit or stop loss. */
+/**
+ * Closes positions that reached their take profit or stop loss. Sniper trades are left alone:
+ * the trade keeper in the data service manages those, see `bookKeeperSales`.
+ */
 export function checkExits(account: PaperAccount, prices: Record<string, number>, now: number): { account: PaperAccount; fills: PaperFill[] } {
   let acc = account;
   const fills: PaperFill[] = [];
   for (const position of Object.values(account.positions)) {
+    if (position.source === 'sniper') continue;
     const price = prices[position.key];
     if (!price || !Number.isFinite(price) || position.avgPrice <= 0) continue;
     const changePct = (price / position.avgPrice - 1) * 100;
@@ -238,6 +250,65 @@ export function checkExits(account: PaperAccount, prices: Record<string, number>
     }
   }
   return { account: acc, fills };
+}
+
+// ── Trade keeper ─────────────────────────────────────────────────────────────
+
+/** A sale the trade keeper decided on. */
+export interface KeeperSaleInput {
+  id: string;
+  key: string;
+  note: string;
+  qty: number;
+  priceUsd: number;
+  at: number;
+}
+
+const MAX_BOOKED = 400;
+
+/**
+ * Books the trade keeper's sales against the account and stores the state it returned for each
+ * position. A sale is booked once, however often the keeper offers it. `booked` lists every
+ * sale that needs no further offering, to be reported back to the keeper.
+ */
+export function bookKeeperSales(
+  account: PaperAccount,
+  sales: KeeperSaleInput[],
+  states: Array<{ key: string }>,
+): { account: PaperAccount; fills: PaperFill[]; booked: string[] } {
+  let acc = account;
+  const fills: PaperFill[] = [];
+  const booked: string[] = [];
+  const done = new Set(account.keeperBooked ?? []);
+  const fresh: string[] = [];
+  for (const sale of sales) {
+    if (typeof sale.id !== 'string' || !sale.id) continue;
+    booked.push(sale.id);
+    if (done.has(sale.id)) continue;
+    done.add(sale.id);
+    fresh.push(sale.id);
+    const position = acc.positions[sale.key];
+    // Sold by hand in the meantime: there is nothing left to sell, and nothing to book.
+    if (!position || position.source !== 'sniper') continue;
+    const result = sell(acc, sale.key, Math.min(sale.qty, position.qty), sale.priceUsd, sale.at, sale.note);
+    if (result.ok) {
+      acc = result.account;
+      fills.push(result.fill);
+    }
+  }
+  let positions = acc.positions;
+  for (const state of states) {
+    const position = positions[state.key];
+    if (!position || position.source !== 'sniper') continue;
+    if (positions === acc.positions) positions = { ...positions };
+    positions[state.key] = { ...position, keeper: state as Record<string, unknown> };
+  }
+  if (fresh.length === 0 && positions === acc.positions) return { account, fills, booked };
+  return {
+    account: { ...acc, positions, keeperBooked: cap([...fresh.reverse(), ...(account.keeperBooked ?? [])], MAX_BOOKED) },
+    fills,
+    booked,
+  };
 }
 
 export interface MarkedPosition extends PaperPosition {
@@ -296,6 +367,8 @@ export function sanitizeAccount(raw: unknown): PaperAccount | null {
       source: o.source === 'sniper' ? 'sniper' : 'terminal',
       takeProfitPct: num(o.takeProfitPct) ?? undefined,
       stopLossPct: num(o.stopLossPct) ?? undefined,
+      devHoldingPct: num(o.devHoldingPct) ?? undefined,
+      keeper: keeperState(o.keeper, key),
     };
   }
   const orders: PaperOrder[] = [];
@@ -314,5 +387,23 @@ export function sanitizeAccount(raw: unknown): PaperAccount | null {
     if (!id || !key || !symbol || qty === null || price === null || feeUsd === null || time === null) continue;
     fills.push({ id, key, symbol, side: o.side === 'sell' ? 'sell' : 'buy', qty, price, feeUsd, time, realizedPnlUsd: num(o.realizedPnlUsd), note: str(o.note, 60) ?? '' });
   }
-  return { version: 1, startingBalance, cash, realizedPnl, positions, orders: orders.slice(0, 25), fills };
+  const keeperBooked = Array.isArray(r.keeperBooked)
+    ? r.keeperBooked.filter((id): id is string => typeof id === 'string' && id.length > 0 && id.length <= 64).slice(0, MAX_BOOKED)
+    : [];
+  const account: PaperAccount = { version: 1, startingBalance, cash, realizedPnl, positions, orders: orders.slice(0, 25), fills };
+  if (keeperBooked.length > 0) account.keeperBooked = keeperBooked;
+  return account;
+}
+
+/** A stored keeper state is kept only when it is a small object for this very position. The data service checks it again. */
+function keeperState(raw: unknown, key: string): Record<string, unknown> | undefined {
+  if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return undefined;
+  const state = raw as Record<string, unknown>;
+  if (state.key !== key) return undefined;
+  try {
+    if (JSON.stringify(state).length > 6000) return undefined;
+  } catch {
+    return undefined;
+  }
+  return state;
 }

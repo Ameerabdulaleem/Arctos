@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import {
-  FEE_RATE, availableCash, buy, cancelOrder, checkExits, markToMarket, matchOrders, newAccount, placeLimit,
+  FEE_RATE, availableCash, bookKeeperSales, buy, cancelOrder, checkExits, markToMarket, matchOrders, newAccount, placeLimit,
   sanitizeAccount, sell, type AssetMeta,
 } from './paperTrading';
 
@@ -97,5 +97,89 @@ describe('paper trading', () => {
     expect(withJunk?.positions).toEqual({});
     expect(withJunk?.orders).toEqual([]);
     expect(withJunk?.fills).toEqual([]);
+  });
+
+  describe('trade keeper', () => {
+    const TOKEN: AssetMeta = { key: 'solana:mint', symbol: 'MEME', label: 'Meme', source: 'sniper' };
+    const sniped = () => {
+      const r = buy(newAccount(10_000), TOKEN, 1000, 1, 1, { devHoldingPct: 8 });
+      if (!r.ok) throw new Error(r.error);
+      return r.account;
+    };
+    const sale = (id: string, qty: number, priceUsd: number, note = 'Take profit 1 hit') => ({ id, key: TOKEN.key, note, qty, priceUsd, at: 50 });
+
+    it('leaves sniper trades to the keeper', () => {
+      const r = buy(newAccount(10_000), TOKEN, 1000, 1, 1, { takeProfitPct: 10, stopLossPct: 10 });
+      if (!r.ok) throw new Error(r.error);
+      expect(checkExits(r.account, { [TOKEN.key]: 5 }, 2).fills).toHaveLength(0);
+      expect(checkExits(r.account, { [TOKEN.key]: 0.1 }, 2).fills).toHaveLength(0);
+      // The developer's share at the time of the buy is kept for the exit guard.
+      expect(sniped().positions[TOKEN.key].devHoldingPct).toBe(8);
+    });
+
+    it('books a part sale at the keeper\'s price and keeps the rest', () => {
+      const acc = sniped();
+      const state = { key: TOKEN.key, tpDone: [1], guard: {}, qty: 400 };
+      const r = bookKeeperSales(acc, [sale('aa', 600, 1.9)], [state]);
+      expect(r.fills).toHaveLength(1);
+      expect(r.fills[0]).toMatchObject({ side: 'sell', qty: 600, price: 1.9, time: 50, note: 'Take profit 1 hit' });
+      expect(r.fills[0].realizedPnlUsd).toBeGreaterThan(0);
+      expect(r.account.positions[TOKEN.key].qty).toBeCloseTo(400, 9);
+      expect(r.account.positions[TOKEN.key].keeper).toEqual(state);
+      expect(r.account.cash).toBeCloseTo(acc.cash + 600 * 1.9 * (1 - FEE_RATE), 6);
+      expect(r.booked).toEqual(['aa']);
+    });
+
+    it('never books the same sale twice, however often it is offered', () => {
+      const first = bookKeeperSales(sniped(), [sale('aa', 600, 1.9)], []);
+      const again = bookKeeperSales(first.account, [sale('aa', 600, 1.9)], []);
+      expect(again.fills).toHaveLength(0);
+      expect(again.account).toBe(first.account);
+      // It is still reported back, so the keeper stops offering it.
+      expect(again.booked).toEqual(['aa']);
+      // The record of booked sales survives a reload.
+      const reloaded = sanitizeAccount(JSON.parse(JSON.stringify(first.account)));
+      expect(bookKeeperSales(reloaded!, [sale('aa', 600, 1.9)], []).fills).toHaveLength(0);
+    });
+
+    it('books several sales in order and closes the position on the last', () => {
+      const r = bookKeeperSales(sniped(), [sale('aa', 600, 2), sale('bb', 200, 5, 'Take profit 2 hit'), sale('cc', 200, 11, 'Take profit 3 hit')], [{ key: TOKEN.key }]);
+      expect(r.fills.map((f) => f.note)).toEqual(['Take profit 1 hit', 'Take profit 2 hit', 'Take profit 3 hit']);
+      expect(r.account.positions[TOKEN.key]).toBeUndefined();
+      expect(r.account.fills[0].note).toBe('Take profit 3 hit');
+    });
+
+    it('sells no more than is held, and nothing once the position is gone', () => {
+      const partly = sell(sniped(), TOKEN.key, 900, 1.2, 10);
+      if (!partly.ok) throw new Error(partly.error);
+      const r = bookKeeperSales(partly.account, [sale('aa', 600, 1.9)], []);
+      expect(r.fills[0].qty).toBeCloseTo(100, 9);
+      expect(r.account.positions[TOKEN.key]).toBeUndefined();
+      const late = bookKeeperSales(r.account, [sale('bb', 200, 5)], [{ key: TOKEN.key }]);
+      expect(late.fills).toHaveLength(0);
+      expect(late.booked).toEqual(['bb']);
+      expect(late.account.cash).toBe(r.account.cash);
+    });
+
+    it('does not touch a terminal position that happens to share a key', () => {
+      const b = buy(newAccount(10_000), BTC, 0.1, 50_000, 1);
+      if (!b.ok) throw new Error(b.error);
+      const r = bookKeeperSales(b.account, [{ id: 'aa', key: 'BTC', note: 'Stop loss hit', qty: 0.1, priceUsd: 1, at: 5 }], [{ key: 'BTC' }]);
+      expect(r.fills).toHaveLength(0);
+      expect(r.account.positions.BTC.qty).toBeCloseTo(0.1, 12);
+      expect(r.account.positions.BTC.keeper).toBeUndefined();
+    });
+
+    it('drops a stored keeper state that is not for its own position', () => {
+      const acc = bookKeeperSales(sniped(), [], [{ key: TOKEN.key }]).account;
+      const raw = JSON.parse(JSON.stringify(acc));
+      expect(sanitizeAccount(raw)?.positions[TOKEN.key].keeper).toEqual({ key: TOKEN.key });
+      raw.positions[TOKEN.key].keeper = { key: 'solana:other' };
+      expect(sanitizeAccount(raw)?.positions[TOKEN.key].keeper).toBeUndefined();
+      raw.positions[TOKEN.key].keeper = { key: TOKEN.key, junk: 'x'.repeat(10_000) };
+      expect(sanitizeAccount(raw)?.positions[TOKEN.key].keeper).toBeUndefined();
+      raw.positions[TOKEN.key].keeper = ['not', 'an', 'object'];
+      expect(sanitizeAccount(raw)?.positions[TOKEN.key].keeper).toBeUndefined();
+    });
   });
 });

@@ -5,9 +5,13 @@ import {
 } from '@phosphor-icons/react';
 import { toast } from 'sonner';
 import { Card, Empty, ErrorNotice, IconTile, Loading, PageHeader, PaperBadge, Pill } from './ui/common';
+import { ExitPlanCard, OpenSnipe } from './ExitPlan';
 import { usePaper } from '../contexts/paper-context';
 import { usePolling } from '../hooks/usePolling';
+import { loadExit, saveExit, type ExitSettings } from '../lib/exitPlan';
 import { errorMessage } from '../services/api';
+import { MAX_MANAGED_SNIPES } from '../services/keeperService';
+import { statusService } from '../services/statusService';
 import {
   DEFAULT_FILTERS, FALLBACK_CHAINS, chainLabel, judge, passesFilters, snipeRecord, sniperService,
   type ChainOption, type FeedToken, type FeedView, type Security, type SniperFilters, type SniperToken,
@@ -68,9 +72,7 @@ const FIELD_GROUPS: Array<{ title: string; fields: Array<{ key: keyof SniperFilt
   {
     title: 'Position',
     fields: [
-      { key: 'maxPositionUsd', label: 'Position size ($)', help: 'Paper money spent per snipe.', max: 1e7 },
-      { key: 'takeProfitPct', label: 'Take profit (%)', help: 'Sell automatically at this gain. 0 turns it off.', max: 100000 },
-      { key: 'stopLossPct', label: 'Stop loss (%)', help: 'Sell automatically at this loss. 0 turns it off.', max: 100 },
+      { key: 'maxPositionUsd', label: 'Position size ($)', help: 'Paper money spent per snipe. How it is sold is set in the exit plan.', max: 1e7 },
     ],
   },
 ];
@@ -266,6 +268,7 @@ type Tab = FeedView | 'tracked';
 export function SniperPanel() {
   const paper = usePaper();
   const [filters, setFilters] = useState<SniperFilters>(loadFilters);
+  const [exit, setExit] = useState<ExitSettings>(loadExit);
   const [chain, setChain] = useState<string>(() => readJson<string>(CHAIN_KEY, 'solana'));
   const [launchpad, setLaunchpad] = useState('all');
   const [tab, setTab] = useState<Tab>('new');
@@ -279,6 +282,7 @@ export function SniperPanel() {
   const autoDone = useRef(new Set<string>(readJson<string[]>(AUTO_KEY, [])));
 
   const chainList = usePolling((s) => sniperService.chains(s), null);
+  const service = usePolling((s) => statusService.get(s), null);
   const chains: ChainOption[] = chainList.data && chainList.data.length > 0 ? chainList.data : FALLBACK_CHAINS;
   const activeChain = chains.find((c) => c.key === chain) ?? chains[0];
   const view: FeedView = tab === 'active' ? 'active' : 'new';
@@ -294,6 +298,7 @@ export function SniperPanel() {
   }, [tracked, trackedLive.data]);
 
   useEffect(() => { writeJson(FILTERS_KEY, filters); }, [filters]);
+  useEffect(() => { saveExit(exit); }, [exit]);
   useEffect(() => { writeJson(TRACKED_KEY, tracked); }, [tracked]);
   useEffect(() => { writeJson(CHAIN_KEY, chain); }, [chain]);
 
@@ -327,20 +332,23 @@ export function SniperPanel() {
     (token: SniperToken, automatic = false) => {
       if (!token.priceUsd || token.priceUsd <= 0) return toast.error('No live price for this token.');
       const scored = token as Partial<FeedToken>;
+      if (!paper.account.positions[token.id] && sniperPositions.length >= MAX_MANAGED_SNIPES) {
+        return toast.error(`You can hold ${MAX_MANAGED_SNIPES} snipes at a time. Sell one first.`);
+      }
       if (!automatic && scored.score?.blocked) {
         toast.warning(`${scored.score.warnings[0] ?? 'A serious risk was found'}. This is a paper trade only.`);
       }
       const spend = Math.min(filters.maxPositionUsd, paper.availableCash);
       const qty = spend / (token.priceUsd * 1.001);
       const r = paper.buyMarket({ key: token.id, symbol: token.symbol, label: token.name, source: 'sniper' }, qty, token.priceUsd, {
-        takeProfitPct: filters.takeProfitPct || undefined,
-        stopLossPct: filters.stopLossPct || undefined,
+        // Sold by the exit plan. The developer's share now is the mark the exit guard measures from.
+        devHoldingPct: scored.developer?.holdingPct ?? undefined,
         note: automatic ? 'Auto snipe' : 'Paper snipe',
       });
       if (!r.ok) return toast.error(r.error);
       toast.success(`${automatic ? 'Auto sniped' : 'Sniped'} ${token.symbol}`, { description: `${formatUsd(spend)} of paper money at ${formatPrice(token.priceUsd)}.` });
     },
-    [filters, paper],
+    [filters, paper, sniperPositions.length],
   );
 
   const passing = useMemo(() => tokens.filter((t) => judge(t, filters, activeChain.riskChecks).ok), [tokens, filters, activeChain.riskChecks]);
@@ -397,7 +405,7 @@ export function SniperPanel() {
       />
       {auto && (
         <p role="status" className="rounded-xl border border-emerald-400/25 bg-emerald-400/[0.07] px-3.5 py-2.5 text-xs text-emerald-200">
-          Auto mode buys the best rated token that passes every filter on {activeChain.name}, up to {MAX_AUTO_POSITIONS} open positions. It only runs while this page is open.
+          Auto mode buys the best rated token that passes every filter on {activeChain.name}, up to {MAX_AUTO_POSITIONS} open positions. Buying only happens while this page is open. Each buy is then sold by your exit plan.
         </p>
       )}
 
@@ -422,11 +430,13 @@ export function SniperPanel() {
         </div>
       </Card>
 
+      <ExitPlanCard exit={exit} onChange={setExit} keeper={paper.keeper} capability={service.data?.keeper ?? null} openCount={sniperPositions.length} />
+
       <div className="grid grid-cols-1 gap-5 lg:grid-cols-3">
         <div className="space-y-5">
           <Card className="p-5">
             <h2 className="mb-1 flex items-center gap-2.5 font-semibold text-white"><IconTile tone="mint" size="sm"><Trophy /></IconTile>Measured results</h2>
-            <p className="mb-4 text-[11px] leading-relaxed text-zinc-500">The sniper's real record from closed paper snipes. No filter can guarantee a win rate, so judge it on these numbers.</p>
+            <p className="mb-4 text-[11px] leading-relaxed text-zinc-500">The sniper's real record from paper snipes that were sold out completely. A snipe sold in steps counts once. No filter can guarantee a win rate, so judge it on these numbers.</p>
             <dl className="grid grid-cols-2 gap-2 text-sm">
               <div className="panel-inset p-3"><dt className="eyebrow text-[10px]">Win rate</dt><dd className="num text-xl font-semibold text-white">{record.winRatePct == null ? 'No data' : `${record.winRatePct.toFixed(0)}%`}</dd></div>
               <div className="panel-inset p-3"><dt className="eyebrow text-[10px]">Closed snipes</dt><dd className="num text-xl font-semibold text-white">{record.closed}{record.closed > 0 && <span className="text-xs text-zinc-500"> ({record.wins} won)</span>}</dd></div>
@@ -445,26 +455,17 @@ export function SniperPanel() {
           {sniperPositions.length > 0 && (
             <Card className="p-5">
               <h2 className="mb-3 font-semibold text-white">Open snipes</h2>
-              <ul className="space-y-3">
+              <ul className="space-y-2.5">
                 {sniperPositions.map((p) => (
-                  <li key={p.key} className="text-sm">
-                    <div className="flex items-center justify-between">
-                      <span className="font-medium text-white">{p.symbol}</span>
-                      <span className={`num ${pnlClass(p.unrealizedPnl)}`}>{p.unrealizedPct == null ? 'Waiting for price' : formatPct(p.unrealizedPct)}</span>
-                    </div>
-                    <div className="flex items-center justify-between text-xs text-zinc-500">
-                      <span className="num">{formatUsd(p.value)}</span>
-                      <button
-                        onClick={() => {
-                          if (!p.price) return toast.error('No live price yet.');
-                          const r = paper.sellMarket(p.key, p.qty, p.price);
-                          if (!r.ok) toast.error(r.error);
-                          else toast.success(`Sold ${p.symbol}`);
-                        }}
-                        className="text-rose-300 hover:text-rose-200"
-                      >Sell all</button>
-                    </div>
-                  </li>
+                  <OpenSnipe
+                    key={p.key} position={p} exit={exit} rejected={paper.keeper.rejected[p.key]}
+                    onSell={() => {
+                      if (!p.price) return toast.error('No live price yet.');
+                      const r = paper.sellMarket(p.key, p.qty, p.price);
+                      if (!r.ok) toast.error(r.error);
+                      else toast.success(`Sold ${p.symbol}`);
+                    }}
+                  />
                 ))}
               </ul>
             </Card>

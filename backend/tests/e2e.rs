@@ -1014,17 +1014,75 @@ async fn keeper_rejects_what_it_should_not_trust() {
         }
         assert_eq!(req.send().await.unwrap().status(), 403, "{origin:?}");
     }
+    // A position the keeper cannot use is turned away on its own. The others are still managed.
+    set_quote(mint, 1.0, 50_000.0, 8.0);
     for bad in [
-        json!([{"key": "solana:not an address", "qty": 1, "entryPrice": 1}]),
-        json!([{"key": "moon:abc", "qty": 1, "entryPrice": 1}]),
-        json!([{"key": format!("solana:{mint}"), "qty": -5, "entryPrice": 1}]),
-        json!([{"key": format!("solana:{mint}"), "qty": 1, "entryPrice": 0}]),
-        json!([held(mint, 1.0, None), held(mint, 1.0, None)]),
-        Value::Array((0..13).map(|_| held(mint, 1.0, None)).collect()),
+        json!({"key": "solana:not an address", "qty": 1, "entryPrice": 1}),
+        json!({"key": "moon:abc", "qty": 1, "entryPrice": 1}),
+        json!({"key": format!("solana:{mint}"), "qty": -5, "entryPrice": 1}),
+        json!({"key": format!("solana:{mint}"), "qty": 1, "entryPrice": 0}),
     ] {
-        let (s, v) = keeper_sync(&c, &base, None, bad.clone(), json!([])).await;
-        assert_eq!(s, 400, "{bad} -> {v}");
+        let good = "GoodKeeperTokenAAAAAAAAAAAAAAAAAAAAAAAAAAAAA";
+        let (s, v) = keeper_sync(
+            &c,
+            &base,
+            None,
+            json!([bad, held(good, 2.0, None)]),
+            json!([]),
+        )
+        .await;
+        assert_eq!(s, 200, "{bad} -> {v}");
+        assert_eq!(v["rejected"].as_array().unwrap().len(), 1, "{v}");
+        assert_eq!(v["rejected"][0]["key"], bad["key"]);
+        assert_eq!(v["positions"].as_array().unwrap().len(), 1);
+        assert_eq!(v["positions"][0]["qty"], 2.0);
     }
+    let (_, v) = keeper_sync(
+        &c,
+        &base,
+        None,
+        json!([held(mint, 1.0, None), held(mint, 1.0, None)]),
+        json!([]),
+    )
+    .await;
+    assert_eq!(
+        (
+            v["positions"].as_array().unwrap().len(),
+            v["rejected"][0]["reason"].as_str()
+        ),
+        (1, Some("It was sent twice."))
+    );
+    let many: Vec<Value> = (0..14)
+        .map(|i| {
+            held(
+                &format!(
+                    "ManyKeeperToken{}",
+                    ["A", "B", "C", "D", "E", "F", "G", "H", "J", "K", "L", "M", "N", "P"][i]
+                        .repeat(29)
+                ),
+                1.0,
+                None,
+            )
+        })
+        .collect();
+    let (_, v) = keeper_sync(&c, &base, None, Value::Array(many), json!([])).await;
+    assert_eq!(
+        (
+            v["positions"].as_array().unwrap().len(),
+            v["rejected"].as_array().unwrap().len()
+        ),
+        (12, 2),
+        "{v}"
+    );
+    // A request that is not shaped like a sync at all is refused outright.
+    let r = c
+        .post(format!("{base}/api/sniper/keeper/sync"))
+        .header("origin", &base)
+        .json(&json!({"positions": "everything"}))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(r.status(), 422);
     // A made up state is ignored, not trusted and not an error.
     let forged = json!({"key": format!("solana:{mint}"), "qty": "all of it", "tpDone": [7]});
     let (s, v) = keeper_sync(

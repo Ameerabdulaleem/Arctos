@@ -1239,7 +1239,15 @@ pub struct SyncResponse {
     last_background_check: Option<i64>,
     positions: Vec<PositionView>,
     executions: Vec<Execution>,
+    /// Positions the keeper could not take on, with the reason. The rest are unaffected.
+    rejected: Vec<Rejected>,
     checked_at: i64,
+}
+
+#[derive(Serialize)]
+pub struct Rejected {
+    key: String,
+    reason: String,
 }
 
 fn unavailable(e: String) -> AppError {
@@ -1257,18 +1265,25 @@ pub async fn sync(
     if !origin_ok(&state.config, &headers) {
         return Err(AppError::Forbidden("Origin is not allowed.".into()));
     }
-    if req.positions.len() > MAX_POSITIONS_PER_OWNER {
-        return Err(AppError::BadRequest(format!(
-            "At most {MAX_POSITIONS_PER_OWNER} open snipes can be managed at once."
-        )));
-    }
-    let mut reported: Vec<Reported> = Vec::with_capacity(req.positions.len());
-    for c in &req.positions {
-        let r = clean_position(c)?;
-        if reported.iter().any(|x| x.key == r.key) {
-            return Err(AppError::BadRequest("duplicate position".into()));
-        }
-        reported.push(r);
+    // One bad position must not leave the others unmanaged, so each is judged on its own.
+    let mut reported: Vec<Reported> = Vec::with_capacity(req.positions.len().min(16));
+    let mut rejected: Vec<Rejected> = Vec::new();
+    for c in req.positions.iter().take(64) {
+        let reason = match clean_position(c) {
+            Ok(r) if reported.iter().any(|x| x.key == r.key) => "It was sent twice.".to_string(),
+            Ok(_) if reported.len() >= MAX_POSITIONS_PER_OWNER => {
+                format!("At most {MAX_POSITIONS_PER_OWNER} open snipes can be managed at once.")
+            }
+            Ok(r) => {
+                reported.push(r);
+                continue;
+            }
+            Err(_) => "The keeper does not recognise this token.".to_string(),
+        };
+        rejected.push(Rejected {
+            key: clean_text(&c.key, 120),
+            reason,
+        });
     }
     let ack: Vec<String> = req
         .ack
@@ -1433,6 +1448,7 @@ pub async fn sync(
         last_background_check,
         positions,
         executions,
+        rejected,
         checked_at: now,
     }))
 }

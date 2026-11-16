@@ -21,6 +21,8 @@ export class ApiError extends Error {
 interface RequestOptions {
   signal?: AbortSignal;
   timeoutMs?: number;
+  /** Extra request headers, for example a bearer token. */
+  headers?: Record<string, string>;
 }
 
 async function request<T>(path: string, init: RequestInit, { signal, timeoutMs = 15_000 }: RequestOptions = {}): Promise<T> {
@@ -57,7 +59,7 @@ export function apiGet<T>(path: string, options?: RequestOptions): Promise<T> {
 }
 
 export function apiPost<T>(path: string, body: unknown, options?: RequestOptions): Promise<T> {
-  return request<T>(path, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) }, options);
+  return request<T>(path, { method: 'POST', headers: { ...options?.headers, 'Content-Type': 'application/json' }, body: JSON.stringify(body) }, options);
 }
 
 export function isAbort(error: unknown): boolean {
