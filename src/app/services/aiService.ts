@@ -1,4 +1,4 @@
-import { apiGet, apiPost } from './api';
+import { apiGet, apiPost, withFields } from './api';
 
 export interface ChatTurn {
   role: 'user' | 'assistant';
@@ -17,7 +17,7 @@ export interface UserContext {
 }
 
 export const aiService = {
-  status: (signal?: AbortSignal) => apiGet<{ configured: boolean; model: string | null }>('/api/ai/status', { signal }),
+  status: (signal?: AbortSignal) => apiGet<{ configured: boolean; model: string | null }>('/api/ai/status', { signal, check: withFields('configured') }),
   chat: (messages: ChatTurn[], context: UserContext, signal?: AbortSignal) =>
-    apiPost<{ reply: string; model: string }>('/api/ai/chat', { messages, context }, { signal, timeoutMs: 100_000 }),
+    apiPost<{ reply: string; model: string }>('/api/ai/chat', { messages, context }, { signal, timeoutMs: 100_000, check: (v) => typeof (v as { reply?: unknown })?.reply === 'string' }),
 };

@@ -1,4 +1,4 @@
-import { apiGet } from './api';
+import { apiGet, withLists } from './api';
 
 export type NewsImpact = 'high' | 'medium' | 'low';
 
@@ -22,5 +22,5 @@ export interface NewsResponse {
 }
 
 export const newsService = {
-  list: (limit = 120, signal?: AbortSignal) => apiGet<NewsResponse>(`/api/news?limit=${limit}`, { signal }),
+  list: (limit = 120, signal?: AbortSignal) => apiGet<NewsResponse>(`/api/news?limit=${limit}`, { signal, check: withLists('articles', 'feeds') }),
 };

@@ -1,4 +1,4 @@
-import { apiGet } from './api';
+import { apiGet, both, withFields, withLists } from './api';
 
 export type WhaleKind = 'transfer' | 'exchange_inflow' | 'exchange_outflow';
 
@@ -43,6 +43,6 @@ export const whaleService = {
     if (params.minUsd) q.set('minUsd', String(params.minUsd));
     if (params.chain) q.set('chain', params.chain);
     q.set('limit', String(params.limit ?? 200));
-    return apiGet<WhaleResponse>(`/api/whales?${q.toString()}`, { signal });
+    return apiGet<WhaleResponse>(`/api/whales?${q.toString()}`, { signal, check: both(withLists('events', 'chains'), withFields('stats')) });
   },
 };

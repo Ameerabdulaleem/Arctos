@@ -1,4 +1,4 @@
-import { apiGet } from './api';
+import { apiGet, withLists } from './api';
 
 export interface Holding {
   chain: string;
@@ -21,5 +21,5 @@ export interface PortfolioResponse {
 }
 
 export const portfolioService = {
-  get: (address: string, signal?: AbortSignal) => apiGet<PortfolioResponse>(`/api/portfolio/${encodeURIComponent(address)}`, { signal }),
+  get: (address: string, signal?: AbortSignal) => apiGet<PortfolioResponse>(`/api/portfolio/${encodeURIComponent(address)}`, { signal, check: withLists('holdings') }),
 };

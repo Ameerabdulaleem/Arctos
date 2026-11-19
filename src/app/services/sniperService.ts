@@ -1,4 +1,4 @@
-import { apiGet } from './api';
+import { apiGet, both, isList, withFields, withLists } from './api';
 
 /** A chain key such as "solana" or "bsc". The full list comes from the data service. */
 export type SniperChain = string;
@@ -151,17 +151,17 @@ export const DEFAULT_FILTERS: SniperFilters = {
 };
 
 export const sniperService = {
-  chains: (signal?: AbortSignal) => apiGet<ChainOption[]>('/api/sniper/chains', { signal }),
+  chains: (signal?: AbortSignal) => apiGet<ChainOption[]>('/api/sniper/chains', { signal, check: isList }),
   feed: (chain: SniperChain, launchpad: string, view: FeedView, signal?: AbortSignal) =>
-    apiGet<FeedResponse>(`/api/sniper/feed?chain=${encodeURIComponent(chain)}&launchpad=${encodeURIComponent(launchpad)}&view=${view}`, { signal, timeoutMs: 30_000 }),
+    apiGet<FeedResponse>(`/api/sniper/feed?chain=${encodeURIComponent(chain)}&launchpad=${encodeURIComponent(launchpad)}&view=${view}`, { signal, timeoutMs: 30_000, check: withLists('tokens') }),
   newPairs: (chain: SniperChain, signal?: AbortSignal) =>
-    apiGet<{ chain: string; tokens: SniperToken[]; updatedAt: string | null }>(`/api/sniper/new?chain=${chain}`, { signal }),
+    apiGet<{ chain: string; tokens: SniperToken[]; updatedAt: string | null }>(`/api/sniper/new?chain=${chain}`, { signal, check: withLists('tokens') }),
   search: (q: string, chain?: SniperChain, signal?: AbortSignal) =>
-    apiGet<SniperToken[]>(`/api/sniper/search?q=${encodeURIComponent(q)}${chain ? `&chain=${chain}` : ''}`, { signal }),
+    apiGet<SniperToken[]>(`/api/sniper/search?q=${encodeURIComponent(q)}${chain ? `&chain=${chain}` : ''}`, { signal, check: isList }),
   refresh: (ids: string[], signal?: AbortSignal) =>
-    ids.length === 0 ? Promise.resolve([] as SniperToken[]) : apiGet<SniperToken[]>(`/api/sniper/tokens?ids=${encodeURIComponent(ids.join(','))}`, { signal }),
+    ids.length === 0 ? Promise.resolve([] as SniperToken[]) : apiGet<SniperToken[]>(`/api/sniper/tokens?ids=${encodeURIComponent(ids.join(','))}`, { signal, check: isList }),
   security: (chain: SniperChain, address: string, signal?: AbortSignal) =>
-    apiGet<Security>(`/api/sniper/security?chain=${chain}&address=${encodeURIComponent(address)}`, { signal }),
+    apiGet<Security>(`/api/sniper/security?chain=${chain}&address=${encodeURIComponent(address)}`, { signal, check: both(withFields('available', 'riskScore'), withLists('flags')) }),
 };
 
 /** Whether a plain token (search result or tracked token) passes the basic filters. A missing risk report never counts as safe. */

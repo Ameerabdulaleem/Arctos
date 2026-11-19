@@ -1,4 +1,4 @@
-import { apiGet } from './api';
+import { apiGet, both, withFields, withLists } from './api';
 
 export interface SourceHealth {
   name: string;
@@ -26,5 +26,6 @@ export interface ServiceStatus {
 }
 
 export const statusService = {
-  get: (signal?: AbortSignal) => apiGet<ServiceStatus>('/api/status', { signal }),
+  get: (signal?: AbortSignal) =>
+    apiGet<ServiceStatus>('/api/status', { signal, check: both(withLists('sources'), withFields('database', 'ai', 'data', 'version')) }),
 };

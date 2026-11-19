@@ -1,4 +1,4 @@
-import { apiGet } from './api';
+import { apiGet, both, isList, withFields, withLists } from './api';
 
 export interface GlobalStats {
   totalMarketCapUsd: number;
@@ -87,16 +87,17 @@ export interface TradePrint {
 export type ChartInterval = '1m' | '5m' | '15m' | '1h' | '4h' | '1d';
 
 export const marketService = {
-  overview: (signal?: AbortSignal) => apiGet<MarketOverview>('/api/market/overview', { signal }),
+  overview: (signal?: AbortSignal) =>
+    apiGet<MarketOverview>('/api/market/overview', { signal, check: both(withFields('global', 'fearGreed', 'altseason'), withLists('marketCapTrend')) }),
   coins: (limit = 100, signal?: AbortSignal) =>
-    apiGet<{ coins: Coin[]; updatedAt: string | null }>(`/api/market/coins?limit=${limit}`, { signal }),
-  tickers: (signal?: AbortSignal) => apiGet<{ tickers: Ticker[]; source: string }>('/api/market/tickers', { signal }),
+    apiGet<{ coins: Coin[]; updatedAt: string | null }>(`/api/market/coins?limit=${limit}`, { signal, check: withLists('coins') }),
+  tickers: (signal?: AbortSignal) => apiGet<{ tickers: Ticker[]; source: string }>('/api/market/tickers', { signal, check: withLists('tickers') }),
   klines: (symbol: string, interval: ChartInterval, limit = 300, signal?: AbortSignal) =>
-    apiGet<Candle[]>(`/api/market/klines?symbol=${encodeURIComponent(symbol)}&interval=${interval}&limit=${limit}`, { signal }),
+    apiGet<Candle[]>(`/api/market/klines?symbol=${encodeURIComponent(symbol)}&interval=${interval}&limit=${limit}`, { signal, check: isList }),
   depth: (symbol: string, limit = 20, signal?: AbortSignal) =>
-    apiGet<Depth>(`/api/market/depth?symbol=${encodeURIComponent(symbol)}&limit=${limit}`, { signal }),
+    apiGet<Depth>(`/api/market/depth?symbol=${encodeURIComponent(symbol)}&limit=${limit}`, { signal, check: withLists('bids', 'asks') }),
   trades: (symbol: string, limit = 30, signal?: AbortSignal) =>
-    apiGet<TradePrint[]>(`/api/market/trades?symbol=${encodeURIComponent(symbol)}&limit=${limit}`, { signal }),
+    apiGet<TradePrint[]>(`/api/market/trades?symbol=${encodeURIComponent(symbol)}&limit=${limit}`, { signal, check: isList }),
 };
 
 /** Walks the book to find the average fill price for a market order of `qty` base units. */

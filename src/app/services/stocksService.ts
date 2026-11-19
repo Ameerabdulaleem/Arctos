@@ -1,4 +1,4 @@
-import { apiGet } from './api';
+import { apiGet, withLists } from './api';
 
 export interface StockQuote {
   symbol: string;
@@ -17,6 +17,6 @@ export const stocksService = {
   quotes: (symbols?: string[], signal?: AbortSignal) =>
     apiGet<{ quotes: StockQuote[]; failed: string[] }>(
       `/api/stocks${symbols?.length ? `?symbols=${encodeURIComponent(symbols.join(','))}` : ''}`,
-      { signal },
+      { signal, check: withLists('quotes', 'failed') },
     ),
 };
