@@ -13,6 +13,7 @@
 //!   needs behind short lived caches, and responses carry CDN cache headers.
 
 pub mod ai;
+pub mod ai_tools;
 pub mod binance;
 pub mod config;
 pub mod db;

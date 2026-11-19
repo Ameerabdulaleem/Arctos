@@ -18,14 +18,43 @@ export class ApiError extends Error {
   }
 }
 
+/** Says whether an answer has the shape a page relies on. */
+export type Check = (value: unknown) => boolean;
+
+export function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null && !Array.isArray(value);
+}
+
+/** An object whose named fields are all lists. */
+export const withLists = (...keys: string[]): Check => (v) => isRecord(v) && keys.every((k) => Array.isArray(v[k]));
+
+/** An object that has every named field (any value, null included). */
+export const withFields = (...keys: string[]): Check => (v) => isRecord(v) && keys.every((k) => k in v);
+
+/** Both checks must pass. */
+export const both = (a: Check, b: Check): Check => (v) => a(v) && b(v);
+
+export const isList: Check = (v) => Array.isArray(v);
+
+/**
+ * What a page shows when an answer is not what it expects. This happens when the address
+ * serves something other than the data service, for example a removed or protected deployment.
+ */
+export const UNEXPECTED_ANSWER = 'The data service sent an answer this page could not read. Open the main site address and reload.';
+
 interface RequestOptions {
   signal?: AbortSignal;
   timeoutMs?: number;
   /** Extra request headers, for example a bearer token. */
   headers?: Record<string, string>;
+  /**
+   * The shape the caller relies on. Without one, any JSON object or list is accepted.
+   * An answer that fails it becomes an error, so a page never renders data it cannot read.
+   */
+  check?: Check;
 }
 
-async function request<T>(path: string, init: RequestInit, { signal, timeoutMs = 15_000 }: RequestOptions = {}): Promise<T> {
+async function request<T>(path: string, init: RequestInit, { signal, timeoutMs = 15_000, check }: RequestOptions = {}): Promise<T> {
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), timeoutMs);
   const onAbort = () => controller.abort();
@@ -42,7 +71,19 @@ async function request<T>(path: string, init: RequestInit, { signal, timeoutMs =
       }
       throw new ApiError(message, response.status);
     }
-    return (await response.json()) as T;
+    let body: unknown;
+    try {
+      body = await response.json();
+    } catch {
+      throw new ApiError(UNEXPECTED_ANSWER, response.status);
+    }
+    // A successful status carrying an error message is still an error.
+    if (isRecord(body) && typeof body.error === 'string' && Object.keys(body).length === 1) {
+      throw new ApiError(body.error, response.status);
+    }
+    const valid = check ? check(body) : typeof body === 'object' && body !== null;
+    if (!valid) throw new ApiError(UNEXPECTED_ANSWER, response.status);
+    return body as T;
   } catch (error) {
     if (error instanceof ApiError) throw error;
     if (signal?.aborted) throw error;

@@ -1460,10 +1460,23 @@ pub async fn get_feed(
     State(state): State<Arc<AppState>>,
     Query(q): Query<FeedQuery>,
 ) -> Result<Json<FeedResponse>> {
+    Ok(Json(
+        feed(&state, &q.chain, q.launchpad.as_deref(), q.view.as_deref()).await?,
+    ))
+}
+
+/// A launchpad feed, from the shared cache or freshly built. Used by the
+/// feed endpoint and by the AI assistant's tools.
+pub async fn feed(
+    state: &Arc<AppState>,
+    chain: &str,
+    launchpad: Option<&str>,
+    view: Option<&str>,
+) -> Result<FeedResponse> {
     let chain =
-        chain_info(&q.chain).ok_or_else(|| AppError::BadRequest("unsupported chain".into()))?;
+        chain_info(chain).ok_or_else(|| AppError::BadRequest("unsupported chain".into()))?;
     // Only ids from the registry may reach an upstream URL.
-    let launchpad = match q.launchpad.as_deref() {
+    let launchpad = match launchpad {
         None | Some("all") | Some("") => None,
         Some(id) => Some(
             launchpads_for(chain.key)
@@ -1473,7 +1486,7 @@ pub async fn get_feed(
                 .ok_or_else(|| AppError::BadRequest("unknown launchpad for this chain".into()))?,
         ),
     };
-    let view = match q.view.as_deref() {
+    let view = match view {
         None | Some("new") => "new",
         Some("active") => "active",
         Some(_) => return Err(AppError::BadRequest("view must be new or active".into())),
@@ -1484,14 +1497,13 @@ pub async fn get_feed(
         launchpad.map(|l| l.id).unwrap_or("all")
     );
     let st = state.clone();
-    let feed = state
+    Ok(state
         .launchpad
         .feeds
         .get_or_fetch(&key, || async move {
             build_feed(&st, chain, launchpad, view).await
         })
-        .await?;
-    Ok(Json(feed))
+        .await?)
 }
 
 #[cfg(test)]

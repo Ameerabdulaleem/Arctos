@@ -1,7 +1,7 @@
 // Client for the trade keeper in the data service. The keeper decides when an open snipe is
 // sold (take profit targets, stop loss, developer exit guard). This app books what it decides.
 
-import { apiPost } from './api';
+import { apiPost, withLists } from './api';
 import type { KeeperPlan } from '../lib/exitPlan';
 
 export interface KeeperGuard {
@@ -123,6 +123,6 @@ export const keeperService = {
     apiPost<KeeperSyncResponse>(
       '/api/sniper/keeper/sync',
       { positions, ack },
-      { signal, timeoutMs: 25_000, headers: { Authorization: `Bearer ${deviceKey()}` } },
+      { signal, timeoutMs: 25_000, headers: { Authorization: `Bearer ${deviceKey()}` }, check: withLists('positions', 'executions') },
     ),
 };
