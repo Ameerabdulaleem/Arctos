@@ -300,6 +300,14 @@ impl<V: Clone> KeyedCache<V> {
         })
     }
 
+    /// Drops the value for `key`, so the next read fetches it again.
+    pub fn invalidate(&self, key: &str) {
+        self.slots
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .remove(key);
+    }
+
     /// Stores a value fetched elsewhere (for example read from the database),
     /// as if it had been fetched `age` ago.
     pub async fn put(&self, key: &str, value: V, age: Duration) {
