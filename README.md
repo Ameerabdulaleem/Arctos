@@ -90,18 +90,54 @@ Where a trade's progress is kept decides whether it is managed with Arctos close
 | Setup | Managed with every tab closed? |
 | --- | --- |
 | Vercel with no database (the default) | No. Open snipes are managed while Arctos is open in at least one browser tab, on any page. |
-| Vercel with a PostgreSQL database | Yes. The keeper stores the open snipes and a scheduled job checks them every minute or so. |
+| Vercel with a PostgreSQL database | Yes. The keeper stores the open snipes and the database calls it every minute while any is open. |
 | The standalone server | Yes. It checks every 20 seconds on its own. With no database the trades are forgotten if the server restarts. |
 
-To switch it on for a Vercel site:
+To switch it on for a Vercel site, connect the database described in [The database](#the-database) below. Nothing else is needed: once `/api/status` shows `"keeper": {"offline": true, "durable": true}`, the database itself calls the keeper every minute while any snipe is open (see `backend/migrations/supabase/scheduler.sql`).
 
-1. In Vercel, open the project, go to Storage, create a Postgres database (Neon has a free tier) and connect it to the project. This adds `DATABASE_URL` for you. Pick a region close to Frankfurt, where the function runs.
-2. Redeploy. `/api/status` then shows `"keeper": {"offline": true, "durable": true}`.
-3. Nothing else is needed. The workflow in `.github/workflows/keeper.yml` already calls the site every five minutes and, while snipes are open, checks them about once a minute. It runs on GitHub's free scheduler, which can run late when GitHub is busy and is switched off after 60 days without a commit (re-enable it under Actions).
+Two backups call the same check, and the keeper makes sure only one check runs at a time whoever calls:
 
-On Vercel's Pro plan you can use Vercel Cron instead, by adding `"crons": [{"path": "/api/sniper/keeper/tick", "schedule": "* * * * *"}]` to `vercel.json`. The Hobby plan only allows one cron run a day, which is why this is not switched on by default. Set `CRON_SECRET` in Vercel if you want the scheduled check to refuse callers that do not know it, and add the same value as a repository secret so the GitHub workflow can still call it.
+* The workflow in `.github/workflows/keeper.yml` calls the site every five minutes. GitHub's free scheduler can run late when GitHub is busy, and switches the workflow off after 60 days without a commit (re-enable it under Actions).
+* On Vercel's Pro plan, Vercel Cron can call it too: add `"crons": [{"path": "/api/sniper/keeper/tick", "schedule": "* * * * *"}]` to `vercel.json`. The Hobby plan only allows one cron run a day.
+
+Set `CRON_SECRET` in Vercel if you want the scheduled check to refuse callers that do not know it. Then store the same value in Supabase Vault under the name `arctos_cron_secret`, and as a repository secret for the GitHub workflow, so the schedulers can still call it.
 
 The paper account stays in your browser either way. The keeper only knows a hash of a random key your browser generates, the token, the size and the plan. Sales made while you were away are booked, and shown, the next time you open Arctos on the same browser. Snipes nobody has come back to for 30 days are dropped.
+
+## The database
+
+Arctos uses one PostgreSQL database. It is optional: without it everything works, but the waitlist cannot give real positions, open snipes are managed only while the app is open, and the sniper's developer records start empty after every restart.
+
+Everything lives in its own `arctos` schema, away from the automatic API that hosts such as Supabase put in front of `public`. Row level security is on for every table and no rule opens them, so only the data service (the table owner) can read or write. The tables:
+
+| Table | What it holds |
+| --- | --- |
+| `waitlist` | Signups, one per address, stored in lower case |
+| `keeper_positions`, `keeper_executions`, `keeper_meta` | Open snipes, sales waiting to be booked, and the schedule state. Owners are hashes of a random browser key, never the key |
+| `token_checks` | The result of each full token check, shared by every copy of the service so a slow check is made once |
+| `dev_launches` | Every launch seen from each developer wallet and how it did. This is the developer track record the sniper ranks by, and it now survives restarts |
+| `schema_migrations` | Which schema versions are applied |
+
+The view `developer_records` shows one line per developer (launches, successes, average share of buys), for reading the records by hand.
+
+**Migrations.** The schema is in `backend/migrations/`, one numbered file per version. The service applies any it has not seen when it first reaches the database, inside one transaction under a lock, so several copies starting together are safe. Each file records its own version, so it can also be run by hand.
+
+**Housekeeping.** Token checks are kept for 3 days and launches for 180 days. The service clears out older rows once an hour, which keeps the database far below a free plan's 500 MB.
+
+### The hosted database (Supabase, free plan)
+
+The live site's database is a Supabase project called `arctos`, in Frankfurt (`eu-central-1`), next to the Vercel function. It has the schema above and the scheduler from `backend/migrations/supabase/scheduler.sql`, which uses `pg_cron` and `pg_net` to call the trade keeper every minute while a snipe is open and once an hour otherwise. The hourly call also keeps the free project from being paused for inactivity.
+
+To connect it to the site, which has to be done by someone who can see the database password:
+
+1. In Supabase, open the `arctos` project and press **Connect** at the top.
+2. Choose **Transaction pooler** (port 6543). Vercel can only reach Supabase over IPv4, and the pooler is the free way to do that. Copy the address and put the database password in place of `[YOUR-PASSWORD]`. If you do not know the password, use **Reset database password** under Project Settings, Database, and paste the new one straight in.
+3. In Vercel, open the project, then Settings, Environment Variables, and add it as `DATABASE_URL` for Production.
+4. Redeploy. `/api/status` should then show `"database": {"configured": true, "connected": true}`.
+
+Every query is sent as an unnamed statement, which the pooler's transaction mode needs. A unit test fails if a query is added without that.
+
+**Backups.** Supabase's free plan gives you no backups you can download. A daily copy to a private Railway storage bucket can be added later within Railway's free allowance.
 
 ## What is simulated, and what is not covered
 
@@ -159,7 +195,7 @@ Data service (`backend/.env.example`):
 | `FRONTEND_ORIGINS` | Comma separated site origins allowed to call the service. Needed for a standalone server. On Vercel the site and the API share one host, which is accepted automatically. |
 | `TRUST_PROXY` | `true` behind your own proxy so rate limits see the real client IP. |
 | `ANTHROPIC_API_KEY`, `ANTHROPIC_MODEL`, `ANTHROPIC_EFFORT` | AI assistant. The default model is `claude-opus-5-5`. |
-| `DATABASE_URL` | PostgreSQL (optional). Gives the waitlist real positions and lets the trade keeper manage open snipes while nobody has the app open. `POSTGRES_URL` is read too. |
+| `DATABASE_URL` | PostgreSQL (optional, see [The database](#the-database)). On Vercel use a pooler address in transaction mode, such as Supabase's on port 6543. `POSTGRES_URL` is read too. |
 | `CRON_SECRET` | Optional. When set, the keeper's scheduled check only answers callers that send it as a bearer token. |
 | `MAIL_*`, `PUBLIC_SITE_URL` | SMTP settings for the welcome email (optional). |
 | `COINGECKO_API_KEY`, `BLOCKCHAIR_API_KEY` | Optional keys that raise provider limits. A CoinGecko key also speeds up the sniper's token checks. |
@@ -175,7 +211,7 @@ Every provider base URL can also be overridden, which is how the fixtures work.
 * Live market data, whales, news, stocks and the sniper work with no environment variables.
 * Add these in Vercel, Project Settings, Environment Variables, when you want the feature:
   * `ANTHROPIC_API_KEY` switches on the AI assistant.
-  * `DATABASE_URL` gives the waitlist real positions and keeps open snipes managed while you are away (see the sniper section). `MAIL_USERNAME`, `MAIL_PASSWORD` and `MAIL_FROM` send the welcome email.
+  * `DATABASE_URL` connects the database (see [The database](#the-database)): real waitlist positions, open snipes managed while you are away, and developer records that survive restarts. `MAIL_USERNAME`, `MAIL_PASSWORD` and `MAIL_FROM` send the welcome email.
   * `COINGECKO_API_KEY` and `BLOCKCHAIR_API_KEY` raise provider limits.
 * After a deploy, open `/api/status` on your site. It lists every provider and whether it is reachable.
 
@@ -200,8 +236,8 @@ The function runs in Frankfurt (`fra1` in `vercel.json`). Binance refuses reques
 ```bash
 npm test                          # unit tests for the paper trading engine, exit plan, sniper filters, formatting, trade book, password hashing
 npm run lint && npm run build
-cd backend && cargo test          # 90 unit tests and 14 end to end tests against a fake upstream, in both modes
-                                  # set KEEPER_TEST_DATABASE_URL to also run the trade keeper against a real PostgreSQL
+cd backend && cargo test          # 93 unit tests and 16 end to end tests against a fake upstream, in both modes
+                                  # set TEST_DATABASE_URL to also run the database tests against a real PostgreSQL
 cargo build                       # the Vercel function crate (repository root)
 cd backend && cargo clippy --all-targets -- -D warnings
 ```
@@ -215,7 +251,8 @@ src/app/            React app: components, services (API clients), contexts, hoo
 src/styles/         Design system: tokens and shared classes (panel, btn, field, seg, icon-tile)
 api/main.rs         Vercel function: a thin adapter around the backend crate
 Cargo.toml          The function crate (depends on backend/)
-backend/src/        Rust service: market, binance, whales, sniper, launchpad, keeper, news, stocks, portfolio, ai, waitlist
+backend/src/        Rust service: market, binance, whales, sniper, launchpad, keeper, records, db, news, stocks, portfolio, ai, waitlist
+backend/migrations/ Versioned database schema, and the Supabase scheduler in supabase/
 backend/tests/      End to end tests with a fake upstream
 scripts/            Dev fixtures and the browser walkthrough
 .github/workflows/  CI, and the schedule that keeps open snipes managed while nobody is online
