@@ -149,7 +149,8 @@ pub fn definitions() -> Value {
                     "launchpad": { "type": "string", "description": "A launchpad id from the list, or \"all\"." },
                     "view": { "type": "string", "enum": ["new", "active"] },
                     "limit": { "type": "integer", "minimum": 1, "maximum": MAX_FEED_TOKENS },
-                    "fully_checked_only": { "type": "boolean", "description": "Only tokens whose developer and contract checks have run." }
+                    "fully_checked_only": { "type": "boolean", "description": "Only tokens whose developer and contract checks have run." },
+                    "max_age_hours": { "type": "number", "description": "Only tokens launched within this many hours, for example 24 for today." }
                 },
                 "required": ["chain"],
                 "additionalProperties": false
@@ -215,15 +216,24 @@ pub async fn run(
                 .get("fully_checked_only")
                 .and_then(|v| v.as_bool())
                 .unwrap_or(false);
+            let max_age_hours = input
+                .get("max_age_hours")
+                .and_then(|v| v.as_f64())
+                .filter(|h| h.is_finite() && *h > 0.0);
+            let young_enough = |t: &FeedToken| match (max_age_hours, t.created_at) {
+                (Some(max), Some(at)) => ((now_ms - at) as f64) / 3_600_000.0 <= max,
+                (Some(_), None) => false,
+                (None, _) => true,
+            };
             let mut feed = launchpad::feed(state, chain, Some(pad), Some(view))
                 .await
                 .map_err(|e| e.to_string())?;
             // Check the best candidates that have not been checked yet, then
-            // score them again, so the answer rests on as much as possible.
+            // score the same tokens again, so the answer rests on as much as possible.
             let candidates: Vec<String> = feed
                 .tokens
                 .iter()
-                .filter(|t| !t.score.checked && !t.score.blocked)
+                .filter(|t| !t.score.checked && !t.score.blocked && young_enough(t))
                 .take(limit)
                 .map(|t| t.address.clone())
                 .collect();
@@ -239,16 +249,27 @@ pub async fn run(
                 launchpad::check_now(state, chain, &candidates, max_checks, room).await
             };
             if checked_now > 0 {
-                launchpad::refresh_feed(chain, Some(pad), Some(view), state);
-                if let Ok(fresh) = launchpad::feed(state, chain, Some(pad), Some(view)).await {
+                if let Ok(fresh) =
+                    launchpad::rescore_feed(state, chain, Some(pad), Some(view)).await
+                {
                     feed = fresh;
                 }
             }
             let fully_checked = feed.tokens.iter().filter(|t| t.score.checked).count();
-            let tokens: Vec<Value> = feed
+            // Fully checked tokens first, each group best score first.
+            let mut picked: Vec<&FeedToken> = feed
                 .tokens
                 .iter()
-                .filter(|t| !checked_only || t.score.checked)
+                .filter(|t| (!checked_only || t.score.checked) && young_enough(t))
+                .collect();
+            picked.sort_by(|a, b| {
+                b.score
+                    .checked
+                    .cmp(&a.score.checked)
+                    .then(b.score.total.cmp(&a.score.total))
+            });
+            let tokens: Vec<Value> = picked
+                .into_iter()
                 .take(limit)
                 .map(|t| feed_token_view(t, now_ms))
                 .collect();

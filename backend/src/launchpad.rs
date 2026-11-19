@@ -329,6 +329,9 @@ impl DevIndex {
 
 pub struct LaunchpadStore {
     feeds: KeyedCache<FeedResponse>,
+    /// The pools behind each feed, kept briefly so a feed can be scored again
+    /// after checks without the list changing underneath it.
+    pools: KeyedCache<Vec<Pool>>,
     /// Developers on record in the database, counted at most once a minute.
     dev_count: KeyedCache<i64>,
     intel: KeyedCache<Intel>,
@@ -346,6 +349,7 @@ impl LaunchpadStore {
     pub fn new() -> Self {
         Self {
             feeds: KeyedCache::new(Duration::from_secs(20), Duration::from_secs(300)),
+            pools: KeyedCache::new(Duration::from_secs(90), Duration::from_secs(90)),
             dev_count: KeyedCache::new(Duration::from_secs(60), Duration::from_secs(600)),
             graduations: KeyedCache::new(Duration::from_secs(120), Duration::from_secs(900)),
             paused_until: Mutex::new(None),
@@ -1217,13 +1221,30 @@ async fn build_feed(
     chain: ChainInfo,
     launchpad: Option<Launchpad>,
     view: &str,
+    same_pools: bool,
 ) -> std::result::Result<FeedResponse, UpstreamError> {
-    let mut pools = fetch_pools(state, &chain, launchpad.as_ref(), view).await?;
     let feed_key = format!(
         "{}:{}:{view}",
         chain.key,
         launchpad.map(|l| l.id).unwrap_or("all")
     );
+    let reused = if same_pools {
+        state.launchpad.pools.peek(&feed_key)
+    } else {
+        None
+    };
+    let mut pools = match reused {
+        Some(pools) => pools,
+        None => {
+            let fresh = fetch_pools(state, &chain, launchpad.as_ref(), view).await?;
+            state
+                .launchpad
+                .pools
+                .put(&feed_key, fresh.clone(), Duration::ZERO)
+                .await;
+            fresh
+        }
+    };
     let mut budget = if state.config.coingecko_api_key.is_some() {
         EXTRA_CALLS_KEYED
     } else {
@@ -1515,30 +1536,38 @@ pub async fn check_now(
     fresh.len()
 }
 
-/// Forgets a cached feed so the next request rebuilds it with the latest checks.
-pub fn refresh_feed(chain: &str, launchpad: Option<&str>, view: Option<&str>, state: &AppState) {
-    let pad = match launchpad {
-        None | Some("") => "all",
-        Some(p) => p,
-    };
-    let view = view.unwrap_or("new");
-    state
-        .launchpad
-        .feeds
-        .invalidate(&format!("{chain}:{pad}:{view}"));
-}
-
-/// A launchpad feed, from the shared cache or freshly built. Used by the
-/// feed endpoint and by the AI assistant's tools.
-pub async fn feed(
+/// Scores a feed again with the latest checks, over the same tokens it showed
+/// a moment ago, so tokens just checked are not pushed out by newer launches.
+pub async fn rescore_feed(
     state: &Arc<AppState>,
     chain: &str,
     launchpad: Option<&str>,
     view: Option<&str>,
 ) -> Result<FeedResponse> {
+    let (chain, launchpad, view) = feed_target(chain, launchpad, view)?;
+    let key = format!(
+        "{}:{}:{view}",
+        chain.key,
+        launchpad.map(|l| l.id).unwrap_or("all")
+    );
+    let fresh = build_feed(state, chain, launchpad, view, true).await?;
+    state
+        .launchpad
+        .feeds
+        .put(&key, fresh.clone(), Duration::ZERO)
+        .await;
+    Ok(fresh)
+}
+
+/// Checks a feed request against the registry. Only registry ids may reach
+/// an upstream URL.
+fn feed_target(
+    chain: &str,
+    launchpad: Option<&str>,
+    view: Option<&str>,
+) -> Result<(ChainInfo, Option<Launchpad>, &'static str)> {
     let chain =
         chain_info(chain).ok_or_else(|| AppError::BadRequest("unsupported chain".into()))?;
-    // Only ids from the registry may reach an upstream URL.
     let launchpad = match launchpad {
         None | Some("all") | Some("") => None,
         Some(id) => Some(
@@ -1554,6 +1583,18 @@ pub async fn feed(
         Some("active") => "active",
         Some(_) => return Err(AppError::BadRequest("view must be new or active".into())),
     };
+    Ok((chain, launchpad, view))
+}
+
+/// A launchpad feed, from the shared cache or freshly built. Used by the
+/// feed endpoint and by the AI assistant's tools.
+pub async fn feed(
+    state: &Arc<AppState>,
+    chain: &str,
+    launchpad: Option<&str>,
+    view: Option<&str>,
+) -> Result<FeedResponse> {
+    let (chain, launchpad, view) = feed_target(chain, launchpad, view)?;
     let key = format!(
         "{}:{}:{view}",
         chain.key,
@@ -1564,7 +1605,7 @@ pub async fn feed(
         .launchpad
         .feeds
         .get_or_fetch(&key, || async move {
-            build_feed(&st, chain, launchpad, view).await
+            build_feed(&st, chain, launchpad, view, false).await
         })
         .await?)
 }
