@@ -933,10 +933,10 @@ pub fn spawn_pollers(state: Arc<AppState>) {
 #[derive(Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct WhaleQuery {
-    min_usd: Option<f64>,
-    chain: Option<String>,
-    address: Option<String>,
-    limit: Option<usize>,
+    pub(crate) min_usd: Option<f64>,
+    pub(crate) chain: Option<String>,
+    pub(crate) address: Option<String>,
+    pub(crate) limit: Option<usize>,
 }
 
 #[derive(Serialize)]

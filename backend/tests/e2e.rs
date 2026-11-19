@@ -165,7 +165,14 @@ fn fake_upstream() -> Router {
             Json(json!({"code": 1, "result": {"0x6982508145454ce325ddbe47a25d4ec3d2311933": {"is_honeypot": "0", "buy_tax": "0", "sell_tax": "0.02", "is_open_source": "1", "holder_count": "1000"}}}))
         }))
         .route("/anthropic/v1/messages", post(|Json(body): Json<Value>| async move { Json(fake_model(&body)) }))
-        .route("/rpc", post(|Json(_): Json<Value>| async { Json(json!({"jsonrpc": "2.0", "id": 1, "result": "0x10"})) }))
+        .route("/rpc", post(|Json(req): Json<Value>| async move {
+            // One answer per request, batches included, each carrying its request's id.
+            let answer = |r: &Value| json!({"jsonrpc": "2.0", "id": r["id"].clone(), "result": "0x10"});
+            Json(match req.as_array() {
+                Some(batch) => Value::Array(batch.iter().map(answer).collect()),
+                None => answer(&req),
+            })
+        }))
 }
 
 /// A stand-in for the model. It answers from the system prompt, or asks for
@@ -1619,4 +1626,100 @@ async fn ai_answers_from_the_sniper_engine() {
     // Questions that need no tools are answered as before.
     let (_, v) = ask("How is BTC?").await;
     assert_eq!(v["reply"], "live context included btc price: true");
+}
+
+/// Every tool the assistant can call returns real data from the same code the
+/// pages use, and refuses input it should not accept.
+#[tokio::test(flavor = "multi_thread")]
+async fn every_assistant_tool_returns_data() {
+    let (base, state) = boot().await;
+    let c = reqwest::Client::new();
+    // Let the pollers fill the caches the way a running site has them.
+    wait_for(&c, &format!("{base}/api/market/tickers"), |v| {
+        v["tickers"].is_array()
+    })
+    .await;
+    wait_for(&c, &format!("{base}/api/market/coins"), |v| {
+        v["coins"].as_array().is_some_and(|c| !c.is_empty())
+    })
+    .await;
+    let run = |name: &'static str, input: Value| {
+        let state = state.clone();
+        async move { arctos_backend::ai_tools::run(&state, name, &input, Duration::from_secs(50)).await }
+    };
+
+    let overview = run("market_overview", json!({})).await.unwrap();
+    assert!(overview["fearGreed"]["value"].is_number(), "{overview}");
+    assert!(
+        overview.get("marketCapTrend").is_none(),
+        "heavy fields are dropped"
+    );
+
+    let coins = run("coin_lookup", json!({"query": "btc"})).await.unwrap();
+    assert_eq!(coins["coins"][0]["symbol"], "BTC", "{coins}");
+    assert!(coins["coins"][0].get("sparkline7d").is_none());
+
+    let history = run("price_history", json!({"symbol": "btc", "interval": "1h"}))
+        .await
+        .unwrap();
+    assert_eq!(history["pair"], "BTCUSDT", "{history}");
+    assert!(history["lastClose"].is_number());
+    assert!(
+        run("price_history", json!({"symbol": "btc", "interval": "7m"}))
+            .await
+            .is_err()
+    );
+
+    let book = run("order_book", json!({"symbol": "BTC"})).await.unwrap();
+    assert_eq!(
+        (book["bestBid"].as_f64(), book["bestAsk"].as_f64()),
+        (Some(99.0), Some(101.0)),
+        "{book}"
+    );
+
+    let whales = run("whale_activity", json!({"limit": 5})).await.unwrap();
+    assert!(
+        whales["events"].is_array() && whales["stats"].is_object(),
+        "{whales}"
+    );
+    assert!(run("whale_activity", json!({"chain": "moon"}))
+        .await
+        .is_err());
+
+    let news = run("news_search", json!({"query": "etf"})).await.unwrap();
+    assert!(
+        news["articles"][0]["title"]
+            .as_str()
+            .unwrap()
+            .contains("ETF"),
+        "{news}"
+    );
+    let none = run("news_search", json!({"query": "no such topic anywhere"}))
+        .await
+        .unwrap();
+    assert_eq!(none["articles"], json!([]));
+
+    let stocks = run("stock_quotes", json!({"symbols": ["coin"]}))
+        .await
+        .unwrap();
+    assert_eq!(stocks["quotes"][0]["symbol"], "COIN", "{stocks}");
+
+    let wallet = run(
+        "wallet_holdings",
+        json!({"address": "0x00000000219ab540356cBB839Cbe05303d7705Fa"}),
+    )
+    .await
+    .unwrap();
+    assert!(wallet["holdings"].is_array(), "{wallet}");
+    assert!(run("wallet_holdings", json!({"address": "not a wallet"}))
+        .await
+        .is_err());
+
+    assert!(run(
+        "launchpad_feed",
+        json!({"chain": "solana", "launchpad": "nope"})
+    )
+    .await
+    .is_err());
+    assert!(run("no_such_tool", json!({})).await.is_err());
 }

@@ -646,7 +646,7 @@ pub fn spawn_pollers(state: Arc<AppState>) {
 
 #[derive(Deserialize)]
 pub struct NewsQuery {
-    limit: Option<usize>,
+    pub(crate) limit: Option<usize>,
 }
 
 #[derive(Serialize)]

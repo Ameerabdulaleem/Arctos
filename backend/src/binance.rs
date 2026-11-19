@@ -520,9 +520,9 @@ pub async fn get_tickers(State(state): State<Arc<AppState>>) -> Result<Json<Tick
 
 #[derive(Deserialize)]
 pub struct KlinesQuery {
-    symbol: String,
-    interval: Option<String>,
-    limit: Option<u32>,
+    pub(crate) symbol: String,
+    pub(crate) interval: Option<String>,
+    pub(crate) limit: Option<u32>,
 }
 
 pub async fn get_klines(
@@ -555,8 +555,8 @@ pub async fn get_klines(
 
 #[derive(Deserialize)]
 pub struct DepthQuery {
-    symbol: String,
-    limit: Option<u32>,
+    pub(crate) symbol: String,
+    pub(crate) limit: Option<u32>,
 }
 
 pub async fn get_depth(

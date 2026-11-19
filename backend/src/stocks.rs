@@ -103,7 +103,7 @@ async fn fetch_quote(state: &AppState, symbol: &str) -> std::result::Result<Quot
 
 #[derive(Deserialize)]
 pub struct StocksQuery {
-    symbols: Option<String>,
+    pub(crate) symbols: Option<String>,
 }
 
 #[derive(Serialize)]
