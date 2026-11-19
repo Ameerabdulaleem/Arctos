@@ -164,13 +164,61 @@ fn fake_upstream() -> Router {
         .route("/goplus/token_security/:chain", get(|| async {
             Json(json!({"code": 1, "result": {"0x6982508145454ce325ddbe47a25d4ec3d2311933": {"is_honeypot": "0", "buy_tax": "0", "sell_tax": "0.02", "is_open_source": "1", "holder_count": "1000"}}}))
         }))
-        .route("/anthropic/v1/messages", post(|Json(body): Json<Value>| async move {
-            let sys = body["system"].as_str().unwrap_or_default();
-            let saw_btc = sys.contains("BTC $650");
-            Json(json!({"model": "claude-opus-5-5", "stop_reason": "end_turn",
-                "content": [{"type": "text", "text": format!("live context included btc price: {saw_btc}")}]}))
-        }))
+        .route("/anthropic/v1/messages", post(|Json(body): Json<Value>| async move { Json(fake_model(&body)) }))
         .route("/rpc", post(|Json(_): Json<Value>| async { Json(json!({"jsonrpc": "2.0", "id": 1, "result": "0x10"})) }))
+}
+
+/// A stand-in for the model. It answers from the system prompt, or asks for
+/// sniper tools when the question calls for them, then answers from what the
+/// tools returned.
+fn fake_model(body: &Value) -> Value {
+    let text = |t: String| json!({"model": "claude-opus-5-5", "stop_reason": "end_turn", "content": [{"type": "text", "text": t}]});
+    let messages = body["messages"].as_array().cloned().unwrap_or_default();
+    let last = messages.last().cloned().unwrap_or(Value::Null);
+    let first_question = messages
+        .first()
+        .and_then(|m| m["content"].as_str())
+        .unwrap_or_default()
+        .to_string();
+    let forced = body["tool_choice"]["type"] == "none";
+    if first_question.contains("loop forever") {
+        if forced {
+            return text(format!("forced answer after {} messages", messages.len()));
+        }
+        return json!({"model": "claude-opus-5-5", "stop_reason": "tool_use", "content": [
+            {"type": "tool_use", "id": format!("loop_{}", messages.len()), "name": "search_tokens", "input": {"query": "pepe"}}]});
+    }
+    if let Some(blocks) = last["content"]
+        .as_array()
+        .filter(|c| c.iter().any(|b| b["type"] == "tool_result"))
+    {
+        let all: String = blocks
+            .iter()
+            .map(|b| b["content"].as_str().unwrap_or_default())
+            .collect::<Vec<_>>()
+            .join(" ");
+        let seen = ["ALPHA", "BETA", "GAMMA"]
+            .iter()
+            .filter(|s| all.contains(*s))
+            .count();
+        let errors = blocks.iter().filter(|b| b["is_error"] == true).count();
+        let checked = all.contains("\"fullyChecked\":true");
+        return text(format!(
+            "sniper tokens seen: {seen}, rejected calls: {errors}, some fully checked: {checked}"
+        ));
+    }
+    let question = last["content"].as_str().unwrap_or_default();
+    if question.contains("pump.fun") && body["tools"].is_array() {
+        return json!({"model": "claude-opus-5-5", "stop_reason": "tool_use", "content": [
+            {"type": "text", "text": "Checking the sniper."},
+            {"type": "tool_use", "id": "call_1", "name": "launchpad_feed", "input": {"chain": "solana", "launchpad": "pump-fun", "view": "active", "limit": 10}},
+            {"type": "tool_use", "id": "call_2", "name": "contract_risk", "input": {"chain": "solana", "address": "not an address"}}]});
+    }
+    let saw_btc = body["system"]
+        .as_str()
+        .unwrap_or_default()
+        .contains("BTC $650");
+    text(format!("live context included btc price: {saw_btc}"))
 }
 
 /// A configuration that points every provider at the local fake.
@@ -1536,4 +1584,39 @@ async fn an_unreachable_database_is_reported_and_survived() {
         (v["persisted"].as_bool(), v["position"].clone()),
         (Some(false), Value::Null)
     );
+}
+
+/// The assistant answers launchpad questions from the sniper engine: it asks
+/// for the feed, gets real scored tokens back, and a bad request from the
+/// model is turned away without stopping the answer.
+#[tokio::test(flavor = "multi_thread")]
+async fn ai_answers_from_the_sniper_engine() {
+    let (base, _state) = boot().await;
+    let c = reqwest::Client::new();
+    let ask = |q: &str| {
+        let c = c.clone();
+        let url = format!("{base}/api/ai/chat");
+        let body = json!({"messages": [{"role": "user", "content": q}]});
+        async move {
+            let r = c.post(url).json(&body).send().await.unwrap();
+            let status = r.status().as_u16();
+            (status, r.json::<Value>().await.unwrap_or(Value::Null))
+        }
+    };
+    let (s, v) =
+        ask("List 10 coins that just listed on pump.fun today with a developer that is okay").await;
+    assert_eq!(s, 200, "{v}");
+    assert_eq!(
+        v["reply"], "sniper tokens seen: 3, rejected calls: 1, some fully checked: false",
+        "the feed's tokens reached the model, and the malformed address was refused"
+    );
+
+    // A model that keeps asking for tools is made to answer after three rounds.
+    let (s, v) = ask("loop forever").await;
+    assert_eq!(s, 200, "{v}");
+    assert_eq!(v["reply"], "forced answer after 7 messages");
+
+    // Questions that need no tools are answered as before.
+    let (_, v) = ask("How is BTC?").await;
+    assert_eq!(v["reply"], "live context included btc price: true");
 }

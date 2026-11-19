@@ -21,6 +21,7 @@ interface Message {
 }
 
 const QUICK_PROMPTS = [
+  'Which new Pump.fun tokens have a good snipe score and a developer with a clean record?',
   'Give me a quick read on the market right now',
   'What are the biggest risks I should watch today?',
   'Summarize the most important headlines',
@@ -31,7 +32,7 @@ const QUICK_PROMPTS = [
 const WELCOME: Message = {
   id: 'welcome',
   role: 'ai',
-  text: "Hi, I'm the Arctos assistant. I can see live prices, the Fear and Greed index, recent headlines and large whale transfers, plus your paper account and trade book.\n\nAsk me about the market, a token, or your trades. I can't place trades or touch your wallet.",
+  text: "Hi, I'm the Arctos assistant. I can see live prices, the Fear and Greed index, recent headlines and large whale transfers, plus your paper account and trade book. I can also look things up in the Sniper Engine: new launches on Pump.fun and other launchpads, each token's snipe score, its developer's record and its contract risk.\n\nAsk me about the market, a token, a launchpad or your trades. I can't place trades or touch your wallet.",
 };
 
 function renderInline(text: string) {

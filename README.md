@@ -104,6 +104,20 @@ Set `CRON_SECRET` in Vercel if you want the scheduled check to refuse callers th
 
 The paper account stays in your browser either way. The keeper only knows a hash of a random key your browser generates, the token, the size and the plan. Sales made while you were away are booked, and shown, the next time you open Arctos on the same browser. Snipes nobody has come back to for 30 days are dropped.
 
+## The AI assistant
+
+The assistant answers from live data the service puts in its instructions (prices, the Fear and Greed index, headlines, whale transfers, and the user's paper account and trade book), and it can look things up in the sniper engine through three tools:
+
+| Tool | What it returns |
+| --- | --- |
+| `launchpad_feed` | Tokens on a chain's launchpads (Pump.fun and the others in the sniper), best first, each with its snipe score, age, market cap, buy share, developer record and holding, and contract risk |
+| `search_tokens` | Tokens matching a name, symbol or address, with price, liquidity and volume |
+| `contract_risk` | The contract risk check for one token |
+
+The service runs the tools itself (`backend/src/ai_tools.rs`) with the same checks as the public endpoints: only known chains and launchpads, valid addresses, short queries. Text from outside, such as token names, is cleaned before the model sees it, and the instructions tell the model to treat tool data as data. The model may use tools for up to three rounds, and the whole answer must finish within 52 seconds.
+
+**Running it free.** Anthropic's API needs prepaid credit. Vercel AI Gateway includes a monthly free credit for a set of models from other providers, though not for Claude, and serves them through the same request format. To use it, add a card to the Vercel team (needed to unlock the free credit), create an AI Gateway API key, and set `ANTHROPIC_API_KEY` to that key, `ANTHROPIC_BASE` to `https://ai-gateway.vercel.sh` and `ANTHROPIC_MODEL` to a free tier model such as `google/gemini-2.5-flash`. To move to Claude later, buy gateway credit and set `ANTHROPIC_MODEL` to, for example, `anthropic/claude-sonnet-5.5`.
+
 ## The database
 
 Arctos uses one PostgreSQL database. It is optional: without it everything works, but the waitlist cannot give real positions, open snipes are managed only while the app is open, and the sniper's developer records start empty after every restart.
@@ -194,7 +208,7 @@ Data service (`backend/.env.example`):
 | --- | --- |
 | `FRONTEND_ORIGINS` | Comma separated site origins allowed to call the service. Needed for a standalone server. On Vercel the site and the API share one host, which is accepted automatically. |
 | `TRUST_PROXY` | `true` behind your own proxy so rate limits see the real client IP. |
-| `ANTHROPIC_API_KEY`, `ANTHROPIC_MODEL`, `ANTHROPIC_EFFORT` | AI assistant. The default model is `claude-opus-5-5`. |
+| `ANTHROPIC_API_KEY`, `ANTHROPIC_MODEL`, `ANTHROPIC_EFFORT`, `ANTHROPIC_BASE` | AI assistant. The default model is `claude-opus-5-5`. See [The AI assistant](#the-ai-assistant) for running it free through Vercel AI Gateway. |
 | `DATABASE_URL` | PostgreSQL (optional, see [The database](#the-database)). On Vercel use a pooler address in transaction mode, such as Supabase's on port 6543. `POSTGRES_URL` is read too. |
 | `CRON_SECRET` | Optional. When set, the keeper's scheduled check only answers callers that send it as a bearer token. |
 | `MAIL_*`, `PUBLIC_SITE_URL` | SMTP settings for the welcome email (optional). |

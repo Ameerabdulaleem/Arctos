@@ -904,13 +904,23 @@ pub async fn search(
     State(state): State<Arc<AppState>>,
     Query(q): Query<SearchQuery>,
 ) -> Result<Json<Vec<SniperToken>>> {
-    let term = q.q.trim().to_string();
+    Ok(Json(search_tokens(&state, &q.q, q.chain.as_deref()).await?))
+}
+
+/// Tokens matching a name, symbol or address. Used by the search endpoint and
+/// by the AI assistant's tools.
+pub async fn search_tokens(
+    state: &Arc<AppState>,
+    query: &str,
+    chain: Option<&str>,
+) -> Result<Vec<SniperToken>> {
+    let term = query.trim().to_string();
     if term.is_empty() || term.len() > 64 || term.chars().any(|c| c.is_control()) {
         return Err(AppError::BadRequest(
             "enter a token name, symbol or contract address".into(),
         ));
     }
-    let only = match q.chain.as_deref() {
+    let only = match chain {
         Some(c) if chain_info(c).is_some() => Some(c.to_string()),
         Some(_) => return Err(AppError::BadRequest("unsupported chain".into())),
         None => None,
@@ -921,7 +931,7 @@ pub async fn search(
         only.clone().unwrap_or_default()
     );
     let st = state.clone();
-    let tokens = state
+    Ok(state
         .sniper
         .search
         .get_or_fetch(&key, || async move {
@@ -934,8 +944,7 @@ pub async fn search(
             t.truncate(8);
             Ok::<_, UpstreamError>(t)
         })
-        .await?;
-    Ok(Json(tokens))
+        .await?)
 }
 
 /// Live price, liquidity and pool for up to 30 tokens on one chain, from DexScreener.
