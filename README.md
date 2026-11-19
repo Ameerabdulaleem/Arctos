@@ -106,15 +106,23 @@ The paper account stays in your browser either way. The keeper only knows a hash
 
 ## The AI assistant
 
-The assistant answers from live data the service puts in its instructions (prices, the Fear and Greed index, headlines, whale transfers, and the user's paper account and trade book), and it can look things up in the sniper engine through three tools:
+The assistant answers from live data the service puts in its instructions (prices, the Fear and Greed index, headlines, whale transfers, and the user's paper account and trade book), and it can look up anything else in Arctos through tools:
 
 | Tool | What it returns |
 | --- | --- |
 | `launchpad_feed` | Tokens on a chain's launchpads (Pump.fun and the others in the sniper), best first, each with its snipe score, age, market cap, buy share, developer record and holding, and contract risk |
 | `search_tokens` | Tokens matching a name, symbol or address, with price, liquidity and volume |
 | `contract_risk` | The contract risk check for one token |
+| `market_overview` | Total market cap, volume, dominance, Fear and Greed with its last week, and the altcoin season index |
+| `coin_lookup` | Any of the top 100 coins: rank, price, market cap, volume, 24 hour, 7 day and 30 day change |
+| `price_history` | A summary of recent Binance candles for a coin: change, high, low, volume and the last closes |
+| `order_book` | Best bid and ask, spread, and the money waiting on each side |
+| `whale_activity` | Recent large transfers, by chain and minimum value |
+| `news_search` | Recent headlines matching a keyword, with source, category and expected impact |
+| `stock_quotes` | Live quotes for listed stocks |
+| `wallet_holdings` | What a public wallet holds, for an address the user gives |
 
-The service runs the tools itself (`backend/src/ai_tools.rs`) with the same checks as the public endpoints: only known chains and launchpads, valid addresses, short queries. Text from outside, such as token names, is cleaned before the model sees it, and the instructions tell the model to treat tool data as data. The model may use tools for up to three rounds, and the whole answer must finish within 52 seconds.
+The service runs the tools itself (`backend/src/ai_tools.rs`) through the same functions, checks and caches as the pages: only known chains and launchpads, valid addresses and symbols, short queries. Text from outside, such as token names, is cleaned before the model sees it, and the instructions tell the model to treat tool data as data. The model may use tools for up to three rounds, and the whole answer must finish within 52 seconds.
 
 **Running it free.** Anthropic's API needs prepaid credit. Vercel AI Gateway includes a monthly free credit for a set of models from other providers, though not for Claude, and serves them through the same request format. To use it, add a card to the Vercel team (needed to unlock the free credit), create an AI Gateway API key, and set `ANTHROPIC_API_KEY` to that key, `ANTHROPIC_BASE` to `https://ai-gateway.vercel.sh` and `ANTHROPIC_MODEL` to a free tier model such as `google/gemini-2.5-flash`. To move to Claude later, buy gateway credit and set `ANTHROPIC_MODEL` to, for example, `anthropic/claude-sonnet-5.5`.
 

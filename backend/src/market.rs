@@ -537,14 +537,14 @@ pub async fn get_overview(State(state): State<Arc<AppState>>) -> Json<Overview> 
 
 #[derive(Deserialize)]
 pub struct CoinsQuery {
-    limit: Option<usize>,
+    pub(crate) limit: Option<usize>,
 }
 
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct CoinsResponse {
-    coins: Vec<Coin>,
-    updated_at: Option<DateTime<Utc>>,
+    pub(crate) coins: Vec<Coin>,
+    pub(crate) updated_at: Option<DateTime<Utc>>,
 }
 
 pub async fn get_coins(

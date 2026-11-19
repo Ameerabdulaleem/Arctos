@@ -8,15 +8,57 @@
 
 use std::{sync::Arc, time::Duration};
 
+use axum::{
+    extract::{Path, Query, State},
+    Json,
+};
 use chrono::Utc;
+use serde::Serialize;
 use serde_json::{json, Value};
 
 use crate::{
     ai::sanitize,
+    binance,
     launchpad::{self, launchpads_for, FeedToken},
+    market, news, portfolio,
     sniper::{self, chain_info, valid_address_for, Security, SniperToken, CHAINS},
-    AppState,
+    stocks, whales, AppState,
 };
+
+/// Chart intervals the price history tool offers.
+const INTERVALS: [&str; 4] = ["15m", "1h", "4h", "1d"];
+/// Chains the whale tracker watches.
+const WHALE_CHAINS: [&str; 6] = ["bitcoin", "ethereum", "bsc", "base", "arbitrum", "solana"];
+
+/// Any API answer as JSON, with heavy fields (images, sparklines, long
+/// histories) dropped and every string cleaned and shortened, because much of
+/// it comes from outside (names, headlines).
+fn clean<T: Serialize>(value: &T, drop: &[&str]) -> Value {
+    fn walk(v: Value, drop: &[&str]) -> Value {
+        match v {
+            Value::String(s) => Value::String(sanitize(&s, 280)),
+            Value::Array(items) => Value::Array(items.into_iter().map(|i| walk(i, drop)).collect()),
+            Value::Object(map) => Value::Object(
+                map.into_iter()
+                    .filter(|(k, _)| !drop.contains(&k.as_str()))
+                    .map(|(k, v)| (k, walk(v, drop)))
+                    .collect(),
+            ),
+            other => other,
+        }
+    }
+    walk(serde_json::to_value(value).unwrap_or(Value::Null), drop)
+}
+
+/// "btc", "BTC" and "BTCUSDT" all mean the Binance pair BTCUSDT.
+fn pair(symbol: &str) -> String {
+    let s = symbol.trim().to_ascii_uppercase();
+    if s.ends_with("USDT") {
+        s
+    } else {
+        format!("{s}USDT")
+    }
+}
 
 /// Tokens returned by one feed call at most, so a tool result stays small.
 const MAX_FEED_TOKENS: usize = 15;
@@ -149,7 +191,8 @@ pub fn definitions() -> Value {
                     "launchpad": { "type": "string", "description": "A launchpad id from the list, or \"all\"." },
                     "view": { "type": "string", "enum": ["new", "active"] },
                     "limit": { "type": "integer", "minimum": 1, "maximum": MAX_FEED_TOKENS },
-                    "fully_checked_only": { "type": "boolean", "description": "Only tokens whose developer and contract checks have run." }
+                    "fully_checked_only": { "type": "boolean", "description": "Only tokens whose developer and contract checks have run." },
+                    "max_age_hours": { "type": "number", "description": "Only tokens launched within this many hours, for example 24 for today." }
                 },
                 "required": ["chain"],
                 "additionalProperties": false
@@ -165,6 +208,93 @@ pub fn definitions() -> Value {
                     "chain": { "type": "string", "enum": chains }
                 },
                 "required": ["query"],
+                "additionalProperties": false
+            }
+        },
+        {
+            "name": "market_overview",
+            "description": "The whole crypto market now: total market cap and its 24 hour change, volume, BTC and ETH dominance, the Fear and Greed index with its last week, and the altcoin season index.",
+            "input_schema": { "type": "object", "properties": {}, "additionalProperties": false }
+        },
+        {
+            "name": "coin_lookup",
+            "description": "The top 100 coins by market cap: rank, price, market cap, 24 hour volume, 24 hour high and low, and 24 hour, 7 day and 30 day change. Give a symbol or name to find one, or leave query empty for the top coins by rank.",
+            "input_schema": {
+                "type": "object",
+                "properties": {
+                    "query": { "type": "string", "description": "Symbol, name or id, for example SOL or solana." },
+                    "limit": { "type": "integer", "minimum": 1, "maximum": 20 }
+                },
+                "additionalProperties": false
+            }
+        },
+        {
+            "name": "price_history",
+            "description": "Recent candles for a coin traded against USDT on Binance, summarised: change over the period, high, low, average volume and the last closes. Use it for trend, support and resistance questions.",
+            "input_schema": {
+                "type": "object",
+                "properties": {
+                    "symbol": { "type": "string", "description": "Coin symbol such as BTC, ETH or SOL." },
+                    "interval": { "type": "string", "enum": INTERVALS },
+                    "candles": { "type": "integer", "minimum": 10, "maximum": 200 }
+                },
+                "required": ["symbol"],
+                "additionalProperties": false
+            }
+        },
+        {
+            "name": "order_book",
+            "description": "The live Binance order book for a coin against USDT: best bid and ask, spread, and how much money waits on each side near the price.",
+            "input_schema": {
+                "type": "object",
+                "properties": { "symbol": { "type": "string", "description": "Coin symbol such as BTC." } },
+                "required": ["symbol"],
+                "additionalProperties": false
+            }
+        },
+        {
+            "name": "whale_activity",
+            "description": "Recent large transfers seen on chain (whale alerts), with value, asset, direction (into or out of exchanges, or wallet to wallet) and totals. Filter by chain and minimum value.",
+            "input_schema": {
+                "type": "object",
+                "properties": {
+                    "chain": { "type": "string", "enum": WHALE_CHAINS },
+                    "min_usd": { "type": "number", "minimum": 0 },
+                    "limit": { "type": "integer", "minimum": 1, "maximum": 25 }
+                },
+                "additionalProperties": false
+            }
+        },
+        {
+            "name": "news_search",
+            "description": "Recent crypto headlines from the news feeds Arctos follows, with source, category, expected market impact and time. Give a keyword (a coin, a company, a topic such as ETF or hack) to filter, or leave it empty for the latest.",
+            "input_schema": {
+                "type": "object",
+                "properties": {
+                    "query": { "type": "string" },
+                    "limit": { "type": "integer", "minimum": 1, "maximum": 12 }
+                },
+                "additionalProperties": false
+            }
+        },
+        {
+            "name": "stock_quotes",
+            "description": "Live quotes for listed stocks, by default the crypto related watchlist (COIN, MSTR, HOOD and others): price, change and exchange.",
+            "input_schema": {
+                "type": "object",
+                "properties": {
+                    "symbols": { "type": "array", "items": { "type": "string" }, "maxItems": 12, "description": "Ticker symbols such as COIN or NVDA." }
+                },
+                "additionalProperties": false
+            }
+        },
+        {
+            "name": "wallet_holdings",
+            "description": "What a public wallet address holds right now (EVM chains or Solana): coins and major tokens with their value. Only use an address the user gave you.",
+            "input_schema": {
+                "type": "object",
+                "properties": { "address": { "type": "string" } },
+                "required": ["address"],
                 "additionalProperties": false
             }
         },
@@ -215,15 +345,24 @@ pub async fn run(
                 .get("fully_checked_only")
                 .and_then(|v| v.as_bool())
                 .unwrap_or(false);
+            let max_age_hours = input
+                .get("max_age_hours")
+                .and_then(|v| v.as_f64())
+                .filter(|h| h.is_finite() && *h > 0.0);
+            let young_enough = |t: &FeedToken| match (max_age_hours, t.created_at) {
+                (Some(max), Some(at)) => ((now_ms - at) as f64) / 3_600_000.0 <= max,
+                (Some(_), None) => false,
+                (None, _) => true,
+            };
             let mut feed = launchpad::feed(state, chain, Some(pad), Some(view))
                 .await
                 .map_err(|e| e.to_string())?;
             // Check the best candidates that have not been checked yet, then
-            // score them again, so the answer rests on as much as possible.
+            // score the same tokens again, so the answer rests on as much as possible.
             let candidates: Vec<String> = feed
                 .tokens
                 .iter()
-                .filter(|t| !t.score.checked && !t.score.blocked)
+                .filter(|t| !t.score.checked && !t.score.blocked && young_enough(t))
                 .take(limit)
                 .map(|t| t.address.clone())
                 .collect();
@@ -239,16 +378,27 @@ pub async fn run(
                 launchpad::check_now(state, chain, &candidates, max_checks, room).await
             };
             if checked_now > 0 {
-                launchpad::refresh_feed(chain, Some(pad), Some(view), state);
-                if let Ok(fresh) = launchpad::feed(state, chain, Some(pad), Some(view)).await {
+                if let Ok(fresh) =
+                    launchpad::rescore_feed(state, chain, Some(pad), Some(view)).await
+                {
                     feed = fresh;
                 }
             }
             let fully_checked = feed.tokens.iter().filter(|t| t.score.checked).count();
-            let tokens: Vec<Value> = feed
+            // Fully checked tokens first, each group best score first.
+            let mut picked: Vec<&FeedToken> = feed
                 .tokens
                 .iter()
-                .filter(|t| !checked_only || t.score.checked)
+                .filter(|t| (!checked_only || t.score.checked) && young_enough(t))
+                .collect();
+            picked.sort_by(|a, b| {
+                b.score
+                    .checked
+                    .cmp(&a.score.checked)
+                    .then(b.score.total.cmp(&a.score.total))
+            });
+            let tokens: Vec<Value> = picked
+                .into_iter()
                 .take(limit)
                 .map(|t| feed_token_view(t, now_ms))
                 .collect();
@@ -285,6 +435,209 @@ pub async fn run(
             let security = sniper::security_for(state, chain, address).await;
             Ok(risk_view(&security))
         }
+        "market_overview" => {
+            let Json(overview) = market::get_overview(State(state.clone())).await;
+            let mut v = clean(&overview, &["marketCapTrend"]);
+            if let Some(history) = v
+                .pointer_mut("/fearGreed/history")
+                .and_then(|h| h.as_array_mut())
+            {
+                history.truncate(7);
+            }
+            Ok(v)
+        }
+        "coin_lookup" => {
+            let query = text_field(input, "query").map(|q| q.to_ascii_lowercase());
+            let limit = input
+                .get("limit")
+                .and_then(|v| v.as_u64())
+                .map_or(10, |n| n as usize)
+                .clamp(1, 20);
+            let Json(list) = market::get_coins(
+                State(state.clone()),
+                Query(market::CoinsQuery { limit: Some(100) }),
+            )
+            .await
+            .map_err(|e| e.to_string())?;
+            let mut coins: Vec<&market::Coin> = list
+                .coins
+                .iter()
+                .filter(|c| match &query {
+                    None => true,
+                    Some(q) => {
+                        c.symbol.eq_ignore_ascii_case(q)
+                            || c.id == *q
+                            || c.name.to_ascii_lowercase().contains(q.as_str())
+                    }
+                })
+                .collect();
+            // An exact symbol match comes first.
+            if let Some(q) = &query {
+                coins.sort_by_key(|c| !c.symbol.eq_ignore_ascii_case(q));
+            }
+            let found: Vec<Value> = coins
+                .into_iter()
+                .take(limit)
+                .map(|c| clean(c, &["image", "sparkline7d"]))
+                .collect();
+            let note = if found.is_empty() {
+                "Not in the top 100 by market cap. Try search_tokens for smaller tokens."
+            } else {
+                ""
+            };
+            Ok(json!({ "coins": found, "note": note }))
+        }
+        "price_history" => {
+            let symbol = pair(text_field(input, "symbol").ok_or("symbol is required")?);
+            let interval = text_field(input, "interval").unwrap_or("1h");
+            if !INTERVALS.contains(&interval) {
+                return Err("interval must be 15m, 1h, 4h or 1d".into());
+            }
+            let count = input
+                .get("candles")
+                .and_then(|v| v.as_u64())
+                .map_or(48, |n| n as u32)
+                .clamp(10, 200);
+            let Json(candles) = binance::get_klines(
+                State(state.clone()),
+                Query(binance::KlinesQuery {
+                    symbol: symbol.clone(),
+                    interval: Some(interval.into()),
+                    limit: Some(count),
+                }),
+            )
+            .await
+            .map_err(|e| format!("{e}. The coin may not trade against USDT on Binance."))?;
+            let (Some(first), Some(last)) = (candles.first(), candles.last()) else {
+                return Err("no candles came back for that coin".into());
+            };
+            let high = candles.iter().map(|c| c.h).fold(f64::MIN, f64::max);
+            let low = candles.iter().map(|c| c.l).fold(f64::MAX, f64::min);
+            let avg_volume = candles.iter().map(|c| c.v).sum::<f64>() / candles.len() as f64;
+            let closes: Vec<f64> = candles.iter().rev().take(12).rev().map(|c| c.c).collect();
+            Ok(json!({
+                "pair": symbol,
+                "interval": interval,
+                "candles": candles.len(),
+                "from": chrono::DateTime::from_timestamp_millis(first.t),
+                "to": chrono::DateTime::from_timestamp_millis(last.t),
+                "open": first.o,
+                "lastClose": last.c,
+                "changePct": round((last.c / first.o - 1.0) * 100.0, 2),
+                "high": high,
+                "low": low,
+                "averageVolume": round(avg_volume, 2),
+                "lastCloses": closes,
+            }))
+        }
+        "order_book" => {
+            let symbol = pair(text_field(input, "symbol").ok_or("symbol is required")?);
+            let Json(book) = binance::get_depth(
+                State(state.clone()),
+                Query(binance::DepthQuery {
+                    symbol: symbol.clone(),
+                    limit: Some(20),
+                }),
+            )
+            .await
+            .map_err(|e| format!("{e}. The coin may not trade against USDT on Binance."))?;
+            let (Some(bid), Some(ask)) = (book.bids.first(), book.asks.first()) else {
+                return Err("the order book came back empty".into());
+            };
+            let bid_usd: f64 = book.bids.iter().map(|[p, q]| p * q).sum();
+            let ask_usd: f64 = book.asks.iter().map(|[p, q]| p * q).sum();
+            Ok(json!({
+                "pair": symbol,
+                "bestBid": bid[0],
+                "bestAsk": ask[0],
+                "spreadPct": round((ask[0] - bid[0]) / ask[0] * 100.0, 4),
+                "bidsUsdTop20": round(bid_usd, 0),
+                "asksUsdTop20": round(ask_usd, 0),
+                "buySidePct": round(bid_usd / (bid_usd + ask_usd).max(1e-9) * 100.0, 1),
+            }))
+        }
+        "whale_activity" => {
+            let chain = text_field(input, "chain");
+            if chain.is_some_and(|c| !WHALE_CHAINS.contains(&c)) {
+                return Err("unsupported chain for whale alerts".into());
+            }
+            let limit = input
+                .get("limit")
+                .and_then(|v| v.as_u64())
+                .map_or(15, |n| n as usize)
+                .clamp(1, 25);
+            let Json(found) = whales::get_whales(
+                State(state.clone()),
+                Query(whales::WhaleQuery {
+                    min_usd: input
+                        .get("min_usd")
+                        .and_then(|v| v.as_f64())
+                        .filter(|v| v.is_finite()),
+                    chain: chain.map(str::to_string),
+                    address: None,
+                    limit: Some(limit),
+                }),
+            )
+            .await
+            .map_err(|e| e.to_string())?;
+            Ok(clean(&found, &["explorerUrl", "txHash", "block"]))
+        }
+        "news_search" => {
+            let query = text_field(input, "query").map(|q| q.to_ascii_lowercase());
+            if query.as_ref().is_some_and(|q| q.len() > 64) {
+                return Err("keep the keyword under 64 characters".into());
+            }
+            let limit = input
+                .get("limit")
+                .and_then(|v| v.as_u64())
+                .map_or(8, |n| n as usize)
+                .clamp(1, 12);
+            let Json(feed) = news::get_news(
+                State(state.clone()),
+                Query(news::NewsQuery { limit: Some(150) }),
+            )
+            .await;
+            let all = clean(&feed, &["imageUrl", "feeds", "color"]);
+            let articles: Vec<Value> = all["articles"]
+                .as_array()
+                .cloned()
+                .unwrap_or_default()
+                .into_iter()
+                .filter(|a| match &query {
+                    None => true,
+                    Some(q) => [a["title"].as_str(), a["excerpt"].as_str()]
+                        .into_iter()
+                        .flatten()
+                        .any(|t| t.to_ascii_lowercase().contains(q.as_str())),
+                })
+                .take(limit)
+                .collect();
+            Ok(json!({ "articles": articles, "fetchedAt": all["fetchedAt"] }))
+        }
+        "stock_quotes" => {
+            let symbols: Option<String> =
+                input.get("symbols").and_then(|v| v.as_array()).map(|list| {
+                    list.iter()
+                        .filter_map(|s| s.as_str())
+                        .take(12)
+                        .map(|s| s.trim().to_ascii_uppercase())
+                        .collect::<Vec<_>>()
+                        .join(",")
+                });
+            let Json(quotes) =
+                stocks::get_quotes(State(state.clone()), Query(stocks::StocksQuery { symbols }))
+                    .await
+                    .map_err(|e| e.to_string())?;
+            Ok(clean(&quotes, &["sparkline"]))
+        }
+        "wallet_holdings" => {
+            let address = text_field(input, "address").ok_or("address is required")?;
+            let Json(holdings) =
+                portfolio::get_portfolio(State(state.clone()), Path(address.to_string()))
+                    .await
+                    .map_err(|e| e.to_string())?;
+            Ok(clean(&holdings, &[]))
+        }
         other => Err(format!("there is no tool called {}", sanitize(other, 40))),
     }
 }
@@ -302,7 +655,22 @@ mod tests {
             .iter()
             .map(|t| t["name"].as_str().unwrap())
             .collect();
-        assert_eq!(names, ["launchpad_feed", "search_tokens", "contract_risk"]);
+        assert_eq!(
+            names,
+            [
+                "launchpad_feed",
+                "search_tokens",
+                "market_overview",
+                "coin_lookup",
+                "price_history",
+                "order_book",
+                "whale_activity",
+                "news_search",
+                "stock_quotes",
+                "wallet_holdings",
+                "contract_risk"
+            ]
+        );
         for t in defs.as_array().unwrap() {
             assert_eq!(t["input_schema"]["additionalProperties"], false);
             assert!(t["description"].as_str().unwrap().len() > 40);
@@ -310,6 +678,22 @@ mod tests {
         let feed = &defs[0]["description"].as_str().unwrap();
         assert!(feed.contains("pump-fun (Pump.fun)"), "{feed}");
         assert!(feed.contains("four-meme"), "{feed}");
+    }
+
+    #[test]
+    fn symbols_become_usdt_pairs() {
+        assert_eq!(pair("btc"), "BTCUSDT");
+        assert_eq!(pair(" ETHUSDT "), "ETHUSDT");
+    }
+
+    #[test]
+    fn outside_text_is_cleaned_and_heavy_fields_dropped() {
+        let raw = json!({"title": "Big <b>news</b>\nnow", "imageUrl": "https://x", "items": [{"sparkline": [1, 2], "name": "a\u{7}b"}]});
+        let v = clean(&raw, &["imageUrl", "sparkline"]);
+        assert_eq!(
+            v,
+            json!({"title": "Big b news /b now", "items": [{"name": "a b"}]})
+        );
     }
 
     #[test]
