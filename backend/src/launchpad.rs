@@ -33,6 +33,7 @@ use serde_json::Value;
 
 use crate::{
     error::{AppError, Result},
+    records,
     sniper::{
         chain_info, num, safe_http_url, security_for, token_id, valid_address_for, ChainInfo,
         ChainKind, Security, CHAINS,
@@ -202,7 +203,7 @@ pub struct Pool {
 }
 
 /// Bonding curve progress on a launchpad.
-#[derive(Debug, Clone, Copy, Serialize, PartialEq)]
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq)]
 #[serde(rename_all = "camelCase")]
 pub struct Graduation {
     /// 0 to 100.
@@ -210,8 +211,10 @@ pub struct Graduation {
     pub completed: bool,
 }
 
-/// Everything learned from a full check of one token.
-#[derive(Debug, Clone, Default, PartialEq)]
+/// Everything learned from a full check of one token. Stored as JSON in
+/// `arctos.token_checks`, so a field added later must have a default.
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+#[serde(default)]
 pub struct Intel {
     pub developer: Option<String>,
     pub developer_holding_pct: Option<f64>,
@@ -285,12 +288,13 @@ impl DevIndex {
         }
         let launches = map.entry(Self::key(chain, developer)).or_default();
         if let Some(existing) = launches.iter_mut().find(|l| l.token == launch.token) {
-            // Graduation is permanent. Everything else follows the latest look.
+            // Graduation is permanent. Everything else follows the latest look,
+            // so an older record read back from the database never wins.
             let graduated = existing.graduated || launch.graduated;
-            *existing = DevLaunch {
-                graduated,
-                ..launch
-            };
+            if launch.seen_at >= existing.seen_at {
+                *existing = launch;
+            }
+            existing.graduated = graduated;
         } else if launches.len() < MAX_LAUNCHES_PER_DEV {
             launches.push(launch);
         }
@@ -325,6 +329,8 @@ impl DevIndex {
 
 pub struct LaunchpadStore {
     feeds: KeyedCache<FeedResponse>,
+    /// Developers on record in the database, counted at most once a minute.
+    dev_count: KeyedCache<i64>,
     intel: KeyedCache<Intel>,
     graduations: KeyedCache<HashMap<String, Graduation>>,
     pub devs: DevIndex,
@@ -340,6 +346,7 @@ impl LaunchpadStore {
     pub fn new() -> Self {
         Self {
             feeds: KeyedCache::new(Duration::from_secs(20), Duration::from_secs(300)),
+            dev_count: KeyedCache::new(Duration::from_secs(60), Duration::from_secs(600)),
             graduations: KeyedCache::new(Duration::from_secs(120), Duration::from_secs(900)),
             paused_until: Mutex::new(None),
             next_call: tokio::sync::Mutex::new(Instant::now()),
@@ -1238,6 +1245,22 @@ async fn build_feed(
     let now_ms = Utc::now().timestamp_millis();
     let cache_key = |p: &Pool| token_id(chain.key, &p.address);
 
+    // A token another copy of the service checked recently is not checked again.
+    if let Some(db) = &state.db {
+        let missing: Vec<String> = pools
+            .iter()
+            .filter(|p| state.launchpad.intel.peek(&cache_key(p)).is_none())
+            .map(|p| p.address.clone())
+            .collect();
+        for (token, intel, age) in records::load_checks(db, chain.key, &missing).await {
+            state
+                .launchpad
+                .intel
+                .put(&token_id(chain.key, &token), intel, age)
+                .await;
+        }
+    }
+
     // Check the most promising tokens that have not been checked yet.
     let mut unchecked: Vec<(&Pool, u32)> = pools
         .iter()
@@ -1261,6 +1284,7 @@ async fn build_feed(
         })
         .collect();
     unchecked.sort_by_key(|(_, s)| std::cmp::Reverse(*s));
+    let mut fresh_checks: Vec<(String, Intel)> = Vec::new();
     for (p, _) in unchecked.iter().take(budget) {
         // Contract risk comes from another provider, so it is not held back.
         let security = security_for(state, chain, &p.address);
@@ -1269,9 +1293,14 @@ async fn build_feed(
             continue;
         }
         let (intel, _) = tokio::join!(fetch_intel(state, chain, p.address.clone()), security);
-        if intel.is_none() && !state.launchpad.paused() {
-            state.launchpad.note_failed_check(&cache_key(p));
+        match intel {
+            Some(intel) => fresh_checks.push((p.address.clone(), intel)),
+            None if !state.launchpad.paused() => state.launchpad.note_failed_check(&cache_key(p)),
+            None => {}
         }
+    }
+    if let Some(db) = &state.db {
+        records::save_checks(db, chain.key, &fresh_checks).await;
     }
 
     // Remember every identified developer's launch before judging anyone.
@@ -1284,6 +1313,19 @@ async fn build_feed(
             ))
         })
         .collect();
+    // Their earlier launches, as every copy of the service has seen them.
+    if let Some(db) = &state.db {
+        let mut developers: Vec<String> = intel_of
+            .values()
+            .filter_map(|i| i.developer.clone())
+            .collect();
+        developers.sort();
+        developers.dedup();
+        for (developer, launch) in records::load_launches(db, chain.key, &developers).await {
+            state.launchpad.devs.record(chain.key, &developer, launch);
+        }
+    }
+    let mut observed: Vec<(String, DevLaunch)> = Vec::new();
     for p in &pools {
         let Some(intel) = intel_of.get(p.address.as_str()) else {
             continue;
@@ -1292,20 +1334,34 @@ async fn build_feed(
             continue;
         };
         let graduation = graduations.get(&p.address).copied().or(intel.graduation);
-        state.launchpad.devs.record(
-            chain.key,
-            dev,
-            DevLaunch {
-                token: p.address.clone(),
-                graduated: graduation.is_some_and(|g| g.completed),
-                on_curve: p.on_curve,
-                liquidity_usd: p.liquidity_usd,
-                market_cap_usd: p.market_cap_usd,
-                buy_ratio: judged_flow(p).buy_ratio(),
-                seen_at: now_ms,
-            },
-        );
+        let launch = DevLaunch {
+            token: p.address.clone(),
+            graduated: graduation.is_some_and(|g| g.completed),
+            on_curve: p.on_curve,
+            liquidity_usd: p.liquidity_usd,
+            market_cap_usd: p.market_cap_usd,
+            buy_ratio: judged_flow(p).buy_ratio(),
+            seen_at: now_ms,
+        };
+        state.launchpad.devs.record(chain.key, dev, launch.clone());
+        observed.push((dev.clone(), launch));
     }
+    let developers_known = match &state.db {
+        Some(db) => {
+            records::save_launches(db, chain.key, &observed).await;
+            state
+                .launchpad
+                .dev_count
+                .get_or_fetch("all", || async {
+                    records::developer_count(db).await.ok_or(())
+                })
+                .await
+                .ok()
+                .map(|n| n.max(0) as usize)
+        }
+        None => None,
+    }
+    .unwrap_or_else(|| state.launchpad.devs.developers());
 
     let mut tokens: Vec<FeedToken> = Vec::with_capacity(pools.len());
     for p in &pools {
@@ -1385,7 +1441,7 @@ async fn build_feed(
         launchpad: launchpad.map(|l| l.id).unwrap_or("all").to_string(),
         view: view.to_string(),
         checked: tokens.iter().filter(|t| t.score.checked).count(),
-        developers_known: state.launchpad.devs.developers(),
+        developers_known,
         tokens,
         updated_at: Utc::now(),
     })

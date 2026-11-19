@@ -300,6 +300,20 @@ impl<V: Clone> KeyedCache<V> {
         })
     }
 
+    /// Stores a value fetched elsewhere (for example read from the database),
+    /// as if it had been fetched `age` ago.
+    pub async fn put(&self, key: &str, value: V, age: Duration) {
+        let slot = {
+            let mut map = self.slots.lock().unwrap_or_else(|e| e.into_inner());
+            if map.len() > 4000 {
+                map.clear();
+            }
+            map.entry(key.to_string()).or_default().clone()
+        };
+        let stamp = Instant::now().checked_sub(age).unwrap_or_else(Instant::now);
+        *slot.lock().await = Some((stamp, value));
+    }
+
     pub async fn get_or_fetch<F, Fut, E>(&self, key: &str, fetch: F) -> Result<V, E>
     where
         F: FnOnce() -> Fut,

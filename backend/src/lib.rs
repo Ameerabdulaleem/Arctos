@@ -15,6 +15,7 @@
 pub mod ai;
 pub mod binance;
 pub mod config;
+pub mod db;
 pub mod error;
 pub mod keeper;
 pub mod launchpad;
@@ -22,6 +23,7 @@ pub mod market;
 pub mod news;
 pub mod portfolio;
 pub mod ratelimit;
+pub mod records;
 pub mod serverless;
 pub mod sniper;
 pub mod stocks;
@@ -62,9 +64,8 @@ pub struct AppState {
     pub config: Config,
     pub up: Upstream,
     pub limiter: ratelimit::RateLimiter,
-    pub db: Option<sqlx::PgPool>,
-    /// Set once the waitlist table is known to exist.
-    pub db_ready: tokio::sync::OnceCell<()>,
+    /// PostgreSQL, when one is configured. See `db.rs`.
+    pub db: Option<Arc<db::Database>>,
     pub market: market::MarketStore,
     pub binance: binance::BinanceStore,
     pub whales: whales::WhaleStore,
@@ -86,11 +87,10 @@ pub async fn build_state(config: Config) -> Arc<AppState> {
     // Every TLS client in the process uses rustls with the ring provider.
     // Installing twice is harmless, so the error case is ignored.
     let _ = rustls::crypto::ring::default_provider().install_default();
-    let db = waitlist::connect(config.database_url.as_deref(), config.on_demand).await;
+    let db = db::connect(config.database_url.as_deref(), config.on_demand).await;
     Arc::new(AppState {
         keeper: keeper::Keeper::new(db.clone(), config.on_demand),
         db,
-        db_ready: tokio::sync::OnceCell::new(),
         up: Upstream::new(),
         limiter: ratelimit::RateLimiter::new(),
         market: market::MarketStore::default(),
@@ -186,6 +186,7 @@ struct StatusResponse {
 #[derive(Serialize)]
 struct DbStatus {
     configured: bool,
+    /// True once the service has reached the database and its schema is ready.
     connected: bool,
 }
 
@@ -226,7 +227,7 @@ async fn status(State(state): State<Arc<AppState>>) -> Json<StatusResponse> {
         sources: state.up.snapshot(),
         database: DbStatus {
             configured: state.config.database_url.is_some(),
-            connected: state.db.is_some(),
+            connected: db_connected(&state).await,
         },
         ai: AiStatus {
             configured: state.config.anthropic_api_key.is_some(),
@@ -257,6 +258,21 @@ async fn status(State(state): State<Arc<AppState>>) -> Json<StatusResponse> {
             whale_events: state.whales.recent(1000, 0.0).len(),
         },
     })
+}
+
+/// Reaches the database if that has not happened yet, so the status page
+/// reports the truth. It answers within a few seconds either way.
+async fn db_connected(state: &AppState) -> bool {
+    let Some(db) = &state.db else {
+        return false;
+    };
+    if db.is_ready() {
+        return true;
+    }
+    matches!(
+        tokio::time::timeout(Duration::from_secs(6), db.pool()).await,
+        Ok(Ok(_))
+    )
 }
 
 async fn health() -> &'static str {
