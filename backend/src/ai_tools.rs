@@ -6,7 +6,7 @@
 //! came from outside (token names, symbols) is cleaned before the model sees
 //! it. Tool results are data for the model, never instructions.
 
-use std::sync::Arc;
+use std::{sync::Arc, time::Duration};
 
 use chrono::Utc;
 use serde_json::{json, Value};
@@ -20,6 +20,11 @@ use crate::{
 
 /// Tokens returned by one feed call at most, so a tool result stays small.
 const MAX_FEED_TOKENS: usize = 15;
+/// Full checks one feed call may run on its top unchecked candidates.
+const CHECKS_PUBLIC: usize = 3;
+const CHECKS_KEYED: usize = 6;
+/// The longest the checks may take, leaving room for the model to answer.
+const CHECK_TIME: Duration = Duration::from_secs(18);
 
 fn round(v: f64, places: i32) -> f64 {
     let f = 10f64.powi(places);
@@ -187,9 +192,14 @@ fn text_field<'a>(input: &'a Value, key: &str) -> Option<&'a str> {
         .filter(|s| !s.is_empty())
 }
 
-/// Runs one tool call. Returns the result, or an error message the model can
-/// read and correct itself from.
-pub async fn run(state: &Arc<AppState>, name: &str, input: &Value) -> Result<Value, String> {
+/// Runs one tool call within `time_left`. Returns the result, or an error
+/// message the model can read and correct itself from.
+pub async fn run(
+    state: &Arc<AppState>,
+    name: &str,
+    input: &Value,
+    time_left: Duration,
+) -> Result<Value, String> {
     let now_ms = Utc::now().timestamp_millis();
     match name {
         "launchpad_feed" => {
@@ -205,9 +215,35 @@ pub async fn run(state: &Arc<AppState>, name: &str, input: &Value) -> Result<Val
                 .get("fully_checked_only")
                 .and_then(|v| v.as_bool())
                 .unwrap_or(false);
-            let feed = launchpad::feed(state, chain, Some(pad), Some(view))
+            let mut feed = launchpad::feed(state, chain, Some(pad), Some(view))
                 .await
                 .map_err(|e| e.to_string())?;
+            // Check the best candidates that have not been checked yet, then
+            // score them again, so the answer rests on as much as possible.
+            let candidates: Vec<String> = feed
+                .tokens
+                .iter()
+                .filter(|t| !t.score.checked && !t.score.blocked)
+                .take(limit)
+                .map(|t| t.address.clone())
+                .collect();
+            let room = CHECK_TIME.min(time_left.saturating_sub(Duration::from_secs(20)));
+            let max_checks = if state.config.coingecko_api_key.is_some() {
+                CHECKS_KEYED
+            } else {
+                CHECKS_PUBLIC
+            };
+            let checked_now = if candidates.is_empty() || room < Duration::from_secs(4) {
+                0
+            } else {
+                launchpad::check_now(state, chain, &candidates, max_checks, room).await
+            };
+            if checked_now > 0 {
+                launchpad::refresh_feed(chain, Some(pad), Some(view), state);
+                if let Ok(fresh) = launchpad::feed(state, chain, Some(pad), Some(view)).await {
+                    feed = fresh;
+                }
+            }
             let fully_checked = feed.tokens.iter().filter(|t| t.score.checked).count();
             let tokens: Vec<Value> = feed
                 .tokens
@@ -222,9 +258,10 @@ pub async fn run(state: &Arc<AppState>, name: &str, input: &Value) -> Result<Val
                 "view": feed.view,
                 "tokensInFeed": feed.tokens.len(),
                 "fullyChecked": fully_checked,
+                "checkedJustNow": checked_now,
                 "developersOnRecord": feed.developers_known,
                 "updatedAt": feed.updated_at,
-                "note": "Checks run a few tokens at a time because the data provider limits calls, so the share of fully checked tokens grows as the feed is used. A developer's record covers launches Arctos has observed.",
+                "note": "The top candidates were checked just now where time allowed. Checks run a few tokens at a time because the data provider limits calls. Tokens that are not fully checked still carry live demand, curve and age data. A developer's record covers launches Arctos has observed.",
                 "tokens": tokens,
             }))
         }

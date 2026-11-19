@@ -1607,8 +1607,8 @@ async fn ai_answers_from_the_sniper_engine() {
         ask("List 10 coins that just listed on pump.fun today with a developer that is okay").await;
     assert_eq!(s, 200, "{v}");
     assert_eq!(
-        v["reply"], "sniper tokens seen: 3, rejected calls: 1, some fully checked: false",
-        "the feed's tokens reached the model, and the malformed address was refused"
+        v["reply"], "sniper tokens seen: 3, rejected calls: 1, some fully checked: true",
+        "the feed's tokens reached the model, the tool checked the top candidates itself, and the malformed address was refused"
     );
 
     // A model that keeps asking for tools is made to answer after three rounds.

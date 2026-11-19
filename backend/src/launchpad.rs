@@ -1465,6 +1465,69 @@ pub async fn get_feed(
     ))
 }
 
+/// Runs the full check (developer wallet, holders, authorities, contract risk)
+/// on tokens that have not had one, most important first, until `max` are
+/// done or `time` runs out. Results land in the shared caches and the
+/// database, so the next feed build scores them. Returns how many were checked.
+pub async fn check_now(
+    state: &Arc<AppState>,
+    chain: &str,
+    addresses: &[String],
+    max: usize,
+    time: Duration,
+) -> usize {
+    let Some(chain) = chain_info(chain) else {
+        return 0;
+    };
+    let todo: Vec<&String> = addresses
+        .iter()
+        .filter(|a| valid_address_for(chain.key, a))
+        .filter(|a| {
+            let key = token_id(chain.key, a);
+            state.launchpad.intel.peek(&key).is_none()
+                && !state.launchpad.check_failed_recently(&key)
+        })
+        .take(max)
+        .collect();
+    let mut fresh: Vec<(String, Intel)> = Vec::new();
+    let work = async {
+        // Contract risk comes from another provider, so those run side by side.
+        let risks =
+            futures_util::future::join_all(todo.iter().map(|a| security_for(state, chain, a)));
+        let developers = async {
+            for a in &todo {
+                if state.launchpad.paused() {
+                    break;
+                }
+                match fetch_intel(state, chain, (*a).clone()).await {
+                    Some(intel) => fresh.push(((*a).clone(), intel)),
+                    None => state.launchpad.note_failed_check(&token_id(chain.key, a)),
+                }
+            }
+        };
+        tokio::join!(risks, developers);
+    };
+    // Whatever finished in time is kept, even when the rest did not.
+    let _ = tokio::time::timeout(time, work).await;
+    if let Some(db) = &state.db {
+        records::save_checks(db, chain.key, &fresh).await;
+    }
+    fresh.len()
+}
+
+/// Forgets a cached feed so the next request rebuilds it with the latest checks.
+pub fn refresh_feed(chain: &str, launchpad: Option<&str>, view: Option<&str>, state: &AppState) {
+    let pad = match launchpad {
+        None | Some("") => "all",
+        Some(p) => p,
+    };
+    let view = view.unwrap_or("new");
+    state
+        .launchpad
+        .feeds
+        .invalidate(&format!("{chain}:{pad}:{view}"));
+}
+
 /// A launchpad feed, from the shared cache or freshly built. Used by the
 /// feed endpoint and by the AI assistant's tools.
 pub async fn feed(
