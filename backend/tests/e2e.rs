@@ -1314,13 +1314,21 @@ async fn keeper_manages_trades_with_nobody_online() {
     );
 }
 
+/// A disposable PostgreSQL for the tests that need one, from TEST_DATABASE_URL.
+fn test_database_url() -> Option<String> {
+    let url = std::env::var("TEST_DATABASE_URL").ok();
+    if url.is_none() {
+        eprintln!("skipped: TEST_DATABASE_URL is not set");
+    }
+    url
+}
+
 /// The same flow against a real PostgreSQL, as a serverless deployment uses it:
 /// nothing is kept in the process, every request reads and writes the database.
-/// Runs when KEEPER_TEST_DATABASE_URL points at a disposable database.
+/// Runs when TEST_DATABASE_URL points at a disposable database.
 #[tokio::test(flavor = "multi_thread")]
 async fn keeper_keeps_trades_in_postgres() {
-    let Ok(url) = std::env::var("KEEPER_TEST_DATABASE_URL") else {
-        eprintln!("skipped: KEEPER_TEST_DATABASE_URL is not set");
+    let Some(url) = test_database_url() else {
         return;
     };
     let up = serve(fake_upstream()).await;
@@ -1377,5 +1385,155 @@ async fn keeper_schedule_can_be_locked_with_a_secret() {
             .unwrap()
             .status(),
         200
+    );
+}
+
+// ── Database ─────────────────────────────────────────────────────────────────
+
+/// Two copies of the service share one database, the way serverless instances
+/// do: the schema is created once, token checks made by one copy are reused by
+/// the other, developer records are kept, and signups get real positions.
+#[tokio::test(flavor = "multi_thread")]
+async fn the_database_is_shared_by_every_copy_of_the_service() {
+    let Some(url) = test_database_url() else {
+        return;
+    };
+    let up = serve(fake_upstream()).await;
+    let boot = || {
+        let url = url.clone();
+        async move {
+            let mut cfg = test_config(&format!("http://{up}")).into_on_demand();
+            cfg.database_url = Some(url);
+            // The keyed tier allows three extra calls a rebuild: progress plus two full checks.
+            cfg.coingecko_api_key = Some("demo-key".into());
+            let addr = serve(build_router(build_state(cfg).await)).await;
+            format!("http://{addr}")
+        }
+    };
+    // Two copies start together and both apply the schema: the lock lets one go first.
+    let (first, second) = tokio::join!(boot(), boot());
+    let c = reqwest::Client::new();
+    for base in [&first, &second] {
+        let (_, status) = get_json(&c, format!("{base}/api/status")).await;
+        assert_eq!(
+            status["database"],
+            json!({"configured": true, "connected": true})
+        );
+    }
+
+    // The first copy checks as many tokens as its allowance permits.
+    let feed_url = "/api/sniper/feed?chain=solana&launchpad=pump-fun&view=active";
+    let (s, feed) = get_json(&c, format!("{first}{feed_url}")).await;
+    assert_eq!(s, 200, "{feed}");
+    assert!(feed["checked"].as_u64().unwrap() >= 2, "{feed}");
+
+    // The second copy has an empty memory and the same allowance, so it can only
+    // reach all three tokens by reusing the first copy's checks from the database.
+    let (_, feed) = get_json(&c, format!("{second}{feed_url}")).await;
+    assert_eq!(feed["checked"], 3, "{feed}");
+    let alpha = feed["tokens"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|t| t["symbol"] == "ALPHA")
+        .unwrap();
+    assert_eq!(alpha["developer"]["address"], DEV_WALLET);
+    assert_eq!(alpha["developer"]["record"]["launchesSeen"], 2);
+    assert!(feed["developersKnown"].as_u64().unwrap() >= 1);
+
+    // Every launch is on record in the database, readable by hand through the view.
+    let pool = sqlx::PgPool::connect(&url).await.unwrap();
+    let (launches, tokens): (i64, i64) = sqlx::query_as(
+        "SELECT launches, (SELECT count(*) FROM arctos.token_checks WHERE developer = $1)
+         FROM arctos.developer_records WHERE chain = 'solana' AND developer = $1",
+    )
+    .bind(DEV_WALLET)
+    .fetch_one(&pool)
+    .await
+    .unwrap();
+    assert_eq!((launches, tokens), (3, 3));
+    let versions: Vec<i32> = sqlx::query_scalar("SELECT version FROM arctos.schema_migrations")
+        .fetch_all(&pool)
+        .await
+        .unwrap();
+    assert_eq!(versions, vec![1], "the schema was applied exactly once");
+
+    // Signups are stored, once per address, with a real position.
+    let email = format!(
+        "db-test-{}@example.com",
+        chrono::Utc::now().timestamp_nanos_opt().unwrap()
+    );
+    let join = |base: String| {
+        let c = c.clone();
+        let email = email.clone();
+        async move {
+            c.post(format!("{base}/api/waitlist"))
+                .header("origin", &base)
+                .json(&json!({ "email": email.to_uppercase() }))
+                .send()
+                .await
+                .unwrap()
+                .json::<Value>()
+                .await
+                .unwrap()
+        }
+    };
+    let joined = join(first.clone()).await;
+    assert_eq!(
+        (
+            joined["persisted"].as_bool(),
+            joined["alreadyJoined"].as_bool()
+        ),
+        (Some(true), Some(false)),
+        "{joined}"
+    );
+    let position = joined["position"].as_i64().unwrap();
+    let again = join(second.clone()).await;
+    assert_eq!(
+        (again["alreadyJoined"].as_bool(), again["position"].as_i64()),
+        (Some(true), Some(position))
+    );
+    let stored: String = sqlx::query_scalar("SELECT email FROM arctos.waitlist WHERE email = $1")
+        .bind(&email)
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+    assert_eq!(stored, email, "stored once, in lower case");
+}
+
+/// A database that cannot be reached is reported honestly and does not take
+/// the rest of the service down with it.
+#[tokio::test(flavor = "multi_thread")]
+async fn an_unreachable_database_is_reported_and_survived() {
+    let up = serve(fake_upstream()).await;
+    let mut cfg = test_config(&format!("http://{up}")).into_on_demand();
+    cfg.database_url = Some("postgres://nobody:nothing@127.0.0.1:1/none?sslmode=disable".into());
+    let addr = serve(build_router(build_state(cfg).await)).await;
+    let base = format!("http://{addr}");
+    let c = reqwest::Client::new();
+    let (_, status) = get_json(&c, format!("{base}/api/status")).await;
+    assert_eq!(
+        status["database"],
+        json!({"configured": true, "connected": false})
+    );
+    // The sniper and the waitlist still answer.
+    let (s, feed) = get_json(
+        &c,
+        format!("{base}/api/sniper/feed?chain=solana&launchpad=pump-fun&view=active"),
+    )
+    .await;
+    assert_eq!(s, 200, "{feed}");
+    let r = c
+        .post(format!("{base}/api/waitlist"))
+        .header("origin", &base)
+        .json(&json!({"email": "offline-db@example.com"}))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(r.status(), 200);
+    let v: Value = r.json().await.unwrap();
+    assert_eq!(
+        (v["persisted"].as_bool(), v["position"].clone()),
+        (Some(false), Value::Null)
     );
 }

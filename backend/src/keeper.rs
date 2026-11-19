@@ -35,8 +35,9 @@ use serde_json::Value;
 use sqlx::PgPool;
 
 use crate::{
+    db::Database,
     error::{AppError, Result},
-    launchpad, origin_ok,
+    launchpad, origin_ok, records,
     sniper::{self, chain_info, token_id, valid_address_for},
     AppState,
 };
@@ -617,64 +618,13 @@ impl MemoryStore {
 }
 
 pub struct PgStore {
-    pool: PgPool,
-    ready: tokio::sync::OnceCell<()>,
+    db: Arc<Database>,
 }
 
-/// An arbitrary number that names the keeper's migration lock in PostgreSQL.
-const MIGRATION_LOCK: i64 = 0x4152_4354_4f53;
-
-const MIGRATIONS: &[&str] = &[
-    "CREATE TABLE IF NOT EXISTS keeper_positions (
-        owner      TEXT    NOT NULL,
-        key        TEXT    NOT NULL,
-        body       TEXT    NOT NULL,
-        version    BIGINT  NOT NULL DEFAULT 1,
-        open       BOOLEAN NOT NULL DEFAULT TRUE,
-        checked_at BIGINT  NOT NULL DEFAULT 0,
-        synced_at  BIGINT  NOT NULL,
-        PRIMARY KEY (owner, key)
-    )",
-    "CREATE INDEX IF NOT EXISTS keeper_positions_due ON keeper_positions (checked_at) WHERE open",
-    "CREATE TABLE IF NOT EXISTS keeper_executions (
-        id         TEXT   PRIMARY KEY,
-        owner      TEXT   NOT NULL,
-        key        TEXT   NOT NULL,
-        body       TEXT   NOT NULL,
-        created_at BIGINT NOT NULL
-    )",
-    "CREATE INDEX IF NOT EXISTS keeper_executions_owner ON keeper_executions (owner)",
-    "CREATE TABLE IF NOT EXISTS keeper_meta (
-        id           INT    PRIMARY KEY,
-        next_tick_at BIGINT NOT NULL DEFAULT 0,
-        last_tick_at BIGINT NOT NULL DEFAULT 0
-    )",
-    "INSERT INTO keeper_meta (id) VALUES (1) ON CONFLICT (id) DO NOTHING",
-];
-
 impl PgStore {
-    /// The pool, once the keeper's tables are known to exist.
+    /// The pool, once the schema is ready.
     async fn pool(&self) -> StoreResult<&PgPool> {
-        self.ready
-            .get_or_try_init(|| async {
-                // Several instances can start at once. The lock makes them create
-                // the tables one after another instead of tripping over each other.
-                let mut tx = self.pool.begin().await.map_err(|e| e.to_string())?;
-                sqlx::query("SELECT pg_advisory_xact_lock($1)")
-                    .bind(MIGRATION_LOCK)
-                    .execute(&mut *tx)
-                    .await
-                    .map_err(|e| e.to_string())?;
-                for statement in MIGRATIONS {
-                    sqlx::query(statement)
-                        .execute(&mut *tx)
-                        .await
-                        .map_err(|e| e.to_string())?;
-                }
-                tx.commit().await.map_err(|e| e.to_string())
-            })
-            .await?;
-        Ok(&self.pool)
+        self.db.pool().await
     }
 }
 
@@ -722,15 +672,17 @@ impl Store {
             }
             Store::Pg(pg) => {
                 let pool = pg.pool().await?;
-                let rows: Vec<(String, i64)> =
-                    sqlx::query_as("SELECT body, version FROM keeper_positions WHERE owner = $1")
-                        .bind(owner)
-                        .fetch_all(pool)
-                        .await
-                        .map_err(|e| e.to_string())?;
-                let pending: Vec<(String,)> = sqlx::query_as(
-                    "SELECT body FROM keeper_executions WHERE owner = $1 ORDER BY created_at, id",
+                let rows: Vec<(String, i64)> = sqlx::query_as(
+                    "SELECT body::text, version FROM arctos.keeper_positions WHERE owner = $1",
                 )
+                .persistent(false)
+                .bind(owner)
+                .fetch_all(pool)
+                .await
+                .map_err(|e| e.to_string())?;
+                let pending: Vec<(String,)> = sqlx::query_as(
+                    "SELECT body::text FROM arctos.keeper_executions WHERE owner = $1 ORDER BY created_at, id",
+                ).persistent(false)
                 .bind(owner)
                 .fetch_all(pool)
                 .await
@@ -763,15 +715,16 @@ impl Store {
                     .retain(|(o, e)| o != owner || !ids.contains(&e.id));
                 Ok(())
             }
-            Store::Pg(pg) => {
-                sqlx::query("DELETE FROM keeper_executions WHERE owner = $1 AND id = ANY($2)")
-                    .bind(owner)
-                    .bind(ids)
-                    .execute(pg.pool().await?)
-                    .await
-                    .map(|_| ())
-                    .map_err(|e| e.to_string())
-            }
+            Store::Pg(pg) => sqlx::query(
+                "DELETE FROM arctos.keeper_executions WHERE owner = $1 AND id = ANY($2)",
+            )
+            .persistent(false)
+            .bind(owner)
+            .bind(ids)
+            .execute(pg.pool().await?)
+            .await
+            .map(|_| ())
+            .map_err(|e| e.to_string()),
         }
     }
 
@@ -819,18 +772,18 @@ impl Store {
                 let mut tx = pool.begin().await.map_err(|e| e.to_string())?;
                 let landed = match expected {
                     Some(version) => sqlx::query(
-                        "UPDATE keeper_positions SET body = $3, open = $4, version = version + 1
+                        "UPDATE arctos.keeper_positions SET body = $3::jsonb, open = $4, version = version + 1
                          WHERE owner = $1 AND key = $2 AND version = $5",
-                    )
+                    ).persistent(false)
                     .bind(owner)
                     .bind(&position.key)
                     .bind(&body)
                     .bind(position.open())
                     .bind(version),
                     None => sqlx::query(
-                        "INSERT INTO keeper_positions (owner, key, body, open, synced_at)
-                         VALUES ($1, $2, $3, $4, $5) ON CONFLICT (owner, key) DO NOTHING",
-                    )
+                        "INSERT INTO arctos.keeper_positions (owner, key, body, open, synced_at)
+                         VALUES ($1, $2, $3::jsonb, $4, $5) ON CONFLICT (owner, key) DO NOTHING",
+                    ).persistent(false)
                     .bind(owner)
                     .bind(&position.key)
                     .bind(&body)
@@ -847,9 +800,10 @@ impl Store {
                 }
                 for e in executions {
                     sqlx::query(
-                        "INSERT INTO keeper_executions (id, owner, key, body, created_at)
-                         VALUES ($1, $2, $3, $4, $5)",
+                        "INSERT INTO arctos.keeper_executions (id, owner, key, body, created_at)
+                         VALUES ($1, $2, $3, $4::jsonb, $5)",
                     )
+                    .persistent(false)
                     .bind(&e.id)
                     .bind(owner)
                     .bind(&e.key)
@@ -873,15 +827,16 @@ impl Store {
                     .retain(|(o, k), _| o != owner || !keys.contains(k));
                 Ok(())
             }
-            Store::Pg(pg) => {
-                sqlx::query("DELETE FROM keeper_positions WHERE owner = $1 AND key = ANY($2)")
-                    .bind(owner)
-                    .bind(keys)
-                    .execute(pg.pool().await?)
-                    .await
-                    .map(|_| ())
-                    .map_err(|e| e.to_string())
-            }
+            Store::Pg(pg) => sqlx::query(
+                "DELETE FROM arctos.keeper_positions WHERE owner = $1 AND key = ANY($2)",
+            )
+            .persistent(false)
+            .bind(owner)
+            .bind(keys)
+            .execute(pg.pool().await?)
+            .await
+            .map(|_| ())
+            .map_err(|e| e.to_string()),
         }
     }
 
@@ -897,7 +852,8 @@ impl Store {
                 Ok(())
             }
             Store::Pg(pg) => {
-                sqlx::query("UPDATE keeper_positions SET synced_at = $2 WHERE owner = $1")
+                sqlx::query("UPDATE arctos.keeper_positions SET synced_at = $2 WHERE owner = $1")
+                    .persistent(false)
                     .bind(owner)
                     .bind(now_ms)
                     .execute(pg.pool().await?)
@@ -917,9 +873,10 @@ impl Store {
                 Ok((open as i64, inner.last_tick_at))
             }
             Store::Pg(pg) => sqlx::query_as(
-                "SELECT (SELECT count(*) FROM keeper_positions WHERE open),
-                        COALESCE((SELECT last_tick_at FROM keeper_meta WHERE id = 1), 0)",
+                "SELECT (SELECT count(*) FROM arctos.keeper_positions WHERE open),
+                        COALESCE((SELECT last_tick_at FROM arctos.keeper_meta WHERE id = 1), 0)",
             )
+            .persistent(false)
             .fetch_one(pg.pool().await?)
             .await
             .map_err(|e| e.to_string()),
@@ -939,9 +896,10 @@ impl Store {
                 Ok(true)
             }
             Store::Pg(pg) => sqlx::query(
-                "UPDATE keeper_meta SET next_tick_at = $1 + $2, last_tick_at = $1
+                "UPDATE arctos.keeper_meta SET next_tick_at = $1 + $2, last_tick_at = $1
                  WHERE id = 1 AND next_tick_at <= $1",
             )
+            .persistent(false)
             .bind(now_ms)
             .bind(gap_ms)
             .execute(pg.pool().await?)
@@ -974,9 +932,10 @@ impl Store {
             }
             Store::Pg(pg) => {
                 let rows: Vec<(String, String, i64)> = sqlx::query_as(
-                    "SELECT owner, body, version FROM keeper_positions WHERE open
+                    "SELECT owner, body::text, version FROM arctos.keeper_positions WHERE open
                      ORDER BY checked_at ASC LIMIT $1",
                 )
+                .persistent(false)
                 .bind(limit)
                 .fetch_all(pg.pool().await?)
                 .await
@@ -1012,10 +971,11 @@ impl Store {
                 let owners: Vec<String> = rows.iter().map(|r| r.owner.clone()).collect();
                 let keys: Vec<String> = rows.iter().map(|r| r.position.key.clone()).collect();
                 sqlx::query(
-                    "UPDATE keeper_positions p SET checked_at = $1
+                    "UPDATE arctos.keeper_positions p SET checked_at = $1
                      FROM unnest($2::text[], $3::text[]) AS t(owner, key)
                      WHERE p.owner = t.owner AND p.key = t.key",
                 )
+                .persistent(false)
                 .bind(now_ms)
                 .bind(owners)
                 .bind(keys)
@@ -1039,10 +999,11 @@ impl Store {
             Store::Pg(pg) => {
                 let pool = pg.pool().await?;
                 for statement in [
-                    "DELETE FROM keeper_positions WHERE synced_at < $1",
-                    "DELETE FROM keeper_executions WHERE created_at < $1",
+                    "DELETE FROM arctos.keeper_positions WHERE synced_at < $1",
+                    "DELETE FROM arctos.keeper_executions WHERE created_at < $1",
                 ] {
                     sqlx::query(statement)
+                        .persistent(false)
                         .bind(before_ms)
                         .execute(pool)
                         .await
@@ -1067,12 +1028,9 @@ pub struct Keeper {
 }
 
 impl Keeper {
-    pub fn new(db: Option<PgPool>, on_demand: bool) -> Self {
+    pub fn new(db: Option<Arc<Database>>, on_demand: bool) -> Self {
         let store = match db {
-            Some(pool) => Some(Store::Pg(PgStore {
-                pool,
-                ready: tokio::sync::OnceCell::new(),
-            })),
+            Some(db) => Some(Store::Pg(PgStore { db })),
             None if !on_demand => Some(Store::Memory(MemoryStore::default())),
             None => None,
         };
@@ -1494,6 +1452,10 @@ pub async fn run_tick(state: &Arc<AppState>) -> TickReport {
         return report;
     };
     let now = now_ms();
+    // Old sniper records are cleared out about once an hour, whoever calls.
+    if let Some(db) = &state.db {
+        records::tidy(db, now).await;
+    }
     let outcome: StoreResult<()> = async {
         report.open = store.stats().await?.0;
         if report.open == 0 || !store.claim_tick(now, TICK_GAP_MS).await? {

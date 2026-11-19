@@ -1,7 +1,7 @@
 //! Waitlist: real positions stored in PostgreSQL, welcome email sent from the server.
 //! The client can never choose the email subject or body.
 
-use std::{str::FromStr, sync::Arc, time::Duration};
+use std::{sync::Arc, time::Duration};
 
 use axum::{extract::State, http::HeaderMap, Json};
 use lettre::{
@@ -10,103 +10,15 @@ use lettre::{
     AsyncSmtpTransport, AsyncTransport, Message, Tokio1Executor,
 };
 use serde::{Deserialize, Serialize};
-use sqlx::{
-    postgres::{PgConnectOptions, PgPoolOptions},
-    PgPool,
-};
 
 use crate::{
     error::{AppError, Result},
     AppState,
 };
 
-pub fn normalize_database_url(database_url: &str) -> String {
-    let mut normalized = database_url.trim().to_string();
-    if normalized.starts_with("postgres://") {
-        normalized = normalized.replacen("postgres://", "postgresql://", 1);
-    }
-    if normalized.contains("sslmode=") {
-        return normalized;
-    }
-    normalized.push(if normalized.contains('?') { '&' } else { '?' });
-    normalized.push_str("sslmode=require");
-    normalized
-}
-
-async fn migrate(pool: &PgPool) -> std::result::Result<(), sqlx::Error> {
-    sqlx::query(
-        "CREATE TABLE IF NOT EXISTS waitlist (
-            id BIGSERIAL PRIMARY KEY,
-            email TEXT NOT NULL UNIQUE,
-            created_at TIMESTAMPTZ NOT NULL DEFAULT now()
-        )",
-    )
-    .execute(pool)
-    .await
-    .map(|_| ())
-}
-
-/// Connects to Postgres if configured. Failure is logged and the service keeps running without it.
-///
-/// With `lazy` set (on demand mode) nothing is opened here: the first waitlist
-/// request connects, so requests that never touch the database do not pay for it.
-pub async fn connect(database_url: Option<&str>, lazy: bool) -> Option<PgPool> {
-    let url = database_url?;
-    let options = match PgConnectOptions::from_str(&normalize_database_url(url)) {
-        // Works with connection poolers in transaction mode (Supabase pooler).
-        Ok(o) => o.statement_cache_capacity(0),
-        Err(e) => {
-            tracing::error!("DATABASE_URL is not valid: {e}");
-            return None;
-        }
-    };
-    if lazy {
-        return Some(
-            PgPoolOptions::new()
-                .max_connections(2)
-                .acquire_timeout(Duration::from_secs(8))
-                .connect_lazy_with(options),
-        );
-    }
-    let pool = match PgPoolOptions::new()
-        .max_connections(5)
-        .acquire_timeout(Duration::from_secs(8))
-        .connect_with(options)
-        .await
-    {
-        Ok(p) => p,
-        Err(e) => {
-            tracing::error!(
-                "could not connect to PostgreSQL, waitlist will run without persistence: {e}"
-            );
-            return None;
-        }
-    };
-    match migrate(&pool).await {
-        Ok(()) => {
-            tracing::info!("PostgreSQL ready (waitlist)");
-            Some(pool)
-        }
-        Err(e) => {
-            tracing::error!("waitlist migration failed: {e}");
-            None
-        }
-    }
-}
-
-/// The pool, once the waitlist table is known to exist.
-async fn ready_pool(state: &AppState) -> Option<&PgPool> {
-    let pool = state.db.as_ref()?;
-    state
-        .db_ready
-        .get_or_try_init(|| async {
-            migrate(pool).await.map_err(|e| {
-                tracing::error!("waitlist database is not reachable: {e}");
-            })
-        })
-        .await
-        .ok()?;
-    Some(pool)
+/// The database, once its schema is ready. `None` without one, or while it is unreachable.
+async fn ready_pool(state: &AppState) -> Option<&sqlx::PgPool> {
+    state.db.as_ref()?.pool().await.ok()
 }
 
 /// Sends the welcome email. A long running server sends it in the background.
@@ -296,25 +208,29 @@ pub async fn join(
     };
 
     let inserted: Option<(i64,)> = sqlx::query_as(
-        "INSERT INTO waitlist (email) VALUES ($1) ON CONFLICT (email) DO NOTHING RETURNING id",
+        "INSERT INTO arctos.waitlist (email) VALUES ($1) ON CONFLICT (email) DO NOTHING RETURNING id",
     )
     .bind(&email)
+    .persistent(false)
     .fetch_optional(pool)
     .await
     .map_err(|e| AppError::Internal(format!("waitlist insert: {e}")))?;
     let (id, already) = match inserted {
         Some((id,)) => (id, false),
         None => {
-            let existing: (i64,) = sqlx::query_as("SELECT id FROM waitlist WHERE email = $1")
-                .bind(&email)
-                .fetch_one(pool)
-                .await
-                .map_err(|e| AppError::Internal(format!("waitlist lookup: {e}")))?;
+            let existing: (i64,) =
+                sqlx::query_as("SELECT id FROM arctos.waitlist WHERE email = $1")
+                    .bind(&email)
+                    .persistent(false)
+                    .fetch_one(pool)
+                    .await
+                    .map_err(|e| AppError::Internal(format!("waitlist lookup: {e}")))?;
             (existing.0, true)
         }
     };
-    let (position,): (i64,) = sqlx::query_as("SELECT COUNT(*) FROM waitlist WHERE id <= $1")
+    let (position,): (i64,) = sqlx::query_as("SELECT COUNT(*) FROM arctos.waitlist WHERE id <= $1")
         .bind(id)
+        .persistent(false)
         .fetch_one(pool)
         .await
         .map_err(|e| AppError::Internal(format!("waitlist position: {e}")))?;
@@ -343,7 +259,8 @@ pub async fn count(State(state): State<Arc<AppState>>) -> Result<Json<CountRespo
     let count = state
         .waitlist_count
         .get_or_fetch("count", || async move {
-            let row: (i64,) = sqlx::query_as("SELECT COUNT(*) FROM waitlist")
+            let row: (i64,) = sqlx::query_as("SELECT COUNT(*) FROM arctos.waitlist")
+                .persistent(false)
                 .fetch_one(&pool)
                 .await
                 .map_err(|e| e.to_string())?;
@@ -383,20 +300,6 @@ mod tests {
             assert!(!valid_email(bad), "{bad:?} should be rejected");
         }
         assert!(!valid_email(&format!("{}@example.com", "a".repeat(65))));
-    }
-
-    #[test]
-    fn database_url_gets_ssl() {
-        assert_eq!(
-            normalize_database_url("postgres://u:p@db.example.supabase.co:5432/postgres"),
-            "postgresql://u:p@db.example.supabase.co:5432/postgres?sslmode=require"
-        );
-        assert!(normalize_database_url("postgresql://u:p@h/db?options=x")
-            .ends_with("options=x&sslmode=require"));
-        assert_eq!(
-            normalize_database_url("postgresql://h/db?sslmode=disable"),
-            "postgresql://h/db?sslmode=disable"
-        );
     }
 
     #[test]
