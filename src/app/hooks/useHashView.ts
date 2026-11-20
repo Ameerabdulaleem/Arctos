@@ -4,7 +4,8 @@ export const VIEWS = ['dashboard', 'trading', 'sniper', 'tradebook', 'whale', 'n
 export type ViewId = (typeof VIEWS)[number];
 
 function read(): ViewId | null {
-  const id = window.location.hash.replace(/^#\/?/, '');
+  // "#/trading?chain=bsc&token=0x..." opens the terminal with that token; the part after "?" is for the view.
+  const id = window.location.hash.replace(/^#\/?/, '').split('?')[0];
   return (VIEWS as readonly string[]).includes(id) ? (id as ViewId) : null;
 }
 

@@ -44,6 +44,16 @@ pub struct Config {
     pub dexscreener_base: String,
     pub geckoterminal_base: String,
     pub goplus_base: String,
+    /// The Relay API behind the swap and bridge panel.
+    pub relay_base: String,
+    /// Optional Relay API key, sent from the server only.
+    pub relay_api_key: Option<String>,
+    /// 0x Swap API. Turns on with a free key from the 0x dashboard.
+    pub zerox_base: String,
+    pub zerox_api_key: Option<String>,
+    /// Squid bridge routes. Turns on with an integrator id from Squid.
+    pub squid_base: String,
+    pub squid_integrator_id: Option<String>,
     pub blockchair_base: String,
     pub blockchair_api_key: Option<String>,
     pub yahoo_base: String,
@@ -173,6 +183,12 @@ impl Config {
                 "https://api.geckoterminal.com/api/v2",
             ),
             goplus_base: var_or("GOPLUS_BASE", "https://api.gopluslabs.io/api/v1"),
+            relay_base: var_or("RELAY_BASE", "https://api.relay.link"),
+            relay_api_key: var("RELAY_API_KEY"),
+            zerox_base: var_or("ZEROX_BASE", "https://api.0x.org"),
+            zerox_api_key: var("ZEROX_API_KEY"),
+            squid_base: var_or("SQUID_BASE", "https://v2.api.squidrouter.com"),
+            squid_integrator_id: var("SQUID_INTEGRATOR_ID"),
             blockchair_base: var_or("BLOCKCHAIR_BASE", "https://api.blockchair.com"),
             blockchair_api_key: var("BLOCKCHAIR_API_KEY"),
             yahoo_base: var_or("YAHOO_BASE", "https://query1.finance.yahoo.com"),

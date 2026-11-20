@@ -28,6 +28,7 @@ pub mod records;
 pub mod serverless;
 pub mod sniper;
 pub mod stocks;
+pub mod swap_proxy;
 pub mod upstream;
 pub mod waitlist;
 pub mod whales;
@@ -316,6 +317,8 @@ pub fn cdn_cache_policy(path: &str) -> Option<(u32, u32)> {
         "/api/whales" => (10, 60),
         "/api/sniper/new" | "/api/sniper/feed" => (10, 60),
         "/api/sniper/chains" => (3600, 86400),
+        "/api/relay/chains" => (300, 3600),
+        "/api/swap/providers" => (60, 300),
         "/api/sniper/search" => (15, 60),
         "/api/sniper/tokens" => (5, 30),
         "/api/sniper/security" => (300, 3600),
@@ -397,6 +400,26 @@ pub fn build_router(state: Arc<AppState>) -> Router {
         .route(
             "/api/sniper/keeper/tick",
             get(keeper::tick).post(keeper::tick),
+        )
+        // Swaps and bridges (Relay), signed in the user's own wallet
+        .route("/api/swap/providers", get(swap_proxy::providers))
+        .route(
+            "/api/relay/*path",
+            get(swap_proxy::relay_get)
+                .post(swap_proxy::relay_post)
+                .layer(DefaultBodyLimit::max(swap_proxy::MAX_BODY)),
+        )
+        .route(
+            "/api/zerox/*path",
+            get(swap_proxy::zerox_get)
+                .post(swap_proxy::zerox_post)
+                .layer(DefaultBodyLimit::max(swap_proxy::MAX_BODY)),
+        )
+        .route(
+            "/api/squid/*path",
+            get(swap_proxy::squid_get)
+                .post(swap_proxy::squid_post)
+                .layer(DefaultBodyLimit::max(swap_proxy::MAX_BODY)),
         )
         // Content
         .route("/api/news", get(news::get_news))

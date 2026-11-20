@@ -164,6 +164,33 @@ fn fake_upstream() -> Router {
         .route("/goplus/token_security/:chain", get(|| async {
             Json(json!({"code": 1, "result": {"0x6982508145454ce325ddbe47a25d4ec3d2311933": {"is_honeypot": "0", "buy_tax": "0", "sell_tax": "0.02", "is_open_source": "1", "holder_count": "1000"}}}))
         }))
+        .route("/zerox/swap/allowance-holder/quote", get(|headers: axum::http::HeaderMap, axum::extract::RawQuery(q): axum::extract::RawQuery| async move {
+            Json(json!({
+                "buyAmount": "1000",
+                "sawKey": headers.get("0x-api-key").and_then(|v| v.to_str().ok()),
+                "sawVersion": headers.get("0x-version").and_then(|v| v.to_str().ok()),
+                "query": q,
+            }))
+        }))
+        .route("/squid/v2/route", post(|headers: axum::http::HeaderMap, Json(body): Json<Value>| async move {
+            let id = headers.get("x-integrator-id").and_then(|v| v.to_str().ok()).unwrap_or_default().to_string();
+            ([("x-request-id", "req-123"), ("set-cookie", "tracker=1")], Json(json!({"route": {"quoteId": "q-1", "estimate": {"toAmount": "5"}}, "sawIntegrator": id, "echo": body})))
+        }))
+        .route("/squid/v2/status", get(|| async { Json(json!({"squidTransactionStatus": "success"})) }))
+        .route("/relay/chains", get(|| async { Json(json!({"chains": [{"id": 8453, "name": "base", "displayName": "Base"}]})) }))
+        .route("/relay/quote/v2", post(|headers: axum::http::HeaderMap, Json(body): Json<Value>| async move {
+            if body["amount"] == "0" {
+                return (axum::http::StatusCode::BAD_REQUEST, Json(json!({"message": "Amount must be greater than zero", "errorCode": "INVALID_INPUT_AMOUNT"})));
+            }
+            (axum::http::StatusCode::OK, Json(json!({
+                "steps": [],
+                "details": {"currencyOut": {"amount": "1000"}},
+                "sawKey": headers.get("x-api-key").and_then(|v| v.to_str().ok()),
+                "sawCookie": headers.contains_key("cookie"),
+                "echo": body,
+            })))
+        }))
+        .route("/relay/intents/status/v3", get(|axum::extract::RawQuery(q): axum::extract::RawQuery| async move { Json(json!({"status": "success", "query": q})) }))
         .route("/anthropic/v1/messages", post(|Json(body): Json<Value>| async move { Json(fake_model(&body)) }))
         .route("/rpc", post(|Json(req): Json<Value>| async move {
             // One answer per request, batches included, each carrying its request's id.
@@ -1722,4 +1749,221 @@ async fn every_assistant_tool_returns_data() {
     .await
     .is_err());
     assert!(run("no_such_tool", json!({})).await.is_err());
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn swap_proxies_forward_only_the_swap_flow() {
+    let up = serve(fake_upstream()).await;
+    let mut cfg = test_config(&format!("http://{up}"));
+    cfg.relay_base = format!("http://{up}/relay");
+    cfg.relay_api_key = Some("relay-server-key".into());
+    cfg.zerox_base = format!("http://{up}/zerox");
+    cfg.zerox_api_key = Some("zerox-server-key".into());
+    cfg.squid_base = format!("http://{up}/squid");
+    cfg.squid_integrator_id = Some("squid-integrator".into());
+    cfg.frontend_origins = vec!["https://arctos.example".into()];
+    // As on Vercel, where the CDN caches the chain list.
+    let state = build_state(cfg.into_on_demand()).await;
+    let base = format!("http://{}", serve(build_router(state)).await);
+    let client = reqwest::Client::new();
+
+    // Chains are public and cached at the edge.
+    let r = client
+        .get(format!("{base}/api/relay/chains"))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(r.status(), 200);
+    let cache = r
+        .headers()
+        .get("cache-control")
+        .and_then(|v| v.to_str().ok())
+        .unwrap_or_default()
+        .to_string();
+    assert!(cache.contains("s-maxage=300"), "{cache}");
+    let chains: Value = r.json().await.unwrap();
+    assert_eq!(chains["chains"][0]["id"], 8453);
+
+    // A quote carries the server's key upstream, and nothing from the browser but the body.
+    let r = client
+        .post(format!("{base}/api/relay/quote/v2"))
+        .header("origin", "https://arctos.example")
+        .header("cookie", "session=secret")
+        .json(&json!({"user": "0xabc", "amount": "100", "originChainId": 1, "destinationChainId": 8453}))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(r.status(), 200);
+    assert!(r
+        .headers()
+        .get("cache-control")
+        .and_then(|v| v.to_str().ok())
+        .unwrap_or_default()
+        .contains("no-store"));
+    let quote: Value = r.json().await.unwrap();
+    assert_eq!(quote["sawKey"], "relay-server-key");
+    assert_eq!(quote["sawCookie"], false);
+    assert_eq!(quote["echo"]["amount"], "100");
+    assert!(
+        !quote.to_string().contains("relay-server-key\"}"),
+        "the key only shows here because the fake echoes it"
+    );
+
+    // Relay's own errors come back with their status so the panel can show them.
+    let r = client
+        .post(format!("{base}/api/relay/quote/v2"))
+        .header("origin", "https://arctos.example")
+        .json(&json!({"amount": "0"}))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(r.status(), 400);
+    let err: Value = r.json().await.unwrap();
+    assert_eq!(err["errorCode"], "INVALID_INPUT_AMOUNT");
+
+    // Status polling keeps its query string.
+    let (status, v) = get_json(
+        &client,
+        format!("{base}/api/relay/intents/status/v3?requestId=0x12"),
+    )
+    .await;
+    assert_eq!(status, 200);
+    assert_eq!(v["query"], "requestId=0x12");
+
+    // Another site may not use the proxy, and a POST must say where it came from.
+    let r = client
+        .post(format!("{base}/api/relay/quote/v2"))
+        .header("origin", "https://evil.example")
+        .json(&json!({"amount": "1"}))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(r.status(), 403);
+    let r = client
+        .post(format!("{base}/api/relay/quote/v2"))
+        .json(&json!({"amount": "1"}))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(r.status(), 403);
+
+    // Paths outside the swap flow are not forwarded.
+    for path in ["admin", "chains/..%2F..%2Fadmin", "quote%2F..%2F..%2Fadmin"] {
+        let r = client
+            .get(format!("{base}/api/relay/{path}"))
+            .send()
+            .await
+            .unwrap();
+        assert!(
+            r.status() == 404 || r.status() == 400,
+            "{path}: {}",
+            r.status()
+        );
+    }
+
+    // Which keyed providers are on, without saying anything about the keys.
+    let (status, v) = get_json(&client, format!("{base}/api/swap/providers")).await;
+    assert_eq!(status, 200);
+    assert_eq!(v, json!({"relayKeyed": true, "zerox": true, "squid": true}));
+    assert!(!v.to_string().contains("relay-server-key"));
+
+    // 0x: the key and version go upstream, only for the two allowance holder paths.
+    let (status, v) = get_json(
+        &client,
+        format!("{base}/api/zerox/swap/allowance-holder/quote?chainId=56&sellAmount=1"),
+    )
+    .await;
+    assert_eq!(status, 200);
+    assert_eq!(v["sawKey"], "zerox-server-key");
+    assert_eq!(v["sawVersion"], "v2");
+    assert_eq!(v["query"], "chainId=56&sellAmount=1");
+    let r = client
+        .get(format!("{base}/api/zerox/swap/permit2/quote"))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(r.status(), 404);
+
+    // Squid: the integrator id goes upstream and the request id comes back, cookies do not.
+    let r = client
+        .post(format!("{base}/api/squid/v2/route"))
+        .header("origin", "https://arctos.example")
+        .json(&json!({"fromChain": "56", "toChain": "42161"}))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(r.status(), 200);
+    assert_eq!(
+        r.headers()
+            .get("x-request-id")
+            .and_then(|v| v.to_str().ok()),
+        Some("req-123")
+    );
+    assert!(r.headers().get("set-cookie").is_none());
+    let v: Value = r.json().await.unwrap();
+    assert_eq!(v["sawIntegrator"], "squid-integrator");
+    assert_eq!(v["echo"]["toChain"], "42161");
+    let (status, v) = get_json(
+        &client,
+        format!("{base}/api/squid/v2/status?transactionId=0x1&quoteId=q-1"),
+    )
+    .await;
+    assert_eq!(
+        (status, v["squidTransactionStatus"].as_str()),
+        (200, Some("success"))
+    );
+
+    // Bodies are capped.
+    let r = client
+        .post(format!("{base}/api/relay/quote/v2"))
+        .header("origin", "https://arctos.example")
+        .header("content-type", "application/json")
+        .body(format!("{{\"pad\":\"{}\"}}", "x".repeat(70 * 1024)))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(r.status(), 413);
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn keyed_swap_providers_stay_off_without_keys() {
+    let up = serve(fake_upstream()).await;
+    let mut cfg = test_config(&format!("http://{up}"));
+    cfg.relay_base = format!("http://{up}/relay");
+    cfg.relay_api_key = None;
+    cfg.zerox_api_key = None;
+    cfg.squid_integrator_id = None;
+    let state = build_state(cfg.into_on_demand()).await;
+    let base = format!("http://{}", serve(build_router(state)).await);
+    let client = reqwest::Client::new();
+
+    let (status, v) = get_json(&client, format!("{base}/api/swap/providers")).await;
+    assert_eq!(status, 200);
+    assert_eq!(
+        v,
+        json!({"relayKeyed": false, "zerox": false, "squid": false})
+    );
+    let r = client
+        .get(format!("{base}/api/zerox/swap/allowance-holder/price"))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(r.status(), 503);
+    let r = client
+        .get(format!("{base}/api/squid/v2/status"))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(r.status(), 503);
+    // Relay still works through the proxy, just without a key.
+    let r = client
+        .post(format!("{base}/api/relay/quote/v2"))
+        .header("origin", &base)
+        .json(&json!({"amount": "1"}))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(r.status(), 200);
+    let v: Value = r.json().await.unwrap();
+    assert_eq!(v["sawKey"], Value::Null);
 }

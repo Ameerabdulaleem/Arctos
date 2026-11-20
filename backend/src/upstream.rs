@@ -48,11 +48,27 @@ pub struct SourceHealth {
 #[derive(Clone)]
 pub struct Upstream {
     client: reqwest::Client,
+    /// The same client but it never follows a redirect, for calls that carry
+    /// a key which must only ever reach the host it is meant for.
+    keyed: reqwest::Client,
     health: Arc<RwLock<HashMap<String, SourceHealth>>>,
 }
 
 impl Upstream {
     pub fn new() -> Self {
+        Self {
+            client: Self::builder()
+                .build()
+                .expect("failed to build HTTP client"),
+            keyed: Self::builder()
+                .redirect(reqwest::redirect::Policy::none())
+                .build()
+                .expect("failed to build HTTP client"),
+            health: Arc::new(RwLock::new(HashMap::new())),
+        }
+    }
+
+    fn builder() -> reqwest::ClientBuilder {
         let mut builder = reqwest::Client::builder();
         // Behind a TLS inspecting proxy (some company networks and test
         // sandboxes) the operator can name an extra CA bundle to trust.
@@ -66,21 +82,20 @@ impl Upstream {
                 _ => tracing::warn!("ARCTOS_EXTRA_CA_FILE could not be read as a PEM bundle"),
             }
         }
-        let client = builder
+        builder
             .timeout(Duration::from_secs(12))
             .connect_timeout(Duration::from_secs(6))
             .user_agent("Mozilla/5.0 (compatible; ArctosDataService/0.3)")
             .gzip(true)
-            .build()
-            .expect("failed to build HTTP client");
-        Self {
-            client,
-            health: Arc::new(RwLock::new(HashMap::new())),
-        }
     }
 
     pub fn client(&self) -> &reqwest::Client {
         &self.client
+    }
+
+    /// A client that never follows redirects.
+    pub fn keyed_client(&self) -> &reqwest::Client {
+        &self.keyed
     }
 
     fn record(&self, source: &str, latency: Duration, outcome: Result<(), &UpstreamError>) {

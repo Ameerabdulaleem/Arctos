@@ -24,6 +24,8 @@ pub enum Bucket {
     Portfolio,
     /// The trade keeper. An open app syncs about five times a minute.
     Keeper,
+    /// The swap and bridge panel: quotes refresh while the user types.
+    Swap,
 }
 
 impl Bucket {
@@ -34,6 +36,7 @@ impl Bucket {
             Bucket::Waitlist => (6, Duration::from_secs(600)),
             Bucket::Portfolio => (30, Duration::from_secs(60)),
             Bucket::Keeper => (120, Duration::from_secs(60)),
+            Bucket::Swap => (240, Duration::from_secs(60)),
         }
     }
 }
@@ -105,6 +108,11 @@ fn bucket_for(method: &Method, path: &str) -> Bucket {
         Bucket::Portfolio
     } else if path.starts_with("/api/sniper/keeper") {
         Bucket::Keeper
+    } else if ["/api/relay/", "/api/zerox/", "/api/squid/"]
+        .iter()
+        .any(|p| path.starts_with(p))
+    {
+        Bucket::Swap
     } else {
         Bucket::General
     }

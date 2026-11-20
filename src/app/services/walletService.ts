@@ -1,6 +1,7 @@
 // Wallet connections. EVM wallets are found with EIP 6963 (each wallet announces itself, so MetaMask,
 // Rabby, OKX and Phantom no longer fight over window.ethereum). Phantom also provides Solana.
-// Everything here is read only: the app asks for an address, never for a signature or a transaction.
+// Connecting only reads an address. Signatures are asked for in one place only, the swap and bridge
+// panel (src/app/swap), and only after the user presses swap and has seen what will be signed.
 
 export type WalletType = 'metamask' | 'phantom' | 'rabby' | 'okx';
 export type WalletChainKind = 'evm' | 'solana';
@@ -54,7 +55,7 @@ function startDiscovery() {
 }
 
 /** Gives wallets a moment to announce themselves, then looks the provider up. */
-async function findEvmProvider(type: WalletType): Promise<Eip1193Provider | null> {
+export async function findEvmProvider(type: WalletType): Promise<Eip1193Provider | null> {
   startDiscovery();
   window.dispatchEvent(new Event('eip6963:requestProvider'));
   await new Promise((r) => setTimeout(r, 150));
