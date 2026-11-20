@@ -636,7 +636,8 @@ pub async fn run(
                 portfolio::get_portfolio(State(state.clone()), Path(address.to_string()))
                     .await
                     .map_err(|e| e.to_string())?;
-            Ok(clean(&holdings, &[]))
+            // Logos and exact base unit amounts help the swap panel, not the assistant.
+            Ok(clean(&holdings, &["logo", "rawAmount"]))
         }
         other => Err(format!("there is no tool called {}", sanitize(other, 40))),
     }

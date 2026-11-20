@@ -9,6 +9,7 @@ import { runPlan, walletMessage, type ExecResult, type ExecStep } from '../../sw
 import { lookupOnChain, looksLikeAddress, nativeToken, sameToken, searchTokens } from '../../swap/tokens';
 import type { Plan, ProviderContext, ProviderId, Quote, QuoteRequest, Token } from '../../swap/types';
 import { useSwapWallets } from '../../swap/useSwapWallets';
+import { useWalletHoldings } from '../../swap/useWalletHoldings';
 import { isValidAddress, WALLET_OPTIONS, type WalletType } from '../../services/walletService';
 import { sniperService, type Security } from '../../services/sniperService';
 import { formatUsd, shortAddress } from '../../lib/format';
@@ -59,15 +60,42 @@ function saveHistory(list: HistoryItem[]) {
   }
 }
 
-/** Reads `#/trading?chain=..&token=..`, the link the sniper uses to open a token here. */
-function readDeepLink(): { chain: SwapChain; address: string } | null {
+/**
+ * Reads `#/trading?chain=..&token=..`, the link the sniper uses to open a token here.
+ * `&side=sell` (from the wallet list) makes the token the one being paid with.
+ */
+function readDeepLink(): { chain: SwapChain; address: string; sell: boolean } | null {
   const hash = window.location.hash;
   const q = hash.indexOf('?');
   if (q === -1) return null;
   const params = new URLSearchParams(hash.slice(q + 1));
   const chain = chainByKey(params.get('chain') ?? '');
   const address = (params.get('token') ?? '').trim();
-  return chain && looksLikeAddress(chain, address) ? { chain, address } : null;
+  const sell = params.get('side') === 'sell';
+  if (!chain) return null;
+  if (isNative(chain, address)) return { chain, address, sell };
+  return looksLikeAddress(chain, address) ? { chain, address, sell } : null;
+}
+
+/** Hosts the swap panel calls straight from the browser. Opening connections early saves a round trip on the first quote. */
+const WARM_HOSTS = [
+  'https://api.relay.link',
+  'https://api.jup.ag',
+  'https://aggregator-api.kyberswap.com',
+  'https://api.sushi.com',
+  'https://api.dexscreener.com',
+  'https://api.mainnet-beta.solana.com',
+];
+
+function warmConnections() {
+  for (const href of WARM_HOSTS) {
+    if (document.head.querySelector(`link[rel="preconnect"][href="${href}"]`)) continue;
+    const link = document.createElement('link');
+    link.rel = 'preconnect';
+    link.href = href;
+    link.crossOrigin = 'anonymous';
+    document.head.appendChild(link);
+  }
 }
 
 export function SwapTerminal() {
@@ -98,8 +126,10 @@ export function SwapTerminal() {
   const [result, setResult] = useState<ExecResult | null>(null);
   const [history, setHistory] = useState<HistoryItem[]>(readHistory);
   const [balanceTick, setBalanceTick] = useState(0);
+  const held = useWalletHoldings([wallets.evm?.address, wallets.svm?.address], balanceTick);
 
   useEffect(() => {
+    warmConnections();
     const ctrl = new AbortController();
     loadProviderContext(ctrl.signal).then(setCtx).catch(() => {});
     return () => ctrl.abort();
@@ -110,14 +140,25 @@ export function SwapTerminal() {
     const link = readDeepLink();
     if (!link || !ctx) return;
     const ctrl = new AbortController();
-    const found = (await searchTokens(ctx, link.chain, link.address, ctrl.signal).catch(() => []))[0] ?? (await lookupOnChain(link.chain, link.address).catch(() => null));
+    const native = nativeToken(link.chain);
+    const found = isNative(link.chain, link.address)
+      ? native
+      : (await searchTokens(ctx, link.chain, link.address, ctrl.signal).catch(() => []))[0] ?? (await lookupOnChain(link.chain, link.address).catch(() => null));
     if (!found) {
       toast.error('That token could not be found on chain.');
       return;
     }
-    setFrom(nativeToken(link.chain));
-    setTo(found);
-    setChartSide('to');
+    if (link.sell) {
+      setFrom(found);
+      setTo(sameToken(found, native) ? null : native);
+      setAmountText('');
+      setChartSide('from');
+    } else {
+      setFrom(native);
+      setTo(sameToken(found, native) ? null : found);
+      setChartSide('to');
+    }
+    setSelected(null);
   }, [ctx]);
 
   useEffect(() => {
@@ -184,7 +225,9 @@ export function SwapTerminal() {
     balanceOf(from, sender, ctrl.signal).then((value) => !ctrl.signal.aborted && setBalance({ key: balanceKey, value }));
     return () => ctrl.abort();
   }, [balanceKey, from, sender]);
-  const bal = balance?.key === balanceKey ? balance.value : null;
+  // What the wallet holds, from the data service, shown at once; the chain read below confirms it.
+  const heldFrom = (held.get(from.chainId) ?? []).find((h) => sameToken(h.token, from));
+  const bal = balance?.key === balanceKey && balance.value != null ? balance.value : heldFrom?.raw ?? null;
   const short = bal != null && amount != null && amount > bal;
 
   // Contract risk for tokens that are not on a verified list.
@@ -518,7 +561,7 @@ export function SwapTerminal() {
         </p>
       </div>
 
-      <TokenSelect open={picker !== null} onOpenChange={(o) => !o && setPicker(null)} ctx={ctx} initialChainId={picker === 'to' ? to?.chainId ?? from.chainId : from.chainId} title={picker === 'to' ? 'Receive' : 'Pay with'} onPick={(t) => picker && pickToken(picker, t)} />
+      <TokenSelect open={picker !== null} onOpenChange={(o) => !o && setPicker(null)} ctx={ctx} initialChainId={picker === 'to' ? to?.chainId ?? from.chainId : from.chainId} title={picker === 'to' ? 'Receive' : 'Pay with'} onPick={(t) => picker && pickToken(picker, t)} held={held} />
       <ReviewDialog
         open={reviewOpen} onOpenChange={(o) => { setReviewOpen(o); if (!o) { setSteps([]); setResult(null); setExecError(null); } }}
         req={plan?.req ?? req} plan={plan?.plan ?? null} preparing={preparing} steps={steps} running={running} result={result} error={execError} onConfirm={() => void confirm()}

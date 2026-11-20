@@ -14,6 +14,8 @@ export interface SwapChain {
   explorer: string;
   /** A public RPC for reading balances and token details. */
   rpc: string;
+  /** A second public RPC, tried when the first refuses. */
+  rpcFallback?: string;
   /** DexScreener's chain slug. */
   dexscreener: string;
   /** KyberSwap's chain slug, when KyberSwap routes on this chain. */
@@ -37,7 +39,7 @@ export const CHAINS: SwapChain[] = [
   {
     id: SOLANA_ID, key: 'solana', name: 'Solana', vm: 'svm',
     native: { symbol: 'SOL', name: 'Solana', decimals: 9 }, wrapped: SOL_MINT,
-    explorer: 'https://solscan.io', rpc: 'https://solana-rpc.publicnode.com', dexscreener: 'solana', squid: 'solana-mainnet-beta',
+    explorer: 'https://solscan.io', rpc: 'https://api.mainnet-beta.solana.com', rpcFallback: 'https://solana-rpc.publicnode.com', dexscreener: 'solana', squid: 'solana-mainnet-beta',
   },
   {
     id: 56, key: 'bsc', name: 'BNB Chain', vm: 'evm',

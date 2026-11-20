@@ -62,6 +62,13 @@ pub struct Config {
     pub base_rpc: String,
     pub arbitrum_rpc: String,
     pub solana_rpc: String,
+    /// Jupiter's token list, used to name and price Solana tokens.
+    pub jupiter_base: String,
+    /// Optional Alchemy key: every token and NFT in EVM wallets. Server side only.
+    pub alchemy_api_key: Option<String>,
+    pub alchemy_base: String,
+    /// Magic Eden's public API, for NFTs in Solana wallets.
+    pub magiceden_base: String,
 
     // Tuning
     pub tracked_symbols: Vec<String>,
@@ -200,6 +207,10 @@ impl Config {
                 "https://arbitrum-one-rpc.publicnode.com",
             ),
             solana_rpc: var_or("SOLANA_RPC_URL", "https://api.mainnet-beta.solana.com"),
+            jupiter_base: var_or("JUPITER_BASE", "https://lite-api.jup.ag"),
+            alchemy_api_key: var("ALCHEMY_API_KEY"),
+            alchemy_base: var_or("ALCHEMY_BASE", "https://api.g.alchemy.com/data/v1"),
+            magiceden_base: var_or("MAGICEDEN_BASE", "https://api-mainnet.magiceden.dev/v2"),
 
             tracked_symbols: list(
                 "TRACKED_SYMBOLS",

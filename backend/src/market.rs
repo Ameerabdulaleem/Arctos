@@ -547,6 +547,30 @@ pub struct CoinsResponse {
     pub(crate) updated_at: Option<DateTime<Utc>>,
 }
 
+/// Points kept in a sparkline sent to the browser: one every three hours over
+/// seven days still draws a smooth line, at a quarter of the size.
+const SPARKLINE_POINTS: usize = 56;
+
+/// Evenly thins a series to at most `max` points, always keeping the latest,
+/// and rounds each to six significant digits.
+pub(crate) fn thin_sparkline(series: &[f64], max: usize) -> Vec<f64> {
+    let round = |v: f64| {
+        if v == 0.0 || !v.is_finite() {
+            return v;
+        }
+        let digits = 6 - (v.abs().log10().floor() as i32) - 1;
+        let factor = 10f64.powi(digits.clamp(-12, 15));
+        (v * factor).round() / factor
+    };
+    if series.len() <= max || max < 2 {
+        return series.iter().copied().map(round).collect();
+    }
+    let last = series.len() - 1;
+    (0..max)
+        .map(|i| round(series[i * last / (max - 1)]))
+        .collect()
+}
+
 pub async fn get_coins(
     State(state): State<Arc<AppState>>,
     Query(q): Query<CoinsQuery>,
@@ -560,7 +584,11 @@ pub async fn get_coins(
         .unwrap_or_else(|e| e.into_inner())
         .iter()
         .take(limit)
-        .cloned()
+        .map(|c| {
+            let mut c = c.clone();
+            c.sparkline_7d = thin_sparkline(&c.sparkline_7d, SPARKLINE_POINTS);
+            c
+        })
         .collect();
     let updated_at = *state
         .market
@@ -573,6 +601,20 @@ pub async fn get_coins(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn sparklines_are_thinned_and_rounded() {
+        let series: Vec<f64> = (0..168).map(|i| 97_234.123_456 + i as f64).collect();
+        let thin = thin_sparkline(&series, 56);
+        assert_eq!(thin.len(), 56);
+        assert_eq!(thin[0], 97_234.1);
+        assert_eq!(*thin.last().unwrap(), 97_401.1, "the latest point is kept");
+        assert_eq!(
+            thin_sparkline(&[0.000_012_345_678], 56),
+            vec![0.000_012_345_7]
+        );
+        assert_eq!(thin_sparkline(&[1.0, 2.0], 56), vec![1.0, 2.0]);
+    }
 
     const GLOBAL: &str = r#"{"data":{"active_cryptocurrencies":17500,"total_market_cap":{"usd":3250000000000.0},
         "total_volume":{"usd":118000000000.0},

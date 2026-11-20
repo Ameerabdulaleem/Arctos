@@ -18,6 +18,7 @@ pub mod binance;
 pub mod config;
 pub mod db;
 pub mod error;
+pub mod indexers;
 pub mod keeper;
 pub mod launchpad;
 pub mod market;
@@ -77,6 +78,7 @@ pub struct AppState {
     pub news: news::NewsStore,
     pub stock_cache: KeyedCache<stocks::Quote>,
     pub portfolio_cache: KeyedCache<portfolio::PortfolioResponse>,
+    pub nft_cache: KeyedCache<portfolio::NftsResponse>,
     pub waitlist_count: KeyedCache<i64>,
     pub waitlist_mem: Mutex<HashSet<String>>,
     pub ws_slots: Arc<Semaphore>,
@@ -103,6 +105,8 @@ pub async fn build_state(config: Config) -> Arc<AppState> {
         news: news::NewsStore::default(),
         stock_cache: KeyedCache::new(Duration::from_secs(45), Duration::from_secs(600)),
         portfolio_cache: KeyedCache::new(Duration::from_secs(20), Duration::from_secs(120)),
+        // NFTs change rarely and their indexes are slow.
+        nft_cache: KeyedCache::new(Duration::from_secs(300), Duration::from_secs(1800)),
         waitlist_count: KeyedCache::new(Duration::from_secs(30), Duration::from_secs(600)),
         waitlist_mem: Mutex::new(HashSet::new()),
         ws_slots: Arc::new(Semaphore::new(1500)),
@@ -325,6 +329,7 @@ pub fn cdn_cache_policy(path: &str) -> Option<(u32, u32)> {
         "/api/news" => (60, 600),
         "/api/stocks" => (30, 120),
         "/api/waitlist/count" => (30, 120),
+        p if p.starts_with("/api/portfolio/") && p.ends_with("/nfts") => (120, 600),
         p if p.starts_with("/api/portfolio/") => (15, 60),
         _ => return None,
     })
@@ -385,6 +390,7 @@ pub fn build_router(state: Arc<AppState>) -> Router {
         // On chain
         .route("/api/whales", get(whales::get_whales))
         .route("/api/portfolio/:address", get(portfolio::get_portfolio))
+        .route("/api/portfolio/:address/nfts", get(portfolio::get_nfts))
         // Sniper discovery
         .route("/api/sniper/chains", get(launchpad::get_chains))
         .route("/api/sniper/feed", get(launchpad::get_feed))
@@ -472,6 +478,10 @@ mod tests {
         assert_eq!(cdn_cache_policy("/api/market/tickers"), Some((2, 0)));
         assert_eq!(cdn_cache_policy("/api/news"), Some((60, 600)));
         assert_eq!(cdn_cache_policy("/api/portfolio/0xabc"), Some((15, 60)));
+        assert_eq!(
+            cdn_cache_policy("/api/portfolio/0xabc/nfts"),
+            Some((120, 600))
+        );
         for private in [
             "/api/status",
             "/api/ai/status",

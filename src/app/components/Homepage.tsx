@@ -1,9 +1,11 @@
-import { useEffect, useState, type FormEvent } from 'react';
+import { lazy, Suspense, useEffect, useState, type FormEvent } from 'react';
 import { ArrowRight, ArrowUpRight, CheckCircle, CircleNotch, Flask, GithubLogo, Lightning, RocketLaunch, ShieldCheck, TelegramLogo, Wallet, XLogo } from '@phosphor-icons/react';
 import { toast } from 'sonner';
-import arctosLogo from '../../assets/images/arctos-logo.png.png';
+import arctosLogo from '../../assets/images/arctos-logo-120.webp';
 import type { ViewId } from '../hooks/useHashView';
-import { LegalDialog, type LegalTopic } from './LegalDialog';
+import type { LegalTopic } from './LegalDialog';
+
+const LegalDialog = lazy(() => import('./LegalDialog').then((m) => ({ default: m.LegalDialog })));
 import { LiveStatus } from './LiveStatus';
 import { IconTile, Skeleton } from './ui/common';
 import { NAV_GROUPS } from './navigation';
@@ -446,7 +448,11 @@ export function Homepage({ onLaunch, onOpenWaitlist, onOpenWallet }: Props) {
           <p className="border-t border-white/[0.06] pt-6 text-sm text-zinc-500">&copy; {new Date().getFullYear()} Arctos. All rights reserved.</p>
         </div>
       </footer>
-      <LegalDialog topic={legal} onClose={() => setLegal(null)} />
+      {legal && (
+        <Suspense fallback={null}>
+          <LegalDialog topic={legal} onClose={() => setLegal(null)} />
+        </Suspense>
+      )}
     </div>
   );
 }
