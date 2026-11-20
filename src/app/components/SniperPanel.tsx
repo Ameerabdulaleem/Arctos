@@ -1,10 +1,13 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import {
-  ArrowSquareOut, ArrowsLeftRight, ChartBar, CheckCircle, CircleNotch, Crosshair, FunnelSimple, GraduationCap, MagnifyingGlass, Pause, Play, Plus,
-  Shield, ShieldCheck, ShieldWarning, Trophy, UserCircle, Warning, X,
+  ArrowSquareOut, ArrowsLeftRight, Bell, ChartBar, CheckCircle, CircleNotch, Crosshair, Fire, FunnelSimple, GraduationCap, MagnifyingGlass, Pause, Play, Plus,
+  Shield, ShieldCheck, ShieldWarning, Trophy, UserCircle, Wallet, Warning, X,
 } from '@phosphor-icons/react';
 import { toast } from 'sonner';
 import { Card, Empty, ErrorNotice, IconTile, Loading, PageHeader, PaperBadge, Pill } from './ui/common';
+import { CopyAddress } from './ui/CopyAddress';
+import { DexScreenerEmbed } from './DexScreenerEmbed';
+import type { QuickSwapDone, QuickSwapRequest } from './swap/QuickSwap';
 import { ExitPlanCard, OpenSnipe } from './ExitPlan';
 import { usePaper } from '../contexts/paper-context';
 import { usePolling } from '../hooks/usePolling';
@@ -13,11 +16,21 @@ import { errorMessage } from '../services/api';
 import { MAX_MANAGED_SNIPES } from '../services/keeperService';
 import { statusService } from '../services/statusService';
 import {
-  DEFAULT_FILTERS, FALLBACK_CHAINS, chainLabel, judge, passesFilters, snipeRecord, sniperService,
-  type ChainOption, type FeedToken, type FeedView, type Security, type SniperFilters, type SniperToken,
+  DEFAULT_FILTERS, FALLBACK_CHAINS, chainLabel, discoverService, judge, passesFilters, snipeRecord, sniperService,
+  type ChainOption, type DiscoverList, type DiscoverToken, type FeedToken, type FeedView, type Meta, type Security, type SniperFilters, type SniperToken,
 } from '../services/sniperService';
-import { formatCompactUsd, formatNumber, formatPct, formatPrice, formatUsd, pnlClass, safeHref, shortAddress, timeAgo } from '../lib/format';
+import {
+  dueAlerts, readMode, readWalletSettings, readWalletSnipes, saveMode, saveWalletSettings, saveWalletSnipes, validSpend,
+  type SniperMode, type WalletSettings, type WalletSnipe,
+} from '../lib/walletSnipes';
+import { useSwapWallets } from '../swap/useSwapWallets';
+import { toNumber } from '../swap/amount';
+import { formatCompactUsd, formatDollarPrice, formatDollars, formatNumber, formatPct, formatPrice, formatUsd, pnlClass, safeHref, shortAddress, timeAgo } from '../lib/format';
+import { WALLET_OPTIONS } from '../services/walletService';
 import { chainByKey, looksLikeAddress } from '../swap/chains';
+
+// Real buys and sells load the swap engine only when wallet mode is used.
+const QuickSwap = lazy(() => import('./swap/QuickSwap'));
 
 const FILTERS_KEY = 'arctos_sniper_filters_v2';
 const TRACKED_KEY = 'arctos_sniper_tracked';
@@ -128,9 +141,16 @@ function DeveloperLine({ token }: { token: FeedToken }) {
   );
 }
 
-function FeedCard({ token, filters, riskChecks, held, tracked, onSnipe, onTrack }: {
+/** What the main button of a token card does: a paper snipe, or a real buy in the wallet. */
+interface BuyAction {
+  label: string;
+  disabled?: boolean;
+  title?: string;
+}
+
+function FeedCard({ token, filters, riskChecks, held, tracked, onSnipe, onTrack, buy }: {
   token: FeedToken; filters: SniperFilters; riskChecks: boolean; held: boolean; tracked: boolean;
-  onSnipe: (t: SniperToken) => void; onTrack: (t: SniperToken) => void;
+  onSnipe: (t: SniperToken) => void; onTrack: (t: SniperToken) => void; buy: BuyAction;
 }) {
   const verdict = judge(token, filters, riskChecks);
   const link = safeHref(token.url);
@@ -144,6 +164,7 @@ function FeedCard({ token, filters, riskChecks, held, tracked, onSnipe, onTrack 
         <div className="min-w-0 flex-1">
           <div className="mb-1 flex flex-wrap items-center gap-2">
             <h3 className="max-w-[11rem] truncate text-lg font-semibold text-white">{token.symbol}</h3>
+            <CopyAddress value={token.address} label={`Copy ${token.symbol} contract address`} show />
             {token.launchpad && <Pill tone="violet">{token.launchpad}</Pill>}
             <RiskBadge security={token.score.checked ? token.security : 'loading'} />
             {verdict.ok && <Pill tone="green"><CheckCircle className="h-3 w-3" weight="fill" aria-hidden />Passes your filters</Pill>}
@@ -206,8 +227,8 @@ function FeedCard({ token, filters, riskChecks, held, tracked, onSnipe, onTrack 
       {!verdict.ok && <p className="mt-2 text-xs text-zinc-500">Not bought by the auto sniper: {verdict.reasons.slice(0, 3).join('; ')}.</p>}
 
       <div className="mt-3 flex gap-2">
-        <button onClick={() => onSnipe(token)} className={`btn h-10 flex-1 ${token.score.blocked ? 'btn-secondary' : 'btn-buy'}`}>
-          <Crosshair className="h-4 w-4" aria-hidden /> Paper snipe {formatUsd(filters.maxPositionUsd, 0)}
+        <button onClick={() => onSnipe(token)} disabled={buy.disabled} title={buy.title} className={`btn h-10 flex-1 ${token.score.blocked ? 'btn-secondary' : 'btn-buy'}`}>
+          <Crosshair className="h-4 w-4" aria-hidden /> {buy.label}
         </button>
         <SwapLink token={token} />
         {!tracked && <button onClick={() => onTrack(token)} className="btn btn-secondary btn-icon h-10 w-10" aria-label={`Track ${token.symbol}`}><Plus className="h-4 w-4" weight="bold" /></button>}
@@ -231,9 +252,9 @@ function SwapLink({ token }: { token: SniperToken }) {
 }
 
 /** A plain token card for search results and tracked tokens, which have no launchpad score. */
-function BasicCard({ token, security, filters, held, onSnipe, onTrack, tracked }: {
+function BasicCard({ token, security, filters, held, onSnipe, onTrack, tracked, buy, extra }: {
   token: SniperToken; security: Security | 'loading' | undefined; filters: SniperFilters; held: boolean;
-  onSnipe: (t: SniperToken) => void; onTrack?: (t: SniperToken) => void; tracked?: boolean;
+  onSnipe: (t: SniperToken) => void; onTrack?: (t: SniperToken) => void; tracked?: boolean; buy: BuyAction; extra?: ReactNode;
 }) {
   const sec = security && security !== 'loading' ? security : undefined;
   const verdict = passesFilters(token, sec, filters);
@@ -244,17 +265,20 @@ function BasicCard({ token, security, filters, held, onSnipe, onTrack, tracked }
         <div className="min-w-0">
           <div className="mb-1 flex flex-wrap items-center gap-2">
             <h3 className="max-w-[10rem] truncate text-lg font-semibold text-white">{token.symbol}</h3>
+            <CopyAddress value={token.address} label={`Copy ${token.symbol} contract address`} show />
             <Pill tone="zinc">{chainLabel(token.chain)}</Pill>
             <RiskBadge security={security ?? 'loading'} />
             {held && <Pill tone="blue">Holding</Pill>}
           </div>
-          <p className="truncate text-sm text-zinc-400">{token.name}</p>
+          <p className="truncate text-sm text-zinc-400">{token.name}{token.createdAt ? <span className="text-zinc-600">, pool {timeAgo(token.createdAt)}</span> : null}</p>
         </div>
         <div className="shrink-0 text-right">
           <p className="num font-semibold text-white">{formatPrice(token.priceUsd)}</p>
           <p className={`num text-sm ${pnlClass(token.change24h)}`}>{formatPct(token.change24h)} 24h</p>
+          {token.change1h != null && <p className={`num text-xs ${pnlClass(token.change1h)}`}>{formatPct(token.change1h)} 1h</p>}
         </div>
       </div>
+      {extra}
       <dl className="mb-3 grid grid-cols-2 gap-2 text-xs sm:grid-cols-4">
         {[
           ['Liquidity', formatCompactUsd(token.liquidityUsd)], ['Market cap', formatCompactUsd(token.marketCapUsd)],
@@ -270,7 +294,7 @@ function BasicCard({ token, security, filters, held, onSnipe, onTrack, tracked }
       )}
       {!verdict.ok && security !== 'loading' && security !== undefined && <p className="mb-3 text-xs text-zinc-500">Does not match your filters: {verdict.reasons.join('; ')}.</p>}
       <div className="flex gap-2">
-        <button onClick={() => onSnipe(token)} className="btn btn-buy h-10 flex-1"><Crosshair className="h-4 w-4" aria-hidden /> Paper snipe {formatUsd(filters.maxPositionUsd, 0)}</button>
+        <button onClick={() => onSnipe(token)} disabled={buy.disabled} title={buy.title} className="btn btn-buy h-10 flex-1"><Crosshair className="h-4 w-4" aria-hidden /> {buy.label}</button>
         <SwapLink token={token} />
         {onTrack && !tracked && <button onClick={() => onTrack(token)} className="btn btn-secondary btn-icon h-10 w-10" aria-label={`Track ${token.symbol}`}><Plus className="h-4 w-4" weight="bold" /></button>}
         {link && <a href={link} target="_blank" rel="noopener noreferrer" className="btn btn-secondary btn-icon h-10 w-10" aria-label={`Open ${token.symbol} chart`}><ArrowSquareOut className="h-4 w-4" /></a>}
@@ -279,7 +303,67 @@ function BasicCard({ token, security, filters, held, onSnipe, onTrack, tracked }
   );
 }
 
-type Tab = FeedView | 'tracked';
+/** Rank, boosts, description and links for a token from one of DexScreener's lists. */
+function DiscoverExtra({ token }: { token: DiscoverToken }) {
+  const links = (token.links ?? []).map((l) => ({ ...l, href: safeHref(l.url) })).filter((l) => l.href?.startsWith('https://')).slice(0, 4);
+  if (!token.rank && !token.boosts && !token.description && links.length === 0) return null;
+  return (
+    <div className="mb-3 space-y-1.5 text-xs">
+      <p className="flex flex-wrap items-center gap-2 text-zinc-400">
+        {token.rank != null && <span className="num rounded bg-white/[0.06] px-1.5 py-0.5 text-zinc-200">#{token.rank}</span>}
+        {token.boosts != null && token.boosts > 0 && <span className="inline-flex items-center gap-1 text-amber-300"><Fire className="h-3 w-3" weight="fill" aria-hidden />{formatNumber(token.boosts, 0)} boosts (paid promotion)</span>}
+        {links.map((l) => <a key={l.href} href={l.href} target="_blank" rel="noopener noreferrer nofollow" className="text-blue-300 hover:text-blue-200">{l.kind === 'twitter' ? 'X' : l.kind}</a>)}
+      </p>
+      {token.description && <p className="line-clamp-2 text-zinc-500">{token.description}</p>}
+    </div>
+  );
+}
+
+function MetasGrid({ metas, selected, onPick }: { metas: Meta[]; selected: string | null; onPick: (slug: string) => void }) {
+  return (
+    <div className="grid grid-cols-2 gap-2 sm:grid-cols-3">
+      {metas.map((m) => (
+        <button key={m.slug} type="button" onClick={() => onPick(m.slug)} aria-pressed={selected === m.slug}
+          className={`rounded-xl border p-3 text-left transition ${selected === m.slug ? 'border-blue-300/50 bg-blue-400/10' : 'border-white/[0.07] bg-white/[0.03] hover:border-white/20'}`}>
+          <p className="truncate text-sm font-semibold text-white">{m.icon ? `${m.icon} ` : ''}{m.name}</p>
+          <p className="num mt-1 text-xs text-zinc-300">{formatCompactUsd(m.marketCap)} <span className={pnlClass(m.change24h)}>{formatPct(m.change24h, 1)}</span></p>
+          <p className="num text-[11px] text-zinc-500">1h <span className={pnlClass(m.change1h)}>{formatPct(m.change1h, 1)}</span>, vol {formatCompactUsd(m.volume)}, {m.tokenCount ?? 0} tokens</p>
+        </button>
+      ))}
+    </div>
+  );
+}
+
+function WalletSnipeRow({ snipe, price, alerts, onSell, onForget }: {
+  snipe: WalletSnipe; price: number | null; alerts: string[]; onSell: (fraction: number) => void; onForget: () => void;
+}) {
+  const chain = chainByKey(snipe.chain);
+  const pnlPct = price != null ? (price / snipe.entryPriceUsd - 1) * 100 : null;
+  return (
+    <li className="panel-inset p-3">
+      <div className="flex items-start justify-between gap-3">
+        <div className="min-w-0">
+          <p className="flex items-center gap-1 font-semibold text-white">{snipe.symbol}<CopyAddress value={snipe.address} label={`Copy ${snipe.symbol} contract address`} /><span className="text-xs font-normal text-zinc-500">{chain?.name ?? snipe.chain}</span></p>
+          <p className="text-xs text-zinc-500">Bought with {snipe.spent} at {formatPrice(snipe.entryPriceUsd)}, {timeAgo(snipe.at)}{snipe.link && <> , <a href={snipe.link} target="_blank" rel="noopener noreferrer" className="text-blue-300">transaction</a></>}</p>
+        </div>
+        <div className="shrink-0 text-right">
+          <p className="num text-sm text-white">{price == null ? 'No price' : formatUsd(snipe.qty * price)}</p>
+          <p className={`num text-xs ${pnlClass(pnlPct)}`}>{pnlPct == null ? '' : formatPct(pnlPct)}</p>
+        </div>
+      </div>
+      {alerts.length > 0 && <p className="mt-2 flex items-center gap-1.5 text-xs text-amber-200"><Bell className="h-3.5 w-3.5" aria-hidden />{alerts.join('. ')}</p>}
+      <div className="mt-2 flex flex-wrap gap-1.5">
+        <button type="button" onClick={() => onSell(0.5)} className="btn btn-secondary btn-sm">Sell 50%</button>
+        <button type="button" onClick={() => onSell(1)} className="btn btn-sell btn-sm">Sell all</button>
+        <button type="button" onClick={onForget} className="ml-auto text-[11px] text-zinc-500 hover:text-rose-300" title="Stop following this snipe here. Nothing is sold.">Forget</button>
+      </div>
+    </li>
+  );
+}
+
+type Tab = FeedView | 'tracked' | 'dex';
+type DexView = DiscoverList | 'metas' | 'live';
+const DEX_VIEWS: Array<[DexView, string]> = [['boosted', 'Top boosted'], ['profiles', 'New profiles'], ['takeovers', 'Takeovers'], ['metas', 'Metas'], ['live', 'Live DexScreener']];
 
 export function SniperPanel() {
   const paper = usePaper();
@@ -297,6 +381,27 @@ export function SniperPanel() {
   const requested = useRef(new Set<string>());
   const autoDone = useRef(new Set<string>(readJson<string[]>(AUTO_KEY, [])));
 
+  // Paper account or the user's own wallet.
+  const [mode, setModeState] = useState<SniperMode>(readMode);
+  const [walletSettings, setWalletSettings] = useState<WalletSettings>(readWalletSettings);
+  const [walletSnipes, setWalletSnipes] = useState<WalletSnipe[]>(readWalletSnipes);
+  const [quick, setQuick] = useState<QuickSwapRequest | null>(null);
+  const [evmMenu, setEvmMenu] = useState(false);
+  const entryPrice = useRef<number | null>(null);
+  const wallets = useSwapWallets();
+  const setMode = (m: SniperMode) => {
+    setModeState(m);
+    saveMode(m);
+    if (m === 'wallet') setAuto(false);
+  };
+  useEffect(() => { saveWalletSettings(walletSettings); }, [walletSettings]);
+  useEffect(() => { saveWalletSnipes(walletSnipes); }, [walletSnipes]);
+
+  // DexScreener's trending lists and metas.
+  const [dexView, setDexView] = useState<DexView>('boosted');
+  const [dexAllChains, setDexAllChains] = useState(false);
+  const [metaSlug, setMetaSlug] = useState<string | null>(null);
+
   const chainList = usePolling((s) => sniperService.chains(s), null);
   const service = usePolling((s) => statusService.get(s), null);
   const chains: ChainOption[] = chainList.data && chainList.data.length > 0 ? chainList.data : FALLBACK_CHAINS;
@@ -308,6 +413,22 @@ export function SniperPanel() {
   const trackedLive = usePolling((s) => sniperService.refresh(trackedIds, s), trackedIds.length ? 12_000 : null, [trackedIds.join(',')]);
 
   const tokens = useMemo(() => feed.data?.tokens ?? [], [feed.data]);
+
+  const dexList = tab === 'dex' && (dexView === 'boosted' || dexView === 'profiles' || dexView === 'takeovers') ? dexView : null;
+  const dexChain = dexAllChains ? 'all' : activeChain.key;
+  const discover = usePolling((s) => (dexList ? discoverService.list(dexList, dexChain, s) : Promise.resolve(null)), dexList ? 30_000 : null, [dexList, dexChain]);
+  const showMetas = tab === 'dex' && dexView === 'metas';
+  const metas = usePolling((s) => (showMetas ? discoverService.metas(s) : Promise.resolve(null)), showMetas ? 60_000 : null, [showMetas]);
+  const metaTokens = usePolling((s) => (showMetas && metaSlug ? discoverService.meta(metaSlug, s) : Promise.resolve(null)), showMetas && metaSlug ? 30_000 : null, [showMetas, metaSlug]);
+  const dexTokens: DiscoverToken[] = useMemo(
+    () => (dexList ? discover.data?.tokens ?? [] : showMetas && metaSlug ? metaTokens.data?.tokens ?? [] : []),
+    [dexList, discover.data, showMetas, metaSlug, metaTokens.data],
+  );
+
+  // Live prices for wallet snipes, and the exit plan's alerts for them.
+  const walletIds = useMemo(() => walletSnipes.map((w) => w.id), [walletSnipes]);
+  const walletLive = usePolling((s) => sniperService.refresh(walletIds, s), mode === 'wallet' && walletIds.length ? 15_000 : null, [walletIds.join(','), mode]);
+  const walletPrice = useCallback((id: string) => walletLive.data?.find((t) => t.id === id)?.priceUsd ?? null, [walletLive.data]);
   const trackedTokens = useMemo(() => {
     const fresh = new Map((trackedLive.data ?? []).map((t) => [t.id, t]));
     return tracked.map((t) => fresh.get(t.id) ?? t);
@@ -326,7 +447,7 @@ export function SniperPanel() {
 
   // Contract risk for search results and tracked tokens, a few at a time. A failed check is
   // remembered as "no risk data" instead of being retried on every render.
-  const plain = tab === 'tracked' ? [...results, ...trackedTokens] : results;
+  const plain = tab === 'tracked' ? [...results, ...trackedTokens] : tab === 'dex' ? [...results, ...dexTokens] : results;
   const plainKey = plain.map((t) => t.id).join(',');
   useEffect(() => {
     const todo = plain.filter((t) => !requested.current.has(t.id)).slice(0, 4);
@@ -344,8 +465,82 @@ export function SniperPanel() {
   const sniperPositions = paper.positions.filter((p) => p.source === 'sniper');
   const record = useMemo(() => snipeRecord(paper.account.fills), [paper.account.fills]);
 
+  const walletSell = useCallback((w: WalletSnipe, fraction: number) => {
+    entryPrice.current = null;
+    setQuick({ side: 'sell', chainKey: w.chain, address: w.address, symbol: w.symbol, name: w.name, fraction, slippageBps: Math.round(walletSettings.slippagePct * 100) });
+  }, [walletSettings.slippagePct]);
+
+  const walletBuy = useCallback(async (token: SniperToken) => {
+    const chain = chainByKey(token.chain);
+    if (!chain || !looksLikeAddress(chain, token.address)) return toast.error(`Arctos cannot swap on ${chainLabel(token.chain)} yet. Use the paper account for it.`);
+    const spend = walletSettings.spend[token.chain] ?? '';
+    if (!validSpend(spend)) return toast.error(`Set how much ${chain.native.symbol} to spend per buy, above the list.`);
+    if (chain.vm === 'svm' && !wallets.svm) {
+      try {
+        await wallets.connectSolanaWallet();
+      } catch (e) {
+        return toast.error(e instanceof Error ? e.message : 'Phantom could not connect.');
+      }
+    }
+    if (chain.vm === 'evm' && !wallets.evm) {
+      setEvmMenu(true);
+      return toast.info('Connect an EVM wallet first, then press buy again.');
+    }
+    entryPrice.current = token.priceUsd > 0 ? token.priceUsd : null;
+    setQuick({ side: 'buy', chainKey: token.chain, address: token.address, symbol: token.symbol, name: token.name, spend, slippageBps: Math.round(walletSettings.slippagePct * 100) });
+  }, [walletSettings, wallets]);
+
+  const onQuickDone = useCallback((done: QuickSwapDone) => {
+    const r = done.request;
+    const chain = chainByKey(r.chainKey);
+    const id = `${r.chainKey}:${chain?.vm === 'evm' ? r.address.toLowerCase() : r.address}`;
+    if (r.side === 'buy') {
+      const qty = toNumber(done.quote.amountOut, done.req.to.decimals);
+      const entry = entryPrice.current ?? (done.quote.inUsd != null && qty > 0 ? done.quote.inUsd / qty : null);
+      if (!entry || !(qty > 0)) return;
+      setWalletSnipes((list) => {
+        const old = list.find((w) => w.id === id);
+        const next: WalletSnipe = old
+          ? { ...old, qty: old.qty + qty, entryPriceUsd: (old.entryPriceUsd * old.qty + entry * qty) / (old.qty + qty), alerted: [] }
+          : { id, chain: r.chainKey, address: r.address, symbol: r.symbol, name: r.name, entryPriceUsd: entry, qty, spent: `${r.spend} ${chain?.native.symbol ?? ''}`.trim(), at: Date.now(), link: done.result.link, alerted: [] };
+        return [next, ...list.filter((w) => w.id !== id)];
+      });
+    } else {
+      const share = r.fraction ?? 1;
+      setWalletSnipes((list) => (share >= 1 ? list.filter((w) => w.id !== id) : list.map((w) => (w.id === id ? { ...w, qty: w.qty * (1 - share) } : w))));
+    }
+  }, []);
+
+  // Exit plan alerts for wallet snipes: shown once each, with a one click sell.
+  useEffect(() => {
+    if (mode !== 'wallet') return;
+    const fired: Array<{ id: string; alert: string }> = [];
+    for (const w of walletSnipes) {
+      for (const a of dueAlerts(w, walletPrice(w.id), exit)) {
+        fired.push({ id: w.id, alert: a.id });
+        toast.warning(`${w.symbol}: ${a.text}`, {
+          description: `Your exit plan sells ${a.sellPct}% here. In wallet mode you confirm it yourself.`,
+          duration: 30_000,
+          action: { label: `Sell ${a.sellPct}%`, onClick: () => walletSell(w, a.sellPct / 100) },
+        });
+      }
+    }
+    if (fired.length) setWalletSnipes((list) => list.map((w) => ({ ...w, alerted: [...w.alerted, ...fired.filter((f) => f.id === w.id).map((f) => f.alert)] })));
+  }, [mode, walletSnipes, walletPrice, exit, walletSell]);
+
+  const buyFor = (t: SniperToken): BuyAction => {
+    if (mode === 'paper') return { label: `Paper snipe ${formatDollars(filters.maxPositionUsd, 0)}` };
+    const chain = chainByKey(t.chain);
+    if (!chain || !looksLikeAddress(chain, t.address)) return { label: 'Paper only on this chain', disabled: true, title: `Arctos cannot swap on ${chainLabel(t.chain)} yet.` };
+    return { label: `Buy ${walletSettings.spend[t.chain] ?? '?'} ${chain.native.symbol}` };
+  };
+
   const snipe = useCallback(
     (token: SniperToken, automatic = false) => {
+      if (mode === 'wallet' && !automatic) {
+        void walletBuy(token);
+        return;
+      }
       if (!token.priceUsd || token.priceUsd <= 0) return toast.error('No live price for this token.');
       const scored = token as Partial<FeedToken>;
       if (!paper.account.positions[token.id] && sniperPositions.length >= MAX_MANAGED_SNIPES) {
@@ -362,22 +557,22 @@ export function SniperPanel() {
         note: automatic ? 'Auto snipe' : 'Paper snipe',
       });
       if (!r.ok) return toast.error(r.error);
-      toast.success(`${automatic ? 'Auto sniped' : 'Sniped'} ${token.symbol}`, { description: `${formatUsd(spend)} of paper money at ${formatPrice(token.priceUsd)}.` });
+      toast.success(`${automatic ? 'Auto sniped' : 'Sniped'} ${token.symbol}`, { description: `${formatDollars(spend)} of paper money at ${formatDollarPrice(token.priceUsd)}.` });
     },
-    [filters, paper, sniperPositions.length],
+    [filters, paper, sniperPositions.length, mode, walletBuy],
   );
 
   const passing = useMemo(() => tokens.filter((t) => judge(t, filters, activeChain.riskChecks).ok), [tokens, filters, activeChain.riskChecks]);
 
   // Auto mode: buy the best rated token that passes every filter. Runs only while this page is open.
   useEffect(() => {
-    if (!auto || sniperPositions.length >= MAX_AUTO_POSITIONS) return;
+    if (!auto || mode !== 'paper' || sniperPositions.length >= MAX_AUTO_POSITIONS) return;
     const pick = passing.find((t) => !autoDone.current.has(t.id) && !paper.account.positions[t.id]);
     if (!pick) return;
     autoDone.current.add(pick.id);
     writeJson(AUTO_KEY, [...autoDone.current].slice(-300));
     snipe(pick, true);
-  }, [auto, passing, paper.account.positions, sniperPositions.length, snipe]);
+  }, [auto, mode, passing, paper.account.positions, sniperPositions.length, snipe]);
 
   const runSearch = async () => {
     const q = query.trim();
@@ -410,15 +605,67 @@ export function SniperPanel() {
   return (
     <div className="mx-auto max-w-[1500px] space-y-5 p-4 md:p-6">
       <PageHeader
-        icon={<Crosshair />} tone="amber" title="Sniper Engine" badge={<PaperBadge />}
-        subtitle="Launchpad tokens ranked by buy pressure, developer record and contract safety. Snipes are simulated at the live price."
+        icon={<Crosshair />} tone="amber" title="Sniper Engine"
+        badge={mode === 'paper' ? <PaperBadge /> : <Pill tone="green"><Wallet className="h-3 w-3" weight="fill" aria-hidden />Real wallet</Pill>}
+        subtitle={mode === 'paper'
+          ? 'Launchpad tokens ranked by buy pressure, developer record and contract safety. Snipes are simulated at the live price.'
+          : 'Launchpad tokens ranked by buy pressure, developer record and contract safety. Buys and sells are real swaps signed in your wallet.'}
         actions={
-          <button onClick={() => setAuto((a) => !a)} aria-pressed={auto} className={`btn h-10 px-5 ${auto ? 'btn-buy' : 'btn-secondary'}`}>
-            {auto ? <Pause className="h-4 w-4" weight="fill" aria-hidden /> : <Play className="h-4 w-4" weight="fill" aria-hidden />}
-            {auto ? 'Auto sniping on' : 'Start auto sniping'}
-          </button>
+          <>
+            <div className="seg flex" role="radiogroup" aria-label="Trade with">
+              <button type="button" role="radio" aria-checked={mode === 'paper'} onClick={() => setMode('paper')} className="seg-item px-3 py-1.5 text-xs font-medium">Paper account</button>
+              <button type="button" role="radio" aria-checked={mode === 'wallet'} onClick={() => setMode('wallet')} className="seg-item inline-flex items-center gap-1 px-3 py-1.5 text-xs font-medium"><Wallet className="h-3.5 w-3.5" aria-hidden />My wallet</button>
+            </div>
+            <button onClick={() => setAuto((a) => !a)} aria-pressed={auto} disabled={mode === 'wallet'} title={mode === 'wallet' ? 'Every real buy needs your signature, so auto sniping uses the paper account.' : undefined} className={`btn h-10 px-5 ${auto ? 'btn-buy' : 'btn-secondary'}`}>
+              {auto ? <Pause className="h-4 w-4" weight="fill" aria-hidden /> : <Play className="h-4 w-4" weight="fill" aria-hidden />}
+              {auto ? 'Auto sniping on' : 'Start auto sniping'}
+            </button>
+          </>
         }
       />
+      {mode === 'wallet' && (() => {
+        const chain = chainByKey(activeChain.key);
+        const wallet = chain ? (chain.vm === 'svm' ? wallets.svm : wallets.evm) : null;
+        const spend = walletSettings.spend[activeChain.key] ?? '';
+        return (
+          <Card className="space-y-3 p-4">
+            <div className="flex flex-wrap items-end gap-3">
+              <div className="min-w-[12rem] flex-1">
+                <p className="eyebrow mb-1.5">Wallet on {activeChain.name}</p>
+                {!chain ? (
+                  <p className="text-sm text-amber-200">Arctos cannot swap on {activeChain.name} yet. Pick Solana, BNB Chain, Ethereum, Base or another swap chain, or use the paper account here.</p>
+                ) : wallet ? (
+                  <p className="flex items-center gap-1.5 text-sm text-zinc-200"><Wallet className="h-4 w-4 text-emerald-300" aria-hidden /><span className="num">{shortAddress(wallet.address)}</span><CopyAddress value={wallet.address} label="Copy wallet address" /></p>
+                ) : chain.vm === 'svm' ? (
+                  <button type="button" onClick={() => void wallets.connectSolanaWallet().catch((e) => toast.error(e instanceof Error ? e.message : 'Phantom could not connect.'))} className="btn btn-primary btn-sm">Connect Phantom</button>
+                ) : (
+                  <div className="flex flex-wrap gap-1.5">
+                    {(evmMenu ? WALLET_OPTIONS : WALLET_OPTIONS.slice(0, 2)).map((w) => (
+                      <button key={w.id} type="button" onClick={() => void wallets.connectEvmWallet(w.id).then(() => setEvmMenu(false)).catch((e) => toast.error(e instanceof Error ? e.message : 'The wallet could not connect.'))} className="btn btn-secondary btn-sm">{w.name}</button>
+                    ))}
+                    {!evmMenu && <button type="button" onClick={() => setEvmMenu(true)} className="btn btn-ghost btn-sm">More</button>}
+                  </div>
+                )}
+              </div>
+              {chain && (
+                <label className="block w-40">
+                  <span className="eyebrow mb-1.5 block">Spend per buy</span>
+                  <span className="relative block">
+                    <input value={spend} inputMode="decimal" onChange={(e) => { const v = e.target.value.replace(',', '.').replace(/[^\d.]/g, '').slice(0, 20); setWalletSettings((s) => ({ ...s, spend: { ...s.spend, [activeChain.key]: v } })); }}
+                      className={`field num py-2 pr-14 ${spend && !validSpend(spend) ? 'border-rose-400/50' : ''}`} aria-label={`Amount of ${chain.native.symbol} to spend per buy`} />
+                    <span className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 text-xs text-zinc-400">{chain.native.symbol}</span>
+                  </span>
+                </label>
+              )}
+              <label className="block w-28">
+                <span className="eyebrow mb-1.5 block">Slippage %</span>
+                <input type="number" min={0.1} max={50} step={0.5} value={walletSettings.slippagePct} onChange={(e) => { const n = Number(e.target.value); if (Number.isFinite(n)) setWalletSettings((s) => ({ ...s, slippagePct: Math.min(50, Math.max(0.1, n)) })); }} className="field num py-2" aria-label="Slippage in percent" />
+              </label>
+            </div>
+            <p className="text-[11px] leading-relaxed text-zinc-500">Every buy and sell is a real swap through the best route (Jupiter, Relay, KyberSwap and others) and opens your wallet for approval, with the same checks as the Trading Terminal. Arctos never holds your funds or keys. Selling while you are away needs a signature, so in wallet mode your exit plan alerts you here when a target is hit and you sell with one click. New tokens are very risky: spend only what you can lose.</p>
+          </Card>
+        );
+      })()}
       {auto && (
         <p role="status" className="rounded-xl border border-emerald-400/25 bg-emerald-400/[0.07] px-3.5 py-2.5 text-xs text-emerald-200">
           Auto mode buys the best rated token that passes every filter on {activeChain.name}, up to {MAX_AUTO_POSITIONS} open positions. Buying only happens while this page is open. Each buy is then sold by your exit plan.
@@ -450,20 +697,40 @@ export function SniperPanel() {
 
       <div className="grid grid-cols-1 gap-5 lg:grid-cols-3">
         <div className="space-y-5">
+          {mode === 'wallet' && (
+            <Card className="p-5">
+              <h2 className="mb-3 flex items-center gap-2.5 font-semibold text-white"><IconTile tone="mint" size="sm"><Wallet /></IconTile>Wallet snipes</h2>
+              {walletSnipes.length === 0 ? (
+                <p className="text-xs text-zinc-500">Tokens you buy here with your wallet show up with their live profit and loss, your exit plan alerts and one click sells.</p>
+              ) : (
+                <ul className="space-y-2.5">
+                  {walletSnipes.map((w) => {
+                    const price = walletPrice(w.id);
+                    const gain = price != null ? (price / w.entryPriceUsd - 1) * 100 : null;
+                    const hits = gain == null ? [] : [
+                      ...exit.takeProfits.map((tp, i) => (tp.enabled && gain >= tp.gainPct ? `Take profit ${i + 1} reached` : '')),
+                      exit.stopLossPct > 0 && gain <= -exit.stopLossPct ? 'Stop loss reached' : '',
+                    ].filter(Boolean);
+                    return <WalletSnipeRow key={w.id} snipe={w} price={price} alerts={hits} onSell={(f) => walletSell(w, f)} onForget={() => setWalletSnipes((list) => list.filter((x) => x.id !== w.id))} />;
+                  })}
+                </ul>
+              )}
+            </Card>
+          )}
           <Card className="p-5">
-            <h2 className="mb-1 flex items-center gap-2.5 font-semibold text-white"><IconTile tone="mint" size="sm"><Trophy /></IconTile>Measured results</h2>
+            <h2 className="mb-1 flex items-center gap-2.5 font-semibold text-white"><IconTile tone="mint" size="sm"><Trophy /></IconTile>{mode === 'wallet' ? 'Paper results' : 'Measured results'}</h2>
             <p className="mb-4 text-[11px] leading-relaxed text-zinc-500">The sniper's real record from paper snipes that were sold out completely. A snipe sold in steps counts once. No filter can guarantee a win rate, so judge it on these numbers.</p>
             <dl className="grid grid-cols-2 gap-2 text-sm">
               <div className="panel-inset p-3"><dt className="eyebrow text-[10px]">Win rate</dt><dd className="num text-xl font-semibold text-white">{record.winRatePct == null ? 'No data' : `${record.winRatePct.toFixed(0)}%`}</dd></div>
               <div className="panel-inset p-3"><dt className="eyebrow text-[10px]">Closed snipes</dt><dd className="num text-xl font-semibold text-white">{record.closed}{record.closed > 0 && <span className="text-xs text-zinc-500"> ({record.wins} won)</span>}</dd></div>
-              <div className="panel-inset p-3"><dt className="eyebrow text-[10px]">Realised profit</dt><dd className={`num text-xl font-semibold ${record.closed ? pnlClass(record.realizedUsd) : 'text-white'}`}>{formatUsd(record.realizedUsd)}</dd></div>
+              <div className="panel-inset p-3"><dt className="eyebrow text-[10px]">Realised profit</dt><dd className={`num text-xl font-semibold ${record.closed ? pnlClass(record.realizedUsd) : 'text-white'}`}>{formatDollars(record.realizedUsd)}</dd></div>
               <div className="panel-inset p-3"><dt className="eyebrow text-[10px]">Open snipes</dt><dd className="num text-xl font-semibold text-white">{sniperPositions.length}</dd></div>
             </dl>
             <dl className="mt-3 space-y-1.5 text-xs">
               {[
                 ['Tokens in this feed', String(tokens.length)], ['Fully checked', String(feed.data?.checked ?? 0)],
                 ['Passing your filters', String(passing.length)], ['Developers on record', String(feed.data?.developersKnown ?? 0)],
-                ['Paper cash', formatUsd(paper.availableCash)],
+                ['Paper cash', formatDollars(paper.availableCash)],
               ].map(([k, v]) => <div key={k} className="flex justify-between"><dt className="text-zinc-500">{k}</dt><dd className="num font-medium text-zinc-200">{v}</dd></div>)}
             </dl>
           </Card>
@@ -510,8 +777,8 @@ export function SniperPanel() {
         <Card className="p-5 lg:col-span-2">
           <div className="mb-4 flex flex-wrap items-center gap-3">
             <div role="tablist" aria-label="Token lists" className="seg">
-              {([['new', 'Just launched'], ['active', 'Most active'], ['tracked', `Tracked (${tracked.length})`]] as const).map(([id, label]) => (
-                <button key={id} role="tab" aria-selected={tab === id} onClick={() => setTab(id)} className="seg-item">{label}</button>
+              {([['new', 'Just launched'], ['active', 'Most active'], ['dex', 'DexScreener'], ['tracked', `Tracked (${tracked.length})`]] as const).map(([id, label]) => (
+                <button key={id} role="tab" aria-selected={tab === id} onClick={() => setTab(id)} className="seg-item inline-flex items-center gap-1">{id === 'dex' && <Fire className="h-3.5 w-3.5 text-amber-300" weight="fill" aria-hidden />}{label}</button>
               ))}
             </div>
             <form onSubmit={(e) => { e.preventDefault(); void runSearch(); }} className="flex min-w-[220px] flex-1 gap-2">
@@ -528,19 +795,58 @@ export function SniperPanel() {
             <div className="mb-5 rounded-xl border border-blue-300/20 bg-blue-400/[0.05] p-3">
               <div className="mb-2 flex items-center justify-between"><p className="text-sm font-medium text-blue-100">Search results</p><button onClick={() => setResults([])} aria-label="Close results" className="text-zinc-400 hover:text-white"><X className="h-4 w-4" /></button></div>
               <div className="space-y-3">
-                {results.map((t) => <BasicCard key={t.id} token={t} security={security[t.id]} filters={filters} held={Boolean(paper.account.positions[t.id])} onSnipe={snipe} onTrack={track} tracked={tracked.some((x) => x.id === t.id)} />)}
+                {results.map((t) => <BasicCard key={t.id} token={t} security={security[t.id]} filters={filters} held={Boolean(paper.account.positions[t.id])} onSnipe={snipe} onTrack={track} tracked={tracked.some((x) => x.id === t.id)} buy={buyFor(t)} />)}
               </div>
             </div>
           )}
 
-          {tab === 'tracked' ? (
+          {tab === 'dex' ? (
+            <div className="space-y-4">
+              <div className="flex flex-wrap items-center gap-2">
+                <div className="-mx-1 flex gap-1.5 overflow-x-auto px-1" role="tablist" aria-label="DexScreener lists">
+                  {DEX_VIEWS.map(([id, label]) => <button key={id} role="tab" aria-selected={dexView === id} onClick={() => setDexView(id)} className={chip(dexView === id)}>{label}</button>)}
+                </div>
+                {dexList && (
+                  <div className="seg ml-auto flex" role="radiogroup" aria-label="Chains shown">
+                    <button type="button" role="radio" aria-checked={!dexAllChains} onClick={() => setDexAllChains(false)} className="seg-item px-2.5 py-1 text-xs">{activeChain.name}</button>
+                    <button type="button" role="radio" aria-checked={dexAllChains} onClick={() => setDexAllChains(true)} className="seg-item px-2.5 py-1 text-xs">All chains</button>
+                  </div>
+                )}
+              </div>
+              {dexView === 'live' ? (
+                <div className="-mx-5 border-y border-white/[0.06]"><DexScreenerEmbed initialSlug={chainByKey(activeChain.key)?.dexscreener ?? activeChain.key} hint="To snipe a token you find here, search for it above by name or contract address." /></div>
+              ) : dexView === 'metas' ? (
+                <>
+                  <p className="text-xs text-zinc-500">Metas are the narratives traders are piling into right now, with their total market cap and how it moved. Pick one to see its biggest tokens.</p>
+                  {metas.loading && !metas.data ? <Loading label="Loading DexScreener metas" /> : metas.error && !metas.data ? <ErrorNotice message={metas.error} onRetry={metas.refresh} /> : <MetasGrid metas={metas.data?.metas ?? []} selected={metaSlug} onPick={(slug) => setMetaSlug((s) => (s === slug ? null : slug))} />}
+                  {metaSlug && (metaTokens.loading && !metaTokens.data ? <Loading label="Loading the meta's tokens" />
+                    : metaTokens.error && !metaTokens.data ? <ErrorNotice message={metaTokens.error} onRetry={metaTokens.refresh} />
+                    : (
+                      <div className="space-y-3">
+                        <p className="eyebrow">Biggest tokens in {metaTokens.data?.meta.name ?? 'this meta'}</p>
+                        {dexTokens.length === 0 && <p className="text-sm text-zinc-500">None of this meta's tokens are on a chain the sniper covers.</p>}
+                        {dexTokens.map((t) => <BasicCard key={t.id} token={t} security={security[t.id]} filters={filters} held={Boolean(paper.account.positions[t.id])} onSnipe={snipe} onTrack={track} tracked={tracked.some((x) => x.id === t.id)} buy={buyFor(t)} />)}
+                      </div>
+                    ))}
+                </>
+              ) : discover.loading && !discover.data ? <Loading label="Loading from DexScreener" />
+              : discover.error && !discover.data ? <ErrorNotice message={discover.error} onRetry={discover.refresh} />
+              : dexTokens.length === 0 ? <Empty title={`Nothing on this list for ${dexAllChains ? 'the covered chains' : activeChain.name} right now`}>Try All chains, or another list.</Empty>
+              : (
+                <div className="space-y-3">
+                  <p className="text-xs text-zinc-500">{dexView === 'boosted' ? 'Tokens with the most DexScreener boosts. Boosts are paid promotion, so judge them on liquidity, buyers and the risk check.' : dexView === 'profiles' ? 'Tokens whose teams just published a DexScreener profile, usually brand new.' : 'Community takeovers: tokens whose holders took over after the team left.'}</p>
+                  {dexTokens.map((t) => <BasicCard key={t.id} token={t} security={security[t.id]} filters={filters} held={Boolean(paper.account.positions[t.id])} onSnipe={snipe} onTrack={track} tracked={tracked.some((x) => x.id === t.id)} buy={buyFor(t)} extra={<DiscoverExtra token={t} />} />)}
+                </div>
+              )}
+            </div>
+          ) : tab === 'tracked' ? (
             trackedTokens.length === 0 ? (
               <Empty title="You are not tracking any tokens">Press the plus button on any token to follow its live price here.</Empty>
             ) : (
               <div className="space-y-3">
                 {trackedTokens.map((t) => (
                   <div key={t.id} className="relative">
-                    <BasicCard token={t} security={security[t.id]} filters={filters} held={Boolean(paper.account.positions[t.id])} onSnipe={snipe} tracked />
+                    <BasicCard token={t} security={security[t.id]} filters={filters} held={Boolean(paper.account.positions[t.id])} onSnipe={snipe} tracked buy={buyFor(t)} />
                     <button onClick={() => setTracked((prev) => prev.filter((x) => x.id !== t.id))} className="absolute right-3 top-3 text-[11px] text-zinc-500 hover:text-rose-300">Stop tracking</button>
                   </div>
                 ))}
@@ -554,7 +860,7 @@ export function SniperPanel() {
               {feed.error && <div className="mb-3"><ErrorNotice message={`Showing the last list we received. ${feed.error}`} onRetry={feed.refresh} /></div>}
               <div className="space-y-3">
                 {tokens.map((t) => (
-                  <FeedCard key={t.id} token={t} filters={filters} riskChecks={activeChain.riskChecks} held={Boolean(paper.account.positions[t.id])} tracked={tracked.some((x) => x.id === t.id)} onSnipe={snipe} onTrack={track} />
+                  <FeedCard key={t.id} token={t} filters={filters} riskChecks={activeChain.riskChecks} held={Boolean(paper.account.positions[t.id])} tracked={tracked.some((x) => x.id === t.id)} onSnipe={snipe} onTrack={track} buy={buyFor(t)} />
                 ))}
               </div>
             </>
@@ -565,6 +871,11 @@ export function SniperPanel() {
           </p>
         </Card>
       </div>
+      {quick && (
+        <Suspense fallback={null}>
+          <QuickSwap request={quick} wallets={wallets} onClose={() => setQuick(null)} onDone={onQuickDone} />
+        </Suspense>
+      )}
     </div>
   );
 }

@@ -49,6 +49,13 @@ require('node:fs').mkdirSync(SC + '/shots', { recursive: true });
 
   await page.getByRole('button', { name: 'Trading Terminal' }).click();
   await check('terminal: opens on swap and bridge', async () => { await page.getByRole('tab', { name: 'Swap and bridge' }).waitFor({ timeout: 10000 }); await page.getByText('You pay').first().waitFor(); });
+  await check('terminal: search, chart, info and DexScreener views', async () => {
+    await page.getByPlaceholder(/Search any token/).waitFor({ timeout: 10000 });
+    for (const name of ['Chart', 'Info', 'DexScreener']) await page.getByRole('tab', { name, exact: true }).waitFor();
+    await page.getByRole('tab', { name: 'DexScreener', exact: true }).click();
+    await page.locator('iframe[title="DexScreener token lists"]').waitFor({ timeout: 5000 });
+    await page.getByRole('tab', { name: 'Chart', exact: true }).click();
+  });
   await page.getByRole('tab', { name: 'Practice' }).click();
   await check('terminal: candles chart canvas', async () => { await page.locator('canvas').first().waitFor({ timeout: 10000 }); });
   await check('terminal: order book rows', async () => { await page.getByRole('heading', { name: 'Order book' }).waitFor(); await page.waitForFunction(() => document.body.innerText.includes('spread'), null, { timeout: 8000 }); });
@@ -66,6 +73,24 @@ require('node:fs').mkdirSync(SC + '/shots', { recursive: true });
   await check('sniper: chain and launchpad pickers', async () => { for (const c of ['Solana', 'BNB Chain', 'Base', 'Avalanche', 'NEAR', 'Robinhood Chain']) await page.getByRole('tab', { name: c, exact: true }).waitFor({ timeout: 8000 }); await page.getByRole('tab', { name: 'BNB Chain', exact: true }).click(); await page.getByRole('tab', { name: 'Four.meme', exact: true }).waitFor({ timeout: 8000 }); await page.getByRole('tab', { name: 'Solana', exact: true }).click(); await page.getByRole('tab', { name: 'Pump.fun', exact: true }).click(); await page.getByText('PEPEX').first().waitFor({ timeout: 15000 }); await page.getByText('Measured results').waitFor(); });
   await check('sniper: paper snipe opens a position', async () => { await page.getByRole('button', { name: /Paper snipe/ }).first().click(); await page.getByText('Open snipes').first().waitFor({ timeout: 6000 }); });
   await check('sniper: search finds token', async () => { await page.getByLabel('Search tokens').fill('pepe'); await page.getByRole('button', { name: 'Search', exact: true }).click(); await page.getByText('Search results').waitFor({ timeout: 8000 }); });
+  await check('sniper: DexScreener boosted list and metas', async () => {
+    await page.getByRole('tab', { name: 'DexScreener' }).click();
+    await page.getByText('The most boosted cat').waitFor({ timeout: 15000 });
+    await page.getByText(/500 boosts/).waitFor();
+    await page.getByRole('tab', { name: 'Metas', exact: true }).click();
+    await page.getByRole('button', { name: /Cat/ }).first().click();
+    await page.getByText('Biggest tokens in Cat').waitFor({ timeout: 15000 });
+    await page.getByText('MEOW', { exact: true }).first().waitFor();
+    await page.getByRole('tab', { name: 'Just launched' }).click();
+  });
+  await check('sniper: switch to the real wallet and back', async () => {
+    await page.getByRole('radio', { name: /My wallet/ }).click();
+    await page.getByText('Wallet on Solana').waitFor({ timeout: 5000 });
+    await page.getByRole('button', { name: /Buy 0\.1 SOL/ }).first().waitFor({ timeout: 15000 });
+    await page.getByText('Wallet snipes').waitFor();
+    await page.getByRole('radio', { name: 'Paper account' }).click();
+    await page.getByRole('button', { name: /Paper snipe/ }).first().waitFor({ timeout: 5000 });
+  });
   await page.waitForTimeout(500); await shot('04-sniper');
 
   // Exit plan and the trade keeper. The market is moved through the fixtures.

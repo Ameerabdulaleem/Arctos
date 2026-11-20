@@ -14,6 +14,16 @@ export interface UserContext {
     positions: Array<{ symbol: string; qty: number; avgPrice: number }>;
   };
   wallet?: { address?: string; totalUsd?: number };
+  /** The wallets connected in this browser, with what they hold. Public data only. */
+  wallets?: WalletContext[];
+}
+
+export interface WalletContext {
+  address: string;
+  kind: 'evm' | 'solana';
+  totalUsd?: number;
+  hiddenTokens?: number;
+  holdings?: Array<{ symbol: string; name: string; chain: string; amount: number; valueUsd: number | null; change24h: number | null; address?: string }>;
 }
 
 export const aiService = {

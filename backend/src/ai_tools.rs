@@ -173,6 +173,9 @@ fn launchpad_catalog() -> String {
 /// The tool definitions sent with every chat request.
 pub fn definitions() -> Value {
     let chains: Vec<&str> = CHAINS.iter().map(|c| c.key).collect();
+    let chains_or_all: Vec<&str> = std::iter::once("all")
+        .chain(chains.iter().copied())
+        .collect();
     json!([
         {
             "name": "launchpad_feed",
@@ -290,11 +293,26 @@ pub fn definitions() -> Value {
         },
         {
             "name": "wallet_holdings",
-            "description": "What a public wallet address holds right now (EVM chains or Solana): coins and major tokens with their value. Only use an address the user gave you.",
+            "description": "What a public wallet address holds right now (EVM chains or Solana): coins and tokens with their value. Use one of the user's connected wallets, or an address the user gave you.",
             "input_schema": {
                 "type": "object",
                 "properties": { "address": { "type": "string" } },
                 "required": ["address"],
+                "additionalProperties": false
+            }
+        },
+        {
+            "name": "dexscreener_trends",
+            "description": "What is trending on DexScreener right now. view \"metas\": the trending narratives (themes such as AI, cats, celebrities) with their market cap, volume, token count and market cap change over 1h, 6h and 24h. view \"meta\" with a meta slug: that narrative's biggest tokens with live price, liquidity, volume, buys and sells. view \"boosted\": tokens with the most paid boosts, which DexScreener ranks as trending (paid promotion, not proof of quality). view \"profiles\": tokens whose teams just published a DexScreener profile, usually brand new. view \"takeovers\": community takeovers, where holders took over an abandoned token. Each token has chain, address, price, liquidity, market cap, volume, 5m, 1h and 24h change, buys and sells over 24h and pool age.",
+            "input_schema": {
+                "type": "object",
+                "properties": {
+                    "view": { "type": "string", "enum": ["metas", "meta", "boosted", "profiles", "takeovers"] },
+                    "meta": { "type": "string", "description": "Meta slug from view metas, for view meta." },
+                    "chain": { "type": "string", "enum": chains_or_all, "description": "Limit a token list to one chain. Default all." },
+                    "limit": { "type": "integer", "minimum": 1, "maximum": 25 }
+                },
+                "required": ["view"],
                 "additionalProperties": false
             }
         },
@@ -639,6 +657,32 @@ pub async fn run(
             // Logos and exact base unit amounts help the swap panel, not the assistant.
             Ok(clean(&holdings, &["logo", "rawAmount"]))
         }
+        "dexscreener_trends" => {
+            let view = text_field(input, "view").unwrap_or("metas");
+            let limit = input
+                .get("limit")
+                .and_then(|v| v.as_u64())
+                .map_or(12, |n| n as usize)
+                .clamp(1, 25);
+            let chain = text_field(input, "chain").filter(|c| *c != "all");
+            let mut data = match view {
+                "metas" => crate::discover::metas_json(state).await,
+                "meta" => {
+                    let slug = text_field(input, "meta")
+                        .ok_or("meta is required for view meta, take it from view metas")?;
+                    crate::discover::meta_json(state, &slug.to_ascii_lowercase()).await
+                }
+                list => crate::discover::list_json(state, list, chain).await,
+            }
+            .map_err(|e| e.to_string())?;
+            for key in ["metas", "tokens"] {
+                if let Some(items) = data.get_mut(key).and_then(Value::as_array_mut) {
+                    items.truncate(limit);
+                }
+            }
+            // Pictures and long links help the pages, not the assistant.
+            Ok(clean(&data, &["imageUrl", "url", "links", "pairAddress"]))
+        }
         other => Err(format!("there is no tool called {}", sanitize(other, 40))),
     }
 }
@@ -669,6 +713,7 @@ mod tests {
                 "news_search",
                 "stock_quotes",
                 "wallet_holdings",
+                "dexscreener_trends",
                 "contract_risk"
             ]
         );

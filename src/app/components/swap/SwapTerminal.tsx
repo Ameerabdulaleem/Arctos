@@ -15,7 +15,7 @@ import { isValidAddress, WALLET_OPTIONS, type WalletType } from '../../services/
 import { sniperService, type Security } from '../../services/sniperService';
 import { formatUsd, shortAddress } from '../../lib/format';
 import { Card } from '../ui/common';
-import { DexChart } from './DexChart';
+import { MarketPanel } from './MarketPanel';
 import { QuoteList } from './QuoteList';
 import { ReviewDialog } from './ReviewDialog';
 import { TokenButton, TokenSelect } from './TokenSelect';
@@ -432,21 +432,16 @@ export function SwapTerminal() {
 
   return (
     <div className="grid grid-cols-1 gap-4 xl:grid-cols-[minmax(0,1fr)_420px]">
-      <div className="order-2 min-w-0 space-y-3 xl:order-1">
-        <div className="flex items-center gap-2">
-          <span className="eyebrow">Chart</span>
-          <div className="seg flex" role="tablist" aria-label="Chart token">
-            {(['to', 'from'] as const).map((side) => {
-              const t = side === 'to' ? to : from;
-              return (
-                <button key={side} type="button" role="tab" aria-selected={chartToken === t} disabled={!t} onClick={() => setChartSide(side)} className="seg-item px-3 py-1 text-xs font-medium">
-                  {t?.symbol ?? '—'}
-                </button>
-              );
-            })}
-          </div>
-        </div>
-        <DexChart token={chartToken} />
+      <div className="order-2 min-w-0 xl:order-1">
+        <MarketPanel
+          token={chartToken} activeSide={chartToken} onSide={setChartSide}
+          sides={[{ side: 'to', token: to }, { side: 'from', token: from }]}
+          onPick={(chain, address) => {
+            const target = `#/trading?chain=${encodeURIComponent(chain.key)}&token=${encodeURIComponent(address)}`;
+            if (window.location.hash === target) void openDeepLink();
+            else window.location.hash = target;
+          }}
+        />
       </div>
 
       <div className="order-1 space-y-4 xl:order-2">

@@ -150,6 +150,38 @@ export const DEFAULT_FILTERS: SniperFilters = {
   maxPositionUsd: 250,
 };
 
+/** A token from one of DexScreener's lists, priced with live pool data. */
+export interface DiscoverToken extends SniperToken {
+  rank?: number;
+  boosts?: number | null;
+  description?: string | null;
+  links?: Array<{ kind: string; url: string }>;
+}
+
+export type DiscoverList = 'boosted' | 'profiles' | 'takeovers';
+
+export interface Meta {
+  slug: string;
+  name: string;
+  icon: string | null;
+  description: string | null;
+  marketCap: number | null;
+  liquidity: number | null;
+  volume: number | null;
+  tokenCount: number | null;
+  change1h: number | null;
+  change6h: number | null;
+  change24h: number | null;
+}
+
+export const discoverService = {
+  list: (list: DiscoverList, chain: string, signal?: AbortSignal) =>
+    apiGet<{ tokens: DiscoverToken[]; updatedAt: string }>(`/api/discover?list=${list}&chain=${encodeURIComponent(chain)}`, { signal, timeoutMs: 20_000, check: withLists('tokens') }),
+  metas: (signal?: AbortSignal) => apiGet<{ metas: Meta[] }>('/api/discover/metas', { signal, check: withLists('metas') }),
+  meta: (slug: string, signal?: AbortSignal) =>
+    apiGet<{ meta: Meta; tokens: SniperToken[] }>(`/api/discover/meta/${encodeURIComponent(slug)}`, { signal, timeoutMs: 20_000, check: withLists('tokens') }),
+};
+
 export const sniperService = {
   chains: (signal?: AbortSignal) => apiGet<ChainOption[]>('/api/sniper/chains', { signal, check: isList }),
   feed: (chain: SniperChain, launchpad: string, view: FeedView, signal?: AbortSignal) =>
