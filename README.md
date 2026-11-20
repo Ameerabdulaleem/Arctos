@@ -37,7 +37,7 @@ The web app asks `/api/status` which mode it is talking to and adapts, so nothin
 | --- | --- | --- |
 | Homepage | Prices, market cap, volume, dominance, Fear and Greed | Binance stream, CoinGecko, Alternative.me |
 | Dashboard | Market widgets, altseason index, top movers, headlines, whale feed, wallet balances | All of the above plus chain RPC |
-| Trading Terminal | Candles, order book, recent trades, live prices | Binance (public market data) |
+| Trading Terminal | Real spot swaps and bridges signed in your own wallet, with a live DexScreener chart. A Practice tab keeps paper trading on live candles and order books | Relay, Jupiter, KyberSwap, 0x, Sushi, Squid, DexScreener, Binance |
 | Sniper Engine | New liquidity pools on 5 chains, token search, contract risk checks | GeckoTerminal, DexScreener, GoPlus |
 | Whale Alerts | Large transfers on Ethereum, BNB Chain, Base, Arbitrum and Bitcoin | Chain RPC, Blockchair |
 | Fundamental News | Headlines scored by impact | 8 crypto RSS feeds |
@@ -104,6 +104,45 @@ Set `CRON_SECRET` in Vercel if you want the scheduled check to refuse callers th
 
 The paper account stays in your browser either way. The keeper only knows a hash of a random key your browser generates, the token, the size and the plan. Sales made while you were away are booked, and shown, the next time you open Arctos on the same browser. Snipes nobody has come back to for 30 days are dropped.
 
+## Swaps and bridges
+
+The Trading Terminal opens on **Swap and bridge**: spot swaps on one chain and bridges between chains, with your own wallet signing every step. There is no margin and no perpetual trading, on purpose. The token you are buying is charted on the left with DexScreener's live chart of its deepest pool.
+
+**Chains:** Solana, BNB Chain, Ethereum, Base, Arbitrum, Polygon, Optimism, Avalanche, Linea and Sonic.
+
+**Every route provider is asked at once, and the best output after costs wins:**
+
+| Provider | What it does | Needs | How it is called |
+| --- | --- | --- | --- |
+| Relay | Swaps and bridges across EVM chains and Solana, including BNB to SOL in about a second | Optional `RELAY_API_KEY` | From the browser, or through this site's proxy when the key is set |
+| Jupiter | Solana swaps (the main Solana aggregator), landed by Jupiter | Nothing | From the browser |
+| KyberSwap | Same chain EVM swaps | Nothing | From the browser |
+| Sushi | Same chain EVM swaps | Nothing | From the browser |
+| 0x | Same chain EVM swaps | `ZEROX_API_KEY` | Through this site's proxy, which adds the key |
+| Squid | Bridges between EVM chains | `SQUID_INTEGRATOR_ID` | Through this site's proxy, which adds the id |
+
+Providers that need no key are called straight from the browser, so each visitor uses their own rate limit and the site's server is not involved. Keys never reach the browser: the proxy at `/api/relay`, `/api/zerox` and `/api/squid` adds them on the server, forwards only the paths a swap needs, follows no redirects, and is rate limited and origin checked like the rest of the API.
+
+**Getting the keys (all free):**
+
+* **Relay:** create an app and key at dashboard.relay.link. Relay announced that from 2 October 2026 every quote needs a key, so set `RELAY_API_KEY` to keep Relay quotes reliable. Without it the browser asks Relay directly, which works only while Relay still answers keyless requests.
+* **0x:** sign up at dashboard.0x.org for a free key (about 5 requests a second, shared by everyone using the site) and set `ZEROX_API_KEY`.
+* **Squid:** request an integrator id through Squid's partnership form. Squid reviews each request. Set `SQUID_INTEGRATOR_ID` once you have it.
+
+The panel says which keyed providers are switched on. Nothing else changes.
+
+**What protects the user before the wallet opens:**
+
+* A firm quote is fetched for the connected wallet and shown on a review screen first: amount paid, the least that will arrive after slippage, the receiving address, the route, any approval, and any bridge fee in native coin.
+* Approvals are for the exact amount of the swap, never unlimited, and only to the contract the swap then calls. For 0x only its AllowanceHolder contract is accepted, never Settler, as 0x advises.
+* A plan that would send native coin on a token sale, send a different amount than you typed, run on another chain, call the token contract itself, or pay another address is refused.
+* Relay quotes must name your wallet as sender and the address you chose as recipient, and every step must come from your wallet. Jupiter transactions must list your wallet as a signer.
+* Tokens that are not on a verified list show a contract risk check (honeypot, taxes, flags) and need a tick before the swap button works. So does a price impact worse than 15 percent.
+* Slippage defaults to 0.5 percent and warns above 5 percent.
+* Arctos adds no fee and never holds funds.
+
+**Limits:** Squid deposit address routes are not run (the panel says so and you can pick another quote). Squid is used between EVM chains only; Relay covers Solana bridges. Recent swaps are remembered on your device only.
+
 ## The AI assistant
 
 The assistant answers from live data the service puts in its instructions (prices, the Fear and Greed index, headlines, whale transfers, and the user's paper account and trade book), and it can look up anything else in Arctos through tools:
@@ -165,12 +204,12 @@ Every query is sent as an unnamed statement, which the pooler's transaction mode
 
 Be clear about these before you rely on the app:
 
-* **Trading is paper trading.** Orders in the terminal and the sniper are simulated against the real order book and real prices, with a 0.1 percent fee, limit orders, take profit and stop loss. Sniper trades are sold by the exit plan described above. No real funds move and no wallet signature is ever requested. Real execution through a DEX aggregator needs a signing flow that deserves its own careful build and testing.
+* **Practice and sniper trades are paper trades.** Orders in the terminal's Practice tab and in the sniper are simulated against real order books and prices, with a 0.1 percent fee, limit orders, take profit and stop loss. Sniper trades are sold by the exit plan described above. Real funds only move in the Swap and bridge tab, after you review the swap and sign it in your own wallet.
 * **PRE-IPO cards are static.** Private companies have no free live price feed. The listings and valuations in `src/app/data/preIpoListings.ts` are maintained by hand and are labelled as possibly out of date. Update them when you refresh the cards.
 * **Solana whale alerts are not available yet.** A reliable Solana feed needs a dedicated RPC provider. The page says so.
 * **DeFi positions and NFTs are not read.** Wallet balances cover native coins and major tokens (stablecoins, wrapped ETH, BNB and BTC). Positions need an indexer.
 * **Whale direction labels** only appear for a short built in list of well known exchange wallets. Everything else is shown as a plain transfer.
-* **Accounts are local to the browser.** Email sign in stores a salted PBKDF2 hash on the device. There is no cloud account system yet. Wallet connection is read only.
+* **Accounts are local to the browser.** Email sign in stores a salted PBKDF2 hash on the device. There is no cloud account system yet. Connecting a wallet only reads its address; the swap panel is the one place that asks for signatures, after its review screen.
 
 ## Run it locally
 
@@ -221,6 +260,7 @@ Data service (`backend/.env.example`):
 | `CRON_SECRET` | Optional. When set, the keeper's scheduled check only answers callers that send it as a bearer token. |
 | `MAIL_*`, `PUBLIC_SITE_URL` | SMTP settings for the welcome email (optional). |
 | `COINGECKO_API_KEY`, `BLOCKCHAIR_API_KEY` | Optional keys that raise provider limits. A CoinGecko key also speeds up the sniper's token checks. |
+| `RELAY_API_KEY`, `ZEROX_API_KEY`, `SQUID_INTEGRATOR_ID` | Swap and bridge providers that need a key. See [Swaps and bridges](#swaps-and-bridges). They stay on the server. |
 | `*_RPC_URL`, `TRACKED_SYMBOLS`, `WHALE_MIN_USD`, `STOCK_WATCHLIST`, `NEWS_FEEDS` | Optional tuning. |
 
 Every provider base URL can also be overridden, which is how the fixtures work.
@@ -235,6 +275,7 @@ Every provider base URL can also be overridden, which is how the fixtures work.
   * `ANTHROPIC_API_KEY` switches on the AI assistant.
   * `DATABASE_URL` connects the database (see [The database](#the-database)): real waitlist positions, open snipes managed while you are away, and developer records that survive restarts. `MAIL_USERNAME`, `MAIL_PASSWORD` and `MAIL_FROM` send the welcome email.
   * `COINGECKO_API_KEY` and `BLOCKCHAIR_API_KEY` raise provider limits.
+  * `RELAY_API_KEY`, `ZEROX_API_KEY` and `SQUID_INTEGRATOR_ID` switch on the keyed swap and bridge providers.
 * After a deploy, open `/api/status` on your site. It lists every provider and whether it is reachable.
 
 The function runs in Frankfurt (`fra1` in `vercel.json`). Binance refuses requests from some regions, the United States among them, so keep the function in a region Binance serves. If the exchange is ever unreachable, prices fall back to the CoinGecko market list and the status page says so.
@@ -251,6 +292,8 @@ The function runs in Frankfurt (`fra1` in `vercel.json`). Binance refuses reques
 * The service enforces per client rate limits, a body size limit, timeouts, strict response headers, and an origin check for costly endpoints. Only the site itself, or origins on the allow list, may call them, and other sites get no cross origin permission.
 * TLS is pure Rust (rustls), so there is no system OpenSSL to keep patched.
 * A failed contract risk check is shown as "no risk data", never as "safe".
+* Swap transactions are checked before any wallet prompt: exact approvals only to the contract being called, no unexpected native coin, the right chain, the right sender and recipient. See [Swaps and bridges](#swaps-and-bridges). Swap provider keys never reach the browser.
+* The DexScreener chart is the only page allowed in a frame (`frame-src https://dexscreener.com`), and it runs sandboxed without access to the site.
 * Never commit `.env` files. Rotate any key that was ever exposed, including SMTP credentials from earlier versions of this project.
 
 ## Tests

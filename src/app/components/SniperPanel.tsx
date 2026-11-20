@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
-  ArrowSquareOut, ChartBar, CheckCircle, CircleNotch, Crosshair, FunnelSimple, GraduationCap, MagnifyingGlass, Pause, Play, Plus,
+  ArrowSquareOut, ArrowsLeftRight, ChartBar, CheckCircle, CircleNotch, Crosshair, FunnelSimple, GraduationCap, MagnifyingGlass, Pause, Play, Plus,
   Shield, ShieldCheck, ShieldWarning, Trophy, UserCircle, Warning, X,
 } from '@phosphor-icons/react';
 import { toast } from 'sonner';
@@ -17,6 +17,7 @@ import {
   type ChainOption, type FeedToken, type FeedView, type Security, type SniperFilters, type SniperToken,
 } from '../services/sniperService';
 import { formatCompactUsd, formatNumber, formatPct, formatPrice, formatUsd, pnlClass, safeHref, shortAddress, timeAgo } from '../lib/format';
+import { chainByKey, looksLikeAddress } from '../swap/chains';
 
 const FILTERS_KEY = 'arctos_sniper_filters_v2';
 const TRACKED_KEY = 'arctos_sniper_tracked';
@@ -208,11 +209,25 @@ function FeedCard({ token, filters, riskChecks, held, tracked, onSnipe, onTrack 
         <button onClick={() => onSnipe(token)} className={`btn h-10 flex-1 ${token.score.blocked ? 'btn-secondary' : 'btn-buy'}`}>
           <Crosshair className="h-4 w-4" aria-hidden /> Paper snipe {formatUsd(filters.maxPositionUsd, 0)}
         </button>
+        <SwapLink token={token} />
         {!tracked && <button onClick={() => onTrack(token)} className="btn btn-secondary btn-icon h-10 w-10" aria-label={`Track ${token.symbol}`}><Plus className="h-4 w-4" weight="bold" /></button>}
         {link && <a href={link} target="_blank" rel="noopener noreferrer" className="btn btn-secondary btn-icon h-10 w-10" aria-label={`Open ${token.symbol} on GeckoTerminal`}><ArrowSquareOut className="h-4 w-4" /></a>}
       </div>
     </article>
   );
+}
+
+/** A link that opens the token in the trading terminal's swap panel, for a real swap in the user's wallet. */
+function swapHref(token: SniperToken): string | null {
+  const chain = chainByKey(token.chain);
+  if (!chain || !looksLikeAddress(chain, token.address)) return null;
+  return `#/trading?chain=${encodeURIComponent(chain.key)}&token=${encodeURIComponent(token.address)}`;
+}
+
+function SwapLink({ token }: { token: SniperToken }) {
+  const href = swapHref(token);
+  if (!href) return null;
+  return <a href={href} className="btn btn-secondary h-10 px-3 text-sm" aria-label={`Swap ${token.symbol} for real in the trading terminal`}><ArrowsLeftRight className="h-4 w-4" aria-hidden /> Swap</a>;
 }
 
 /** A plain token card for search results and tracked tokens, which have no launchpad score. */
@@ -256,6 +271,7 @@ function BasicCard({ token, security, filters, held, onSnipe, onTrack, tracked }
       {!verdict.ok && security !== 'loading' && security !== undefined && <p className="mb-3 text-xs text-zinc-500">Does not match your filters: {verdict.reasons.join('; ')}.</p>}
       <div className="flex gap-2">
         <button onClick={() => onSnipe(token)} className="btn btn-buy h-10 flex-1"><Crosshair className="h-4 w-4" aria-hidden /> Paper snipe {formatUsd(filters.maxPositionUsd, 0)}</button>
+        <SwapLink token={token} />
         {onTrack && !tracked && <button onClick={() => onTrack(token)} className="btn btn-secondary btn-icon h-10 w-10" aria-label={`Track ${token.symbol}`}><Plus className="h-4 w-4" weight="bold" /></button>}
         {link && <a href={link} target="_blank" rel="noopener noreferrer" className="btn btn-secondary btn-icon h-10 w-10" aria-label={`Open ${token.symbol} chart`}><ArrowSquareOut className="h-4 w-4" /></a>}
       </div>

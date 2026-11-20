@@ -1,0 +1,445 @@
+{
+ "kyberRoute": {
+  "code": 0,
+  "message": "successfully",
+  "data": {
+   "routeSummary": {
+    "tokenIn": "0xeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
+    "amountIn": "10000000000000000",
+    "amountInUsd": "5.739340172039728",
+    "tokenOut": "0x55d398326f99059ff775485246999027b3197955",
+    "amountOut": "5741247686892992865",
+    "amountOutUsd": "5.707267218980309",
+    "gas": "287581",
+    "gasPrice": "50000000",
+    "gasUsd": "0.008252625930076784",
+    "l1FeeUsd": "0",
+    "extraFee": {
+     "feeAmount": "",
+     "chargeFeeBy": "",
+     "isInBps": false,
+     "feeReceiver": ""
+    },
+    "route": [
+     [
+      {
+       "pool": "0xd37aa0f0d66ad670279f6b89325c88bdff17d0265144762fb01f54fca9779944",
+       "tokenIn": "0xbb4cdb9cbd36b01bd1cbaebf2de08d9173bc095c",
+       "tokenOut": "0x55d398326f99059ff775485246999027b3197955",
+       "swapAmount": "10000000000000000",
+       "amountOut": "5741247686892992865",
+       "exchange": "pancake-infinity-cl",
+       "poolType": "pancake-infinity-cl",
+       "gas": 75000
+      }
+     ]
+    ],
+    "routerAddress": "0x6131B5fae19EA4f9D964eAc0408E4408b66337b5",
+    "routeID": "6b3c1d39psxBmJ16",
+    "checksum": "7732339878040984560",
+    "timestamp": 1795172048
+   },
+   "routerAddress": "0x6131B5fae19EA4f9D964eAc0408E4408b66337b5"
+  },
+  "requestId": "6b3c1d39-a6cc-4198-9d7a-2f5cfffab629"
+ },
+ "kyberBuild": {
+  "code": 0,
+  "message": "successfully",
+  "data": {
+   "amountIn": "10000000000000000",
+   "amountInUsd": "5.719453328325154",
+   "amountOut": "5741247686892992864",
+   "amountOutUsd": "5.7109299852644355",
+   "gas": "287581",
+   "gasUsd": "0.008252625930076784",
+   "additionalCostUsd": "0",
+   "additionalCostMessage": "",
+   "outputChange": {
+    "amount": "0",
+    "percent": 0,
+    "level": 0
+   },
+   "data": "0xe21fd0e900000000000000000000000000000000000000000000000000000000000000200000000000000000000000008f10b468b06c6fd214b65f87778827f7d113f996",
+   "routerAddress": "0x6131B5fae19EA4f9D964eAc0408E4408b66337b5",
+   "transactionValue": "10000000000000000"
+  },
+  "requestId": "a6aab878-5015-444b-a4af-5ec7ed0dcd05"
+ },
+ "sushiErc20": {
+  "status": "Success",
+  "tokens": [
+   {
+    "address": "0x55d398326f99059ff775485246999027b3197955",
+    "symbol": "USDT",
+    "name": "Tether USD",
+    "decimals": 18
+   },
+   {
+    "address": "0xeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
+    "symbol": "BNB",
+    "name": "BNB",
+    "decimals": 18
+   }
+  ],
+  "tokenFrom": 0,
+  "tokenTo": 1,
+  "swapPrice": 0.001746260610188824,
+  "priceImpact": -0.001441066273739633,
+  "amountIn": "1000000000000000000",
+  "assumedAmountOut": "1746260610188824",
+  "gasSpent": 28919,
+  "tx": {
+   "from": "0x1111111111111111111111111111111111111111",
+   "to": "0xac4c6e212a361c968f1725b4d055b47e63f80b75",
+   "gasPrice": 50000000,
+   "data": "0x5f3bd1c800000000000000000000000055d398326f99059ff775485246999027b31979550000000000000000000000000000000000000000000000000de0b6b3a7640000"
+  }
+ },
+ "jupiterQuote": {
+  "swapType": "aggregator",
+  "inAmount": "10000000",
+  "outAmount": "723774",
+  "otherAmountThreshold": "720155",
+  "swapMode": "ExactIn",
+  "slippageBps": 50,
+  "priceImpactPct": "-0.00006296025586320849",
+  "routePlan": [
+   {
+    "percent": 100,
+    "bps": 10000,
+    "usdValue": 0.7235107241879001,
+    "swapInfo": {
+     "ammKey": "8FnX3xo2yYw3EUE6w3nQA4GfXGS9wpK6oj3veJpbFzLo",
+     "label": "BisonFi",
+     "inputMint": "So11111111111111111111111111111111111111112",
+     "outputMint": "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v",
+     "inAmount": "10000000",
+     "outAmount": "723918"
+    }
+   }
+  ],
+  "feeMint": "So11111111111111111111111111111111111111112",
+  "feeBps": 2,
+  "platformFee": {
+   "feeBps": 2,
+   "feeMint": "So11111111111111111111111111111111111111112"
+  },
+  "signatureFeeLamports": 0,
+  "signatureFeePayer": null,
+  "prioritizationFeeLamports": 0,
+  "prioritizationFeePayer": null,
+  "rentFeeLamports": 0,
+  "rentFeePayer": null,
+  "transaction": null,
+  "gasless": false,
+  "jitOptimized": false,
+  "taker": null,
+  "inputMint": "So11111111111111111111111111111111111111112",
+  "outputMint": "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v",
+  "router": "metis",
+  "guaranteedPrice": false,
+  "requestId": "01a1f89b-480c-73ec-a987-e56c3de6d7c1",
+  "inUsdValue": 0.7235562794763873,
+  "outUsdValue": 0.7235107241879001,
+  "swapUsdValue": 0.7235107241879001,
+  "priceImpact": -0.006296025586320849,
+  "mode": "manual",
+  "totalTime": 168
+ },
+ "relayBridge": {
+  "requestId": "0x1795172068121bfe56e8fe4e4c5c2546fa9fa9458d407ec452747f93ba834fa6",
+  "steps": [
+   {
+    "id": "deposit",
+    "action": "Confirm transaction in your wallet",
+    "description": "Depositing funds to the relayer to execute the swap for SOL",
+    "kind": "transaction",
+    "items": [
+     {
+      "status": "incomplete",
+      "data": {
+       "from": "0x000000000000000000000000000000000000dEaD",
+       "to": "0x4cd00e387622c35bddb9b4c962c136462338bc31",
+       "data": "0x49290c1c000000000000000000000000000000000000000000000000000000000000dead",
+       "value": "50000000000000000",
+       "chainId": 56,
+       "gas": "32432",
+       "maxFeePerGas": "97741153",
+       "maxPriorityFeePerGas": "97741153"
+      },
+      "check": {
+       "endpoint": "/intents/status/v3?requestId=0x1795172068121bfe56e8fe4e4c5c2546fa9fa9458d407ec452747f93ba834fa6",
+       "method": "GET"
+      }
+     }
+    ],
+    "requestId": "0x1795172068121bfe56e8fe4e4c5c2546fa9fa9458d407ec452747f93ba834fa6",
+    "depositAddress": ""
+   }
+  ],
+  "fees": {
+   "gas": {
+    "currency": {
+     "chainId": 56,
+     "address": "0x0000000000000000000000000000000000000000",
+     "symbol": "BNB",
+     "name": "Binance Coin",
+     "decimals": 18,
+     "metadata": {
+      "logoURI": "https://assets.relay.link/icons/currencies/bnb.png",
+      "verified": true
+     }
+    },
+    "amount": "3169941074096",
+    "amountFormatted": "0.000003169941074096",
+    "amountUsd": "0.001817",
+    "minimumAmount": "3169941074096"
+   },
+   "relayer": {
+    "currency": {
+     "chainId": 56,
+     "address": "0x0000000000000000000000000000000000000000",
+     "symbol": "BNB",
+     "name": "Binance Coin",
+     "decimals": 18,
+     "metadata": {
+      "logoURI": "https://assets.relay.link/icons/currencies/bnb.png",
+      "verified": true
+     }
+    },
+    "amount": "135042163358912",
+    "amountFormatted": "0.000135042163358912",
+    "amountUsd": "0.077419",
+    "minimumAmount": "135042163358912"
+   },
+   "relayerGas": {
+    "currency": {
+     "chainId": 56,
+     "address": "0x0000000000000000000000000000000000000000",
+     "symbol": "BNB",
+     "name": "Binance Coin",
+     "decimals": 18,
+     "metadata": {
+      "logoURI": "https://assets.relay.link/icons/currencies/bnb.png",
+      "verified": true
+     }
+    },
+    "amount": "477527171164",
+    "amountFormatted": "0.000000477527171164",
+    "amountUsd": "0.000274",
+    "minimumAmount": "477527171164"
+   },
+   "relayerService": {
+    "currency": {
+     "chainId": 56,
+     "address": "0x0000000000000000000000000000000000000000",
+     "symbol": "BNB",
+     "name": "Binance Coin",
+     "decimals": 18,
+     "metadata": {
+      "logoURI": "https://assets.relay.link/icons/currencies/bnb.png",
+      "verified": true
+     }
+    },
+    "amount": "134564636187748",
+    "amountFormatted": "0.000134564636187748",
+    "amountUsd": "0.077145",
+    "minimumAmount": "134564636187748"
+   },
+   "app": {
+    "currency": {
+     "chainId": 56,
+     "address": "0x0000000000000000000000000000000000000000",
+     "symbol": "BNB",
+     "name": "Binance Coin",
+     "decimals": 18,
+     "metadata": {
+      "logoURI": "https://assets.relay.link/icons/currencies/bnb.png",
+      "verified": true
+     }
+    },
+    "amount": "0",
+    "amountFormatted": "0.0",
+    "amountUsd": "0",
+    "minimumAmount": "0"
+   },
+   "subsidized": {
+    "currency": {
+     "chainId": 56,
+     "address": "0x0000000000000000000000000000000000000000",
+     "symbol": "BNB",
+     "name": "Binance Coin",
+     "decimals": 18,
+     "metadata": {
+      "logoURI": "https://assets.relay.link/icons/currencies/bnb.png",
+      "verified": true
+     }
+    },
+    "amount": "0",
+    "amountFormatted": "0.0",
+    "amountUsd": "0",
+    "minimumAmount": "0"
+   }
+  },
+  "details": {
+   "operation": "swap",
+   "sender": "0x000000000000000000000000000000000000dEaD",
+   "recipient": "9WzDXwBbmkg8ZTbNMqUxvQRAyrZzDsGYdLVL9zYtAWWM",
+   "currencyIn": {
+    "currency": {
+     "chainId": 56,
+     "address": "0x0000000000000000000000000000000000000000",
+     "symbol": "BNB",
+     "name": "Binance Coin",
+     "decimals": 18,
+     "metadata": {
+      "logoURI": "https://assets.relay.link/icons/currencies/bnb.png",
+      "verified": true
+     }
+    },
+    "amount": "50000000000000000",
+    "amountFormatted": "0.05",
+    "amountUsd": "28.664626",
+    "minimumAmount": "50000000000000000"
+   },
+   "currencyOut": {
+    "currency": {
+     "chainId": 792703809,
+     "address": "11111111111111111111111111111111",
+     "symbol": "SOL",
+     "name": "Solana",
+     "decimals": 9,
+     "metadata": {
+      "logoURI": "https://upload.wikimedia.org/wikipedia/en/b/b9/Solana_logo.png",
+      "verified": true
+     }
+    },
+    "amount": "393472143",
+    "amountFormatted": "0.393472143",
+    "amountUsd": "28.493342",
+    "minimumAmount": "385602700"
+   },
+   "refundCurrency": {
+    "currency": {
+     "chainId": 56,
+     "address": "0x0000000000000000000000000000000000000000",
+     "symbol": "BNB",
+     "name": "Binance Coin",
+     "decimals": 18,
+     "metadata": {
+      "logoURI": "https://assets.relay.link/icons/currencies/bnb.png",
+      "verified": true
+     }
+    },
+    "amount": "50000000000000000",
+    "amountFormatted": "0.05",
+    "amountUsd": "28.664626",
+    "minimumAmount": "50000000000000000"
+   },
+   "totalImpact": {
+    "usd": "-0.171284",
+    "percent": "-0.60"
+   },
+   "swapImpact": {
+    "usd": "-0.093865",
+    "percent": "-0.33"
+   },
+   "expandedPriceImpact": {
+    "swap": {
+     "usd": "-0.133831"
+    },
+    "execution": {
+     "usd": "-0.020264"
+    },
+    "relay": {
+     "usd": "-0.017189"
+    },
+    "app": {
+     "usd": "0"
+    },
+    "sponsored": {
+     "usd": "0"
+    }
+   },
+   "rate": "7.8694428599999995",
+   "slippageTolerance": {
+    "total": "200",
+    "origin": {
+     "usd": "0.000000",
+     "value": "0",
+     "percent": "0.00"
+    },
+    "destination": {
+     "usd": "0.569867",
+     "value": "7869443",
+     "percent": "2.00"
+    }
+   },
+   "timeEstimate": 1,
+   "userBalance": "0",
+   "isFixedRate": false
+  },
+  "protocol": {
+   "v2": {
+    "orderId": "0xb17ab24a8ccce72419a3e3c9a1cdbe35e4b73a5360b21d95aef8cd3943692466",
+    "hubType": "onchain",
+    "orderData": {
+     "version": "v1",
+     "solverChainId": "base",
+     "solver": "0xf70da97812cb96acdf810712aa562db8dfa3dbef",
+     "salt": "0x7c6ee62345b9b7ce5780ffaf940cd963f85473a31f75c44085fab21d7c17595b",
+     "inputs": [
+      {
+       "payment": {
+        "chainId": "bnb",
+        "currency": "0x0000000000000000000000000000000000000000",
+        "amount": "50000000000000000",
+        "weight": "1"
+       },
+       "refunds": [
+        {
+         "chainId": "bnb",
+         "recipient": "0x000000000000000000000000000000000000dEaD",
+         "currency": "0x0000000000000000000000000000000000000000",
+         "minimumAmount": "0",
+         "deadline": 1795776868,
+         "extraData": "0x0000000000000000000000000729e2a4716d9f7dd17858d5d504426d228697f7"
+        },
+        {
+         "chainId": "solana",
+         "recipient": "9WzDXwBbmkg8ZTbNMqUxvQRAyrZzDsGYdLVL9zYtAWWM",
+         "currency": "11111111111111111111111111111111",
+         "minimumAmount": "0",
+         "deadline": 1795776868,
+         "extraData": "0x"
+        }
+       ]
+      }
+     ],
+     "output": {
+      "chainId": "solana",
+      "payments": [
+       {
+        "recipient": "9WzDXwBbmkg8ZTbNMqUxvQRAyrZzDsGYdLVL9zYtAWWM",
+        "currency": "11111111111111111111111111111111",
+        "minimumAmount": "385602700",
+        "expectedAmount": "393472143"
+       }
+      ],
+      "calls": [],
+      "deadline": 1795776868,
+      "extraData": "0x"
+     },
+     "fees": []
+    },
+    "paymentDetails": {
+     "chainId": "bnb",
+     "depository": "0x4cd00e387622c35bddb9b4c962c136462338bc31",
+     "currency": "0x0000000000000000000000000000000000000000",
+     "amount": "50000000000000000"
+    }
+   }
+  }
+ }
+}

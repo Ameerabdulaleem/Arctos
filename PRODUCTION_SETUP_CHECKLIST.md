@@ -20,6 +20,10 @@ Add these in Vercel, Project Settings, Environment Variables, then redeploy.
 - [ ] Check that the "Trade keeper" workflow is running under Actions on GitHub. It is what checks open snipes while you are away. Optionally set `CRON_SECRET` in Vercel and as a repository secret to lock the scheduled check.
 - [ ] `MAIL_USERNAME`, `MAIL_PASSWORD`, `MAIL_FROM` for the welcome email.
 - [ ] `COINGECKO_API_KEY` (a free demo key from CoinGecko). It protects the market data from rate limits and makes the sniper check tokens about three times faster.
+- [ ] `RELAY_API_KEY` (free, from dashboard.relay.link). Relay asks for a key on every quote from 2 October 2026, so this keeps Relay swaps and bridges, including Solana bridges, working.
+- [ ] `ZEROX_API_KEY` (free, from dashboard.0x.org) adds 0x to the swap comparison.
+- [ ] `SQUID_INTEGRATOR_ID` (request through Squid's partnership form) adds Squid bridges between EVM chains.
+- [ ] After a redeploy, open `/api/swap/providers` on the site. It shows which of the three are on, never the keys.
 
 ## 3. Optional: a standalone server
 

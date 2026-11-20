@@ -48,6 +48,8 @@ require('node:fs').mkdirSync(SC + '/shots', { recursive: true });
   await page.waitForTimeout(800); await shot('02-dashboard');
 
   await page.getByRole('button', { name: 'Trading Terminal' }).click();
+  await check('terminal: opens on swap and bridge', async () => { await page.getByRole('tab', { name: 'Swap and bridge' }).waitFor({ timeout: 10000 }); await page.getByText('You pay').first().waitFor(); });
+  await page.getByRole('tab', { name: 'Practice' }).click();
   await check('terminal: candles chart canvas', async () => { await page.locator('canvas').first().waitFor({ timeout: 10000 }); });
   await check('terminal: order book rows', async () => { await page.getByRole('heading', { name: 'Order book' }).waitFor(); await page.waitForFunction(() => document.body.innerText.includes('spread'), null, { timeout: 8000 }); });
   await check('terminal: paper market buy fills', async () => {

@@ -16,6 +16,9 @@ interface SolanaProvider {
   publicKey?: { toString(): string } | null;
   connect(options?: { onlyIfTrusted?: boolean }): Promise<{ publicKey: { toString(): string } }>;
   disconnect(): Promise<void>;
+  /** Signs without sending. Used for Jupiter, which lands the signed transaction itself. */
+  signTransaction?<T>(transaction: T): Promise<T>;
+  signAndSendTransaction?<T>(transaction: T, options?: unknown): Promise<{ signature: string; publicKey?: unknown }>;
   on?(event: string, listener: (...args: unknown[]) => void): void;
   off?(event: string, listener: (...args: unknown[]) => void): void;
 }
