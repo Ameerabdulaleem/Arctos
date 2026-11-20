@@ -4,7 +4,7 @@ import {
   MagnifyingGlass, RedditLogo, TelegramLogo, TiktokLogo, XLogo, YoutubeLogo,
 } from '@phosphor-icons/react';
 import { chainById, isNative, tokenUrl, type SwapChain } from '../../swap/chains';
-import { chainForSlug, PERIODS, searchDex, tokenPairs, type DexLink, type DexPair } from '../../swap/dexscreener';
+import { chainForSlug, ownPairsFirst, PERIODS, searchDex, tokenPairs, type DexLink, type DexPair } from '../../swap/dexscreener';
 import type { Token } from '../../swap/types';
 import { formatCompactUsd, formatNumber, formatPct, formatPrice, pnlClass, shortAddress, timeAgo } from '../../lib/format';
 import { Card } from '../ui/common';
@@ -24,7 +24,10 @@ function useTokenPairs(token: Token | null) {
     if (!chain || !address) return;
     let live = true;
     tokenPairs(chain.dexscreener, address)
-      .then((pairs) => live && setState({ key, pairs, error: pairs.length ? null : 'DexScreener has no pool for this token yet.' }))
+      .then((all) => {
+        const pairs = ownPairsFirst(all, address);
+        if (live) setState({ key, pairs, error: pairs.length ? null : 'DexScreener has no pool for this token yet.' });
+      })
       .catch((e) => live && setState({ key, pairs: [], error: e instanceof Error ? e.message : 'DexScreener could not be reached.' }));
     return () => {
       live = false;

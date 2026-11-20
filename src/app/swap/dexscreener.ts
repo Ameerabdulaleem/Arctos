@@ -170,3 +170,18 @@ export function searchDex(query: string): Promise<DexPair[]> {
     });
   });
 }
+
+/** The pools where the token is the base token come first: their price is the token's own. */
+export function ownPairsFirst(pairs: DexPair[], address: string): DexPair[] {
+  const a = address.toLowerCase();
+  return [...pairs.filter((p) => p.base.address.toLowerCase() === a), ...pairs.filter((p) => p.base.address.toLowerCase() !== a)];
+}
+
+/** A token's US dollar price from its pools, read from whichever side of the pool it is on. */
+export function usdPriceOf(pairs: DexPair[], address: string): number | null {
+  const a = address.toLowerCase();
+  const own = pairs.find((p) => p.base.address.toLowerCase() === a && p.priceUsd != null && p.priceUsd > 0);
+  if (own?.priceUsd) return own.priceUsd;
+  const quoted = pairs.find((p) => p.quote.address.toLowerCase() === a && p.priceUsd && p.priceNative);
+  return quoted?.priceUsd && quoted.priceNative ? quoted.priceUsd / quoted.priceNative : null;
+}

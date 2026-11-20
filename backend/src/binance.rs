@@ -523,6 +523,9 @@ pub struct KlinesQuery {
     pub(crate) symbol: String,
     pub(crate) interval: Option<String>,
     pub(crate) limit: Option<u32>,
+    /// Unix milliseconds of the last candle wanted, for prices in the past.
+    #[serde(rename = "endTime")]
+    pub(crate) end_time: Option<i64>,
 }
 
 pub async fn get_klines(
@@ -535,17 +538,32 @@ pub async fn get_klines(
         return Err(AppError::BadRequest("invalid symbol or interval".into()));
     }
     let limit = q.limit.unwrap_or(300).clamp(2, 1000);
-    let key = format!("{symbol}:{interval}:{limit}");
+    // Binance opened in 2017; anything earlier, or in the future, is refused.
+    let end_time = match q.end_time {
+        Some(t)
+            if !(1_500_000_000_000..=chrono::Utc::now().timestamp_millis() + 60_000)
+                .contains(&t) =>
+        {
+            return Err(AppError::BadRequest("endTime is out of range".into()));
+        }
+        // Rounded to the minute, so nearby requests share one cached answer.
+        Some(t) => Some(t - t % 60_000),
+        None => None,
+    };
+    let key = format!("{symbol}:{interval}:{limit}:{}", end_time.unwrap_or(0));
     let st = state.clone();
     let candles = state
         .binance
         .klines
         .get_or_fetch(&key, || async move {
-            let query = [
+            let mut query = vec![
                 ("symbol", symbol),
                 ("interval", interval),
                 ("limit", limit.to_string()),
             ];
+            if let Some(t) = end_time {
+                query.push(("endTime", t.to_string()));
+            }
             let raw = binance_get_text(&st, "/api/v3/klines", &query).await?;
             parse_klines(&raw).ok_or_else(|| UpstreamError::Parse("klines".into()))
         })

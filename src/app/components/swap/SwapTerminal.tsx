@@ -14,6 +14,8 @@ import { useWalletHoldings } from '../../swap/useWalletHoldings';
 import { isValidAddress, WALLET_OPTIONS, type WalletType } from '../../services/walletService';
 import { sniperService, type Security } from '../../services/sniperService';
 import { formatUsd, shortAddress } from '../../lib/format';
+import { currencySymbol, useCurrency } from '../../lib/currency';
+import { useTokenUsdPrice } from '../../swap/useTokenPrice';
 import { Card } from '../ui/common';
 import { MarketPanel } from './MarketPanel';
 import { QuoteList } from './QuoteList';
@@ -112,6 +114,12 @@ export function SwapTerminal() {
   const [to, setTo] = useState<Token | null>(USDC_SOL);
   const [amountText, setAmountText] = useState('');
   const [recipientText, setRecipientText] = useState('');
+  // Bridges pay out to the user's own wallet unless they choose another address.
+  const [recipientMode, setRecipientMode] = useState<'mine' | 'other'>('mine');
+  // The amount can be typed in the display currency instead of the token.
+  const [inFiat, setInFiat] = useState(false);
+  const [fiatText, setFiatText] = useState('');
+  const currency = useCurrency();
   const [slippageBps, setSlippageBps] = useState(() => Math.min(5000, readNumber(SLIPPAGE_KEY, 50)));
   const [showSettings, setShowSettings] = useState(false);
   const [picker, setPicker] = useState<'from' | 'to' | null>(null);
@@ -189,9 +197,26 @@ export function SwapTerminal() {
   const sender = senderWallet?.address ?? null;
   const otherWallet = toChain ? (toChain.vm === 'evm' ? wallets.evm : wallets.svm) : null;
 
-  const amount = parseAmount(amountText, from.decimals);
+  const fromPrice = useTokenUsdPrice(from);
+  const fiatToTokens = (text: string): string => {
+    const v = Number(text);
+    if (!(v > 0) || !fromPrice) return '';
+    const tokens = v / currency.rate / fromPrice;
+    return cleanAmountInput(tokens.toFixed(Math.min(from.decimals, 9)), from.decimals).replace(/(\.\d*?)0+$/, '$1').replace(/\.$/, '');
+  };
+  const typedAmount = inFiat ? fiatToTokens(fiatText) : amountText;
+  const amount = parseAmount(typedAmount, from.decimals);
+  const switchUnit = () => {
+    if (inFiat) {
+      setAmountText(typedAmount);
+    } else if (fromPrice && amount) {
+      const fiat = toNumber(amount, from.decimals) * fromPrice * currency.rate;
+      setFiatText(fiat >= 1 ? fiat.toFixed(2) : fiat.toPrecision(3));
+    }
+    setInFiat((v) => !v);
+  };
   const recipientInput = recipientText.trim();
-  const recipient = !crossChain ? null : recipientInput || (crossVm ? otherWallet?.address ?? null : null);
+  const recipient = !crossChain ? null : recipientMode === 'other' ? recipientInput || null : crossVm ? otherWallet?.address ?? null : null;
   const recipientValid = !crossChain || (recipient ? isValidAddress(recipient, toChain?.vm === 'svm' ? 'solana' : 'evm') : !crossVm);
 
   const req: QuoteRequest | null = useMemo(() => {
@@ -294,6 +319,7 @@ export function SwapTerminal() {
   const setMax = () => {
     if (bal == null) return;
     const v = bal - gasReserve(from);
+    setInFiat(false);
     setAmountText(v > 0n ? amountToInput(v, from.decimals) : '');
   };
 
@@ -392,6 +418,7 @@ export function SwapTerminal() {
       setHistory(next);
       saveHistory(next);
       setAmountText('');
+      setFiatText('');
       setBalanceTick((t) => t + 1);
       toast.success(r.delivered ? 'Swap complete' : 'Sent', { description: text });
     } catch (e) {
@@ -418,7 +445,8 @@ export function SwapTerminal() {
         ? { label: 'Connect Phantom', onClick: () => void connectFor('svm'), disabled: false }
         : { label: 'Connect an EVM wallet', onClick: () => setEvmMenu(true), disabled: false };
     }
-    if (crossVm && !recipient) return { label: `Enter the ${toChain?.name} address to receive`, disabled: true };
+    if (crossChain && recipientMode === 'other' && !recipientInput) return { label: `Enter the ${toChain?.name} address to receive`, disabled: true };
+    if (crossVm && !recipient) return { label: `Connect your ${toChain?.vm === 'svm' ? 'Phantom' : 'EVM'} wallet or enter an address`, onClick: () => (toChain?.vm === 'svm' ? void connectFor('svm') : setEvmMenu(true)), disabled: false };
     if (!recipientValid) return { label: 'That receiving address is not valid', disabled: true };
     if (short) return { label: `Not enough ${from.symbol}`, disabled: true };
     if (!quote) return { label: live.loading ? 'Finding the best route…' : 'No route found', disabled: true };
@@ -479,14 +507,36 @@ export function SwapTerminal() {
               )}
             </div>
             <div className="flex items-center gap-3">
-              <input
-                inputMode="decimal" autoComplete="off" spellCheck={false} placeholder="0.0" aria-label={`Amount of ${from.symbol} to pay`}
-                value={amountText} onChange={(e) => setAmountText(cleanAmountInput(e.target.value, from.decimals))}
-                className="num min-w-0 flex-1 bg-transparent text-2xl font-semibold text-white outline-none placeholder:text-zinc-600"
-              />
+              <div className="flex min-w-0 flex-1 items-center gap-1.5">
+                {inFiat && <span className="num text-2xl font-semibold text-zinc-400" aria-hidden>{currencySymbol(currency.code)}</span>}
+                {inFiat ? (
+                  <input
+                    inputMode="decimal" autoComplete="off" spellCheck={false} placeholder="0.00" aria-label={`Amount to pay in ${currency.code}`}
+                    value={fiatText} onChange={(e) => setFiatText(cleanAmountInput(e.target.value, 2))}
+                    className="num min-w-0 flex-1 bg-transparent text-2xl font-semibold text-white outline-none placeholder:text-zinc-600"
+                  />
+                ) : (
+                  <input
+                    inputMode="decimal" autoComplete="off" spellCheck={false} placeholder="0.0" aria-label={`Amount of ${from.symbol} to pay`}
+                    value={amountText} onChange={(e) => setAmountText(cleanAmountInput(e.target.value, from.decimals))}
+                    className="num min-w-0 flex-1 bg-transparent text-2xl font-semibold text-white outline-none placeholder:text-zinc-600"
+                  />
+                )}
+              </div>
               <TokenButton token={from} onClick={() => setPicker('from')} label="Choose the token to pay with" />
             </div>
-            {quote?.inUsd != null && <p className="num mt-1 text-xs text-zinc-500">≈ {formatUsd(quote.inUsd)}</p>}
+            <div className="mt-1 flex items-center justify-between gap-2 text-xs">
+              <span className="num text-zinc-500">
+                {inFiat
+                  ? fromPrice ? (amount ? `≈ ${formatAmount(amount, from.decimals, 6)} ${from.symbol}` : `1 ${from.symbol} = ${formatUsd(fromPrice)}`) : `Finding the ${from.symbol} price…`
+                  : quote?.inUsd != null ? `≈ ${formatUsd(quote.inUsd)}` : fromPrice && amount ? `≈ ${formatUsd(toNumber(amount, from.decimals) * fromPrice)}` : ''}
+              </span>
+              <button type="button" onClick={switchUnit} disabled={!inFiat && !fromPrice} aria-pressed={inFiat}
+                className="rounded-md bg-white/[0.07] px-1.5 py-0.5 text-[11px] font-semibold text-blue-200 hover:bg-white/[0.12] disabled:opacity-40"
+                title={inFiat ? `Type the amount in ${from.symbol}` : `Type the amount in ${currency.code}`}>
+                {inFiat ? `In ${from.symbol}` : `In ${currencySymbol(currency.code)} ${currency.code}`}
+              </button>
+            </div>
           </div>
 
           <div className="relative z-10 -my-2.5 flex justify-center">
@@ -506,17 +556,43 @@ export function SwapTerminal() {
             {outUsd != null && <p className="num mt-1 text-xs text-zinc-500">≈ {formatUsd(outUsd)}{quote?.impactPct != null && <span className={quote.impactPct < -3 ? 'text-amber-300' : ''}> ({quote.impactPct.toFixed(2)}%)</span>}</p>}
           </div>
 
-          {crossChain && (
-            <label className="mt-3 block">
-              <span className="label mb-1.5 block">Receiving address on {toChain?.name}</span>
-              <input
-                value={recipientText} onChange={(e) => setRecipientText(e.target.value.trim().slice(0, 64))} spellCheck={false} autoComplete="off"
-                placeholder={crossVm ? (otherWallet?.address ? `Your ${toChain?.vm === 'svm' ? 'Phantom' : 'EVM'} wallet ${shortAddress(otherWallet.address)}` : toChain?.vm === 'svm' ? 'Solana address' : '0x address') : `Same wallet ${sender ? shortAddress(sender) : ''}`}
-                className={`field num text-xs ${recipientInput && !recipientValid ? 'border-rose-400/50' : ''}`}
-              />
-              {recipientInput && recipientValid && <span className="mt-1 block text-[11px] text-amber-300">Double check this address. Funds sent to a wrong address cannot be recovered.</span>}
-            </label>
-          )}
+          {crossChain && toChain && (() => {
+            const mine = crossVm ? otherWallet?.address ?? null : sender;
+            const walletName = crossVm ? (toChain.vm === 'svm' ? 'Phantom' : 'EVM wallet') : 'wallet';
+            return (
+              <fieldset className="mt-3 space-y-1.5">
+                <legend className="label mb-1.5">Receive on {toChain.name} at</legend>
+                <label className={`flex cursor-pointer items-center gap-2.5 rounded-xl border px-3 py-2 text-sm transition ${recipientMode === 'mine' ? 'border-blue-300/50 bg-blue-400/10' : 'border-white/[0.07] hover:border-white/20'}`}>
+                  <input type="radio" name="recipient" checked={recipientMode === 'mine'} onChange={() => setRecipientMode('mine')} className="accent-blue-400" />
+                  {mine ? (
+                    <span className="min-w-0 flex-1">
+                      <span className="block text-white">{crossVm ? `My connected ${walletName}` : 'The same wallet'}</span>
+                      <span className="num block text-xs text-zinc-400">{shortAddress(mine, 6, 6)}</span>
+                    </span>
+                  ) : (
+                    <span className="flex min-w-0 flex-1 items-center justify-between gap-2">
+                      <span className="text-zinc-300">My {walletName} on {toChain.name}</span>
+                      <button type="button" onClick={() => (toChain.vm === 'svm' ? void connectFor('svm') : setEvmMenu(true))} className="btn btn-secondary btn-sm">Connect</button>
+                    </span>
+                  )}
+                </label>
+                <label className={`flex cursor-pointer items-center gap-2.5 rounded-xl border px-3 py-2 text-sm transition ${recipientMode === 'other' ? 'border-blue-300/50 bg-blue-400/10' : 'border-white/[0.07] hover:border-white/20'}`}>
+                  <input type="radio" name="recipient" checked={recipientMode === 'other'} onChange={() => setRecipientMode('other')} className="accent-blue-400" />
+                  <span className="text-zinc-300">Another address</span>
+                </label>
+                {recipientMode === 'other' && (
+                  <>
+                    <input
+                      value={recipientText} onChange={(e) => setRecipientText(e.target.value.trim().slice(0, 64))} spellCheck={false} autoComplete="off" autoFocus
+                      placeholder={toChain.vm === 'svm' ? 'Solana address' : '0x address'} aria-label={`Receiving address on ${toChain.name}`}
+                      className={`field num text-xs ${recipientInput && !recipientValid ? 'border-rose-400/50' : ''}`}
+                    />
+                    {recipientInput && recipientValid && <span className="block text-[11px] text-amber-300">Double check this address. Funds sent to a wrong address cannot be recovered.</span>}
+                  </>
+                )}
+              </fieldset>
+            );
+          })()}
 
           {quote && to && (
             <dl className="mt-3 space-y-1 px-0.5 text-xs">
