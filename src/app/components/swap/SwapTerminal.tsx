@@ -5,7 +5,8 @@ import { checkEvmPlan, getQuotes, loadProviderContext, outputUnitUsd, outputUsd,
 import { amountToInput, cleanAmountInput, formatAmount, parseAmount, toNumber } from '../../swap/amount';
 import { balanceOf, gasReserve } from '../../swap/balances';
 import { chainById, chainByKey, isNative, SOLANA_ID, type SwapChain } from '../../swap/chains';
-import { runPlan, walletMessage, type ExecResult, type ExecStep } from '../../swap/execute';
+import { QuoteExpiredError, runPlan, walletMessage, warmRelay, type ExecResult, type ExecStep } from '../../swap/execute';
+import { warmSolanaSigning } from '../../swap/solanaSign';
 import { lookupOnChain, looksLikeAddress, nativeToken, sameToken, searchTokens } from '../../swap/tokens';
 import type { Plan, ProviderContext, ProviderId, Quote, QuoteRequest, Token } from '../../swap/types';
 import { useSwapWallets } from '../../swap/useSwapWallets';
@@ -24,6 +25,12 @@ const SLIPPAGE_KEY = 'arctos_swap_slippage_bps';
 const HISTORY_KEY = 'arctos_swap_history';
 const SLIPPAGE_PRESETS = [10, 50, 100, 300];
 const REFRESH_MS = 20_000;
+// How long a firm quote stays good enough to sign. Jupiter's signed order lives about a minute
+// on chain, so it is kept much fresher than the EVM and bridge routes.
+const FIRM_MAX_AGE: Record<Plan['vm'], number> = { svm: 12_000, evm: 30_000, relay: 25_000 };
+// A fresh quote taken at the click may pay this much less than the one on screen (in basis
+// points) before the user is asked to look again.
+const PRICE_MOVE_BPS = 100n;
 const RISK_CHAINS = new Set(['solana', 'bsc', 'ethereum', 'base', 'arbitrum']);
 const STABLES = new Set(['USDC', 'USDT', 'DAI', 'USDE', 'FDUSD', 'BUSD', 'USDC.E', 'USD1', 'PYUSD']);
 
@@ -127,6 +134,12 @@ export function SwapTerminal() {
   const [history, setHistory] = useState<HistoryItem[]>(readHistory);
   const [balanceTick, setBalanceTick] = useState(0);
   const held = useWalletHoldings([wallets.evm?.address, wallets.svm?.address], balanceTick);
+  const runningRef = useRef(false);
+
+  // Find the Solana wallet's signer early, so the wallet window opens the moment Confirm is pressed.
+  useEffect(() => {
+    if (wallets.svm) warmSolanaSigning();
+  }, [wallets.svm]);
 
   useEffect(() => {
     warmConnections();
@@ -294,6 +307,14 @@ export function SwapTerminal() {
     }
   };
 
+  const firmPlan = (q: Quote, firmReq: QuoteRequest, signal?: AbortSignal): Promise<Plan> =>
+    providerById(q.provider)
+      .plan(q, firmReq, ctx as ProviderContext, signal ?? new AbortController().signal)
+      .then((p) => {
+        if (p.vm === 'evm') checkEvmPlan(p, firmReq);
+        return p;
+      });
+
   const openReview = async () => {
     if (!req || !quote || !ctx || !sender) return;
     const firmReq: QuoteRequest = { ...req, sender, recipient: crossChain ? recipient : null };
@@ -303,9 +324,10 @@ export function SwapTerminal() {
     setExecError(null);
     setResult(null);
     setPreparing(true);
+    if (fromChain.vm === 'svm') warmSolanaSigning();
+    if (quote.provider === 'relay') warmRelay(ctx, fromChain.vm === 'svm');
     try {
-      const p = await providerById(quote.provider).plan(quote, firmReq, ctx, new AbortController().signal);
-      if (p.vm === 'evm') checkEvmPlan(p, firmReq);
+      const p = await firmPlan(quote, firmReq);
       setPlan({ plan: p, at: Date.now(), req: firmReq });
     } catch (e) {
       setExecError(walletMessage(e));
@@ -314,15 +336,36 @@ export function SwapTerminal() {
     }
   };
 
+  // While the review is open and idle, keep the firm quote fresh in the background, so pressing
+  // Confirm opens the wallet at once with a price that has not expired.
+  const planAge = plan ? FIRM_MAX_AGE[plan.plan.vm] : 0;
+  useEffect(() => {
+    if (!reviewOpen || !plan || !quote || running || preparing || result) return;
+    const ctrl = new AbortController();
+    const timer = setTimeout(() => {
+      if (document.hidden || runningRef.current) return;
+      firmPlan(quote, plan.req, ctrl.signal)
+        .then((p) => !ctrl.signal.aborted && !runningRef.current && setPlan({ plan: p, at: Date.now(), req: plan.req }))
+        .catch(() => {
+          /* the next click fetches one anyway */
+        });
+    }, Math.max(1_000, planAge - 4_000 - (Date.now() - plan.at)));
+    return () => {
+      clearTimeout(timer);
+      ctrl.abort();
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [reviewOpen, plan, running, preparing, result]);
+
   const confirm = async () => {
-    if (!plan || !ctx) return;
+    if (!plan || !ctx || runningRef.current) return;
     let current = plan;
-    // A firm quote older than 30 seconds is fetched again so the price is still current.
-    if (Date.now() - plan.at > 30_000 && quote) {
+    // A firm quote past its useful age is fetched again right before signing.
+    if (Date.now() - plan.at > FIRM_MAX_AGE[plan.plan.vm] && quote) {
       setPreparing(true);
+      setExecError(null);
       try {
-        const p = await providerById(quote.provider).plan(quote, plan.req, ctx, new AbortController().signal);
-        if (p.vm === 'evm') checkEvmPlan(p, plan.req);
+        const p = await firmPlan(quote, plan.req);
         current = { plan: p, at: Date.now(), req: plan.req };
         setPlan(current);
       } catch (e) {
@@ -331,7 +374,14 @@ export function SwapTerminal() {
         return;
       }
       setPreparing(false);
+      const before = plan.plan.minOut;
+      const after = current.plan.minOut;
+      if (before != null && after != null && after * 10_000n < before * (10_000n - PRICE_MOVE_BPS)) {
+        setExecError('The price moved while this was open. Check the new amount, then confirm again.');
+        return;
+      }
     }
+    runningRef.current = true;
     setRunning(true);
     setExecError(null);
     try {
@@ -346,7 +396,14 @@ export function SwapTerminal() {
       toast.success(r.delivered ? 'Swap complete' : 'Sent', { description: text });
     } catch (e) {
       setExecError(e instanceof Error ? e.message : 'Something went wrong. Nothing was sent.');
+      if (e instanceof QuoteExpiredError && quote) {
+        // Have a fresh price ready, so the next press goes straight to the wallet.
+        firmPlan(quote, current.req)
+          .then((p) => setPlan({ plan: p, at: Date.now(), req: current.req }))
+          .catch(() => setPlan({ ...current, at: 0 }));
+      }
     } finally {
+      runningRef.current = false;
       setRunning(false);
     }
   };

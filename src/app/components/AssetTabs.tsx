@@ -5,7 +5,7 @@ import { portfolioService, type Holding, type Nft, type PortfolioResponse } from
 import { usePolling } from '../hooks/usePolling';
 import { chainByKey, isNative } from '../swap/chains';
 import type { MarkedPosition } from '../lib/paperTrading';
-import { formatNumber, formatPct, formatPrice, formatUsd, pnlClass, sparklinePath } from '../lib/format';
+import { formatDollarPrice, formatDollars, formatNumber, formatPct, formatPrice, formatUsd, pnlClass, sparklinePath } from '../lib/format';
 import { Empty, ErrorNotice, Loading } from './ui/common';
 
 type Tab = 'wallet' | 'nfts' | 'market' | 'paper';
@@ -182,11 +182,11 @@ export function AssetTabs({ wallet, coins, paperPositions, onOpenTerminal }: Pro
               <li key={p.key} className="flex items-center justify-between gap-4 py-3">
                 <div>
                   <p className="text-white font-medium">{p.label}</p>
-                  <p className="text-zinc-500 text-sm num">{formatNumber(p.qty, 6)} {p.symbol} at {formatPrice(p.avgPrice)}</p>
+                  <p className="text-zinc-500 text-sm num">{formatNumber(p.qty, 6)} {p.symbol} at {formatDollarPrice(p.avgPrice)}</p>
                 </div>
                 <div className="text-right">
-                  <p className="text-white font-semibold num">{formatUsd(p.value)}</p>
-                  <p className={`text-xs num ${pnlClass(p.unrealizedPnl)}`}>{p.unrealizedPnl == null ? 'Waiting for price' : `${formatUsd(p.unrealizedPnl)} (${formatPct(p.unrealizedPct)})`}</p>
+                  <p className="text-white font-semibold num">{formatDollars(p.value)}</p>
+                  <p className={`text-xs num ${pnlClass(p.unrealizedPnl)}`}>{p.unrealizedPnl == null ? 'Waiting for price' : `${formatDollars(p.unrealizedPnl)} (${formatPct(p.unrealizedPct)})`}</p>
                 </div>
               </li>
             ))}

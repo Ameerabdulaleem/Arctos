@@ -11,7 +11,7 @@ import { marketService } from '../services/marketService';
 import { newsService } from '../services/newsService';
 import { portfolioService } from '../services/portfolioService';
 import { errorMessage } from '../services/api';
-import { formatPct, formatPrice, formatUsd, pnlClass } from '../lib/format';
+import { formatDollars, formatPct, formatPrice, formatUsd, pnlClass } from '../lib/format';
 
 interface Message {
   id: string;
@@ -158,7 +158,7 @@ export function AIChat() {
           <section>
             <p className="text-zinc-400 text-[11px] font-semibold uppercase tracking-widest mb-2">Your data</p>
             <ul className="space-y-1 text-xs">
-              <li className="flex justify-between"><span className="text-zinc-500">Paper equity</span><span className="text-zinc-200 num">{formatUsd(paper.equity)}</span></li>
+              <li className="flex justify-between"><span className="text-zinc-500">Paper equity</span><span className="text-zinc-200 num">{formatDollars(paper.equity)}</span></li>
               <li className="flex justify-between"><span className="text-zinc-500">Open positions</span><span className="text-zinc-200">{paper.positions.length}</span></li>
               <li className="flex justify-between"><span className="text-zinc-500">Wallet</span><span className="text-zinc-200">{wallet.data ? formatUsd(wallet.data.totalUsd) : address ? 'Loading' : 'Not connected'}</span></li>
             </ul>

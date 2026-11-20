@@ -69,6 +69,8 @@ pub struct Config {
     pub alchemy_base: String,
     /// Magic Eden's public API, for NFTs in Solana wallets.
     pub magiceden_base: String,
+    /// Exchange rate sources for showing amounts in other currencies, tried in order.
+    pub fx_sources: Vec<String>,
 
     // Tuning
     pub tracked_symbols: Vec<String>,
@@ -211,6 +213,14 @@ impl Config {
             alchemy_api_key: var("ALCHEMY_API_KEY"),
             alchemy_base: var_or("ALCHEMY_BASE", "https://api.g.alchemy.com/data/v1"),
             magiceden_base: var_or("MAGICEDEN_BASE", "https://api-mainnet.magiceden.dev/v2"),
+            fx_sources: list(
+                "FX_SOURCES",
+                &[
+                    "https://cdn.jsdelivr.net/npm/@fawazahmed0/currency-api@latest/v1/currencies/usd.min.json",
+                    "https://latest.currency-api.pages.dev/v1/currencies/usd.min.json",
+                    "https://open.er-api.com/v6/latest/USD",
+                ],
+            ),
 
             tracked_symbols: list(
                 "TRACKED_SYMBOLS",

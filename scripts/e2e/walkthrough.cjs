@@ -132,6 +132,17 @@ require('node:fs').mkdirSync(SC + '/shots', { recursive: true });
   await page.getByRole('button', { name: 'Settings' }).click();
   await check('settings: data sources health', async () => { await page.getByText('coingecko', { exact: true }).waitFor({ timeout: 10000 }); await page.getByRole('heading', { name: 'Data sources' }).waitFor(); });
   await shot('10-settings');
+  await check('settings: amounts switch to naira and back', async () => {
+    const mainHas = (re, want) => page.waitForFunction(([src, w]) => new RegExp(src).test(document.querySelector('main')?.innerText ?? '') === w, [re.source, want], { timeout: 15000 })
+      .catch(async () => { await shot('10b-currency-failed'); const t = await page.locator('main').innerText(); const i = t.search(/₦/); throw new Error(`main ${want ? 'lacks' : 'still has'} ${re} :: ${JSON.stringify(t.slice(Math.max(0, i - 120), i + 60))}`); });
+    await page.getByRole('button', { name: /Display currency: US Dollar/ }).first().click();
+    await page.getByRole('dialog').getByRole('button', { name: /NGN/ }).first().click();
+    await page.getByRole('button', { name: 'Dashboard', exact: true }).click();
+    await mainHas(/₦[\d,]+/, true);
+    await page.getByRole('button', { name: /Display currency: Nigerian Naira/ }).first().click();
+    await page.getByRole('dialog').getByRole('button', { name: /^USD/ }).first().click();
+    await mainHas(/₦/, false);
+  });
 
   await check('wallet modal opens and reports missing wallet', async () => {
     await page.getByRole('button', { name: 'Connect wallet' }).first().click();

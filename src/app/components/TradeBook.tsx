@@ -5,6 +5,7 @@ import { IconTile } from './ui/common';
 import { usePolling } from '../hooks/usePolling';
 import { marketService } from '../services/marketService';
 import { readTrades, tradesToCsv, TRADEBOOK_KEY } from '../lib/tradebook';
+import { formatUsd } from '../lib/format';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -46,14 +47,8 @@ function isOpen(trade: Trade): boolean {
   return !trade.priceSold || parseFloat(trade.priceSold) === 0;
 }
 
-function fmtUSD(n: number): string {
-  return new Intl.NumberFormat('en-US', {
-    style: 'currency',
-    currency: 'USD',
-    minimumFractionDigits: 2,
-    maximumFractionDigits: 2,
-  }).format(n);
-}
+// Trades are entered in US dollars and shown in the currency the user picked.
+const fmtUSD = (n: number): string => formatUsd(n);
 
 function fmtDate(iso: string): string {
   return new Date(iso).toLocaleDateString('en-US', {
@@ -399,7 +394,7 @@ export function TradeBook() {
               {/* Price bought */}
               <div>
                 <label className="block text-zinc-300 text-xs font-medium uppercase tracking-wider mb-1.5">
-                  Price Bought ($)
+                  Price Bought (USD)
                 </label>
                 <input
                   type="number"
@@ -431,7 +426,7 @@ export function TradeBook() {
               {/* Price sold */}
               <div>
                 <label className="block text-zinc-300 text-xs font-medium uppercase tracking-wider mb-1.5">
-                  Price Sold ($) <span className="text-zinc-600 normal-case font-normal">optional</span>
+                  Price Sold (USD) <span className="text-zinc-600 normal-case font-normal">optional</span>
                 </label>
                 <input
                   type="number"

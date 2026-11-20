@@ -1,31 +1,79 @@
-const usdFmt = (max: number) => new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD', maximumFractionDigits: max });
+import { getCurrency, symbolStyle } from './currency';
+
+// Money arrives in US dollars everywhere. These formatters show it in the currency the user
+// picked (see currency.ts), converting with the day's rate. The `Dollars` variants never convert.
+
+const fmtCache = new Map<string, Intl.NumberFormat>();
+
+function money(code: string, maxFraction: number, minFraction?: number, compact = false): Intl.NumberFormat {
+  const key = `${code}|${maxFraction}|${minFraction ?? ''}|${compact}`;
+  let f = fmtCache.get(key);
+  if (!f) {
+    f = new Intl.NumberFormat('en-US', {
+      style: 'currency',
+      currency: code,
+      currencyDisplay: symbolStyle(code),
+      maximumFractionDigits: maxFraction,
+      ...(minFraction != null ? { minimumFractionDigits: minFraction } : {}),
+      ...(compact ? { notation: 'compact' as const } : {}),
+    });
+    fmtCache.set(key, f);
+  }
+  return f;
+}
+
+function priceIn(code: string, value: number): string {
+  const abs = Math.abs(value);
+  if (abs >= 1) return money(code, 2).format(value);
+  if (abs >= 0.01) return money(code, 4).format(value);
+  if (abs === 0) return money(code, 2, 2).format(0);
+  // Sub cent prices: show four significant digits.
+  const digits = Math.min(12, Math.max(6, -Math.floor(Math.log10(abs)) + 3));
+  return money(code, digits, digits).format(value);
+}
+
+function compactIn(code: string, value: number): string {
+  const abs = Math.abs(value);
+  if (abs >= 1e14) return money(code, 0, 0, true).format(value);
+  if (abs >= 1e6) return money(code, 2, 2, true).format(value);
+  if (abs >= 1e3) return money(code, 1, 1, true).format(value);
+  return money(code, 2, 2).format(value);
+}
+
+/** A US dollar amount converted into the display currency. */
+export function toDisplay(usd: number): number {
+  return usd * getCurrency().rate;
+}
 
 /** Price style formatting that keeps useful precision for tiny values. */
 export function formatPrice(value: number | null | undefined): string {
   if (value == null || !Number.isFinite(value)) return '—';
-  const abs = Math.abs(value);
-  if (abs >= 1000) return usdFmt(2).format(value);
-  if (abs >= 1) return usdFmt(2).format(value);
-  if (abs >= 0.01) return usdFmt(4).format(value);
-  if (abs === 0) return '$0.00';
-  // Sub cent prices: show four significant digits.
-  const digits = Math.min(12, Math.max(6, -Math.floor(Math.log10(abs)) + 3));
-  return `$${value.toFixed(digits)}`;
+  const { code, rate } = getCurrency();
+  return priceIn(code, value * rate);
 }
 
 export function formatUsd(value: number | null | undefined, maxFraction = 2): string {
   if (value == null || !Number.isFinite(value)) return '—';
-  return usdFmt(maxFraction).format(value);
+  const { code, rate } = getCurrency();
+  return money(code, maxFraction).format(value * rate);
 }
 
 export function formatCompactUsd(value: number | null | undefined): string {
   if (value == null || !Number.isFinite(value)) return '—';
-  const abs = Math.abs(value);
-  if (abs >= 1e12) return `$${(value / 1e12).toFixed(2)}T`;
-  if (abs >= 1e9) return `$${(value / 1e9).toFixed(2)}B`;
-  if (abs >= 1e6) return `$${(value / 1e6).toFixed(2)}M`;
-  if (abs >= 1e3) return `$${(value / 1e3).toFixed(1)}K`;
-  return `$${value.toFixed(2)}`;
+  const { code, rate } = getCurrency();
+  return compactIn(code, value * rate);
+}
+
+/** Always in US dollars, for places priced in dollars such as the USDT practice account. */
+export function formatDollars(value: number | null | undefined, maxFraction = 2): string {
+  if (value == null || !Number.isFinite(value)) return '—';
+  return money('USD', maxFraction).format(value);
+}
+
+/** Price style formatting, always in US dollars. */
+export function formatDollarPrice(value: number | null | undefined): string {
+  if (value == null || !Number.isFinite(value)) return '—';
+  return priceIn('USD', value);
 }
 
 export function formatNumber(value: number | null | undefined, maxFraction = 4): string {

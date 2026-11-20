@@ -100,6 +100,11 @@ http.createServer((req, res) => {
 
   if (p === '/cg/global') return json(res, { data: { active_cryptocurrencies: 17432, total_market_cap: { usd: 3.42e12 }, total_volume: { usd: 1.18e11 }, market_cap_percentage: { btc: 58.2, eth: 11.9, usdt: 4.8, bnb: 3.4, sol: 2.9, xrp: 2.6 }, market_cap_change_percentage_24h_usd: 1.37 } });
   if (p === '/cg/coins/markets') return json(res, coins);
+  if (p === '/fx/usd.min.json') {
+    const usd = Object.fromEntries('usd ngn eur gbp cad aud nzd chf jpy cny hkd sgd krw inr pkr idr php aed sar egp ghs kes zar xof brl mxn'.split(' ').map((c, i) => [c, c === 'usd' ? 1 : 1 + i]));
+    usd.ngn = 1500;
+    return json(res, { date: '2026-11-20', usd });
+  }
   if (p === '/fng/') return json(res, { data: Array.from({ length: 30 }, (_, i) => ({ value: String(55 + Math.round(Math.sin(i / 4) * 15)), value_classification: i === 0 ? 'Greed' : 'Neutral', timestamp: String(Math.floor(now() / 1000) - i * 86400) })) });
   if (p === '/api/v3/ticker/24hr') {
     const syms = JSON.parse(url.searchParams.get('symbols') || '[]');

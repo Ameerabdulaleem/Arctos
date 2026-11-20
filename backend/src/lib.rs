@@ -18,6 +18,7 @@ pub mod binance;
 pub mod config;
 pub mod db;
 pub mod error;
+pub mod fx;
 pub mod indexers;
 pub mod keeper;
 pub mod launchpad;
@@ -79,6 +80,7 @@ pub struct AppState {
     pub stock_cache: KeyedCache<stocks::Quote>,
     pub portfolio_cache: KeyedCache<portfolio::PortfolioResponse>,
     pub nft_cache: KeyedCache<portfolio::NftsResponse>,
+    pub fx_cache: KeyedCache<fx::FxResponse>,
     pub waitlist_count: KeyedCache<i64>,
     pub waitlist_mem: Mutex<HashSet<String>>,
     pub ws_slots: Arc<Semaphore>,
@@ -107,6 +109,8 @@ pub async fn build_state(config: Config) -> Arc<AppState> {
         portfolio_cache: KeyedCache::new(Duration::from_secs(20), Duration::from_secs(120)),
         // NFTs change rarely and their indexes are slow.
         nft_cache: KeyedCache::new(Duration::from_secs(300), Duration::from_secs(1800)),
+        // Exchange rates move slowly; a day old rate is still fine for display.
+        fx_cache: KeyedCache::new(Duration::from_secs(3600), Duration::from_secs(48 * 3600)),
         waitlist_count: KeyedCache::new(Duration::from_secs(30), Duration::from_secs(600)),
         waitlist_mem: Mutex::new(HashSet::new()),
         ws_slots: Arc::new(Semaphore::new(1500)),
@@ -328,6 +332,7 @@ pub fn cdn_cache_policy(path: &str) -> Option<(u32, u32)> {
         "/api/sniper/security" => (300, 3600),
         "/api/news" => (60, 600),
         "/api/stocks" => (30, 120),
+        "/api/fx" => (1800, 86400),
         "/api/waitlist/count" => (30, 120),
         p if p.starts_with("/api/portfolio/") && p.ends_with("/nfts") => (120, 600),
         p if p.starts_with("/api/portfolio/") => (15, 60),
@@ -430,6 +435,7 @@ pub fn build_router(state: Arc<AppState>) -> Router {
         // Content
         .route("/api/news", get(news::get_news))
         .route("/api/stocks", get(stocks::get_quotes))
+        .route("/api/fx", get(fx::get_rates))
         // AI and waitlist
         .route("/api/ai/status", get(ai::status))
         .route(

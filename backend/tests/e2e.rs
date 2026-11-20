@@ -122,6 +122,17 @@ fn fake_upstream() -> Router {
             let c = coins.clone();
             async move { Json(Value::Array(c)) }
         }))
+        // Exchange rates: the first source is down, the second answers in the currency API's shape.
+        .route("/fx/down", get(|| async { (axum::http::StatusCode::BAD_GATEWAY, "down") }))
+        .route("/fx/usd.min.json", get(|| async {
+            let mut usd = serde_json::Map::new();
+            for (i, code) in arctos_backend::fx::SUPPORTED.iter().enumerate() {
+                usd.insert(code.to_ascii_lowercase(), json!(if *code == "USD" { 1.0 } else { 1.0 + i as f64 }));
+            }
+            usd.insert("ngn".into(), json!(1349.97));
+            usd.insert("btc".into(), json!(0.0000162));
+            Json(json!({"date": "2026-11-20", "usd": usd}))
+        }))
         .route("/fng/", get(|| async {
             Json(json!({"data": [{"value": "61", "value_classification": "Greed", "timestamp": "2000"}, {"value": "50", "value_classification": "Neutral", "timestamp": "1000"}]}))
         }))
@@ -349,6 +360,7 @@ fn test_config(base: &str) -> Config {
     cfg.jupiter_base = format!("{base}/jup");
     cfg.magiceden_base = format!("{base}/me");
     cfg.alchemy_api_key = None;
+    cfg.fx_sources = vec![format!("{base}/fx/down"), format!("{base}/fx/usd.min.json")];
     cfg
 }
 
@@ -2137,4 +2149,29 @@ async fn evm_wallet_with_an_index_lists_every_token_and_nft() {
     assert_eq!(v["available"], true);
     assert_eq!(v["nfts"][0]["name"], "Ape 42");
     assert_eq!(v["nfts"][0]["chain"], "ethereum");
+}
+
+#[tokio::test]
+async fn exchange_rates_fall_back_and_stay_cached() {
+    let (base, _state) = boot_on_demand().await;
+    let c = reqwest::Client::new();
+    let r = c.get(format!("{base}/api/fx")).send().await.unwrap();
+    assert_eq!(r.status(), 200);
+    let cache = r
+        .headers()
+        .get("cache-control")
+        .and_then(|v| v.to_str().ok())
+        .unwrap_or_default()
+        .to_string();
+    assert!(cache.contains("s-maxage=1800"), "{cache}");
+    let fx: Value = r.json().await.unwrap();
+    assert_eq!(fx["base"], "USD");
+    assert_eq!(fx["source"], "currency-api");
+    assert_eq!(fx["date"], "2026-11-20");
+    assert_eq!(fx["rates"]["NGN"], 1349.97);
+    assert_eq!(fx["rates"]["USD"], 1.0);
+    assert!(fx["rates"].get("BTC").is_none(), "{fx}");
+    let (s, again) = get_json(&c, format!("{base}/api/fx")).await;
+    assert_eq!(s, 200);
+    assert_eq!(again, fx);
 }
