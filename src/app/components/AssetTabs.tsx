@@ -6,6 +6,7 @@ import { usePolling } from '../hooks/usePolling';
 import { chainByKey, isNative } from '../swap/chains';
 import type { MarkedPosition } from '../lib/paperTrading';
 import { formatDollarPrice, formatDollars, formatNumber, formatPct, formatPrice, formatUsd, pnlClass, sparklinePath } from '../lib/format';
+import { CopyAddress } from './ui/CopyAddress';
 import { Empty, ErrorNotice, Loading } from './ui/common';
 
 type Tab = 'wallet' | 'nfts' | 'market' | 'paper';
@@ -60,7 +61,7 @@ function NftGrid({ address }: { address: string }) {
             {n.image ? <img src={n.image} alt={n.name} loading="lazy" decoding="async" referrerPolicy="no-referrer" className="h-full w-full object-cover" /> : <div className="flex h-full items-center justify-center text-zinc-600"><ImageSquare className="h-8 w-8" aria-hidden /></div>}
           </div>
           <div className="p-2.5">
-            <p className="truncate text-sm font-medium text-white" title={n.name}>{n.name}</p>
+            <p className="flex items-center gap-1 text-sm font-medium text-white" title={n.name}><span className="truncate">{n.name}</span><CopyAddress value={n.contract} label={`Copy ${n.collection ?? n.name} contract address`} /></p>
             <p className="truncate text-[11px] text-zinc-500">{n.collection ?? n.standard} <span className="text-zinc-600">on {n.chainName}</span></p>
           </div>
         </li>
@@ -105,7 +106,7 @@ export function AssetTabs({ wallet, coins, paperPositions, onOpenTerminal }: Pro
                       <AssetLogo src={h.logo} label={h.symbol} />
                       <div className="min-w-0">
                         <p className="truncate font-medium text-white">{h.name} <span className="chip ml-1 px-2 py-0.5">{h.chainName}</span></p>
-                        <p className="num truncate text-sm text-zinc-500">{formatNumber(h.amount, 6)} {h.symbol}</p>
+                        <p className="num flex items-center gap-1 truncate text-sm text-zinc-500">{formatNumber(h.amount, 6)} {h.symbol}{h.address && <CopyAddress value={h.address} label={`Copy ${h.symbol} contract address`} show />}</p>
                       </div>
                     </div>
                     <div className="flex shrink-0 items-center gap-3">

@@ -126,6 +126,15 @@ http.createServer((req, res) => {
   if (/^\/gt\/networks\/[^/]+\/tokens\/[^/]+\/info$/.test(gt)) { const a = gt.split('/')[5]; return json(res, { data: { attributes: { address: a, developer_address: a.startsWith('0x') ? '0x' + 'd'.repeat(40) : 'D'.repeat(44), developer_holding_percentage: market.dev, holders: { count: 4200, distribution_percentage: { top_10: '22.5' } }, mint_authority: 'no', freeze_authority: 'no', is_honeypot: 'no', twitter_handle: 'fixture', websites: [] } } }); }
   if (/^\/gt\/networks\/[^/]+\/new_pools$/.test(gt)) { const net = gt.split('/')[3]; return json(res, { data: ['PEPEX', 'MOONI', 'WAGMI', 'SNIPE'].map((s, i) => pool(net, i, s)), included: ['PEPEX', 'MOONI', 'WAGMI', 'SNIPE'].map((s, i) => ({ id: `${net}_${tokAddr(net, i)}`, type: 'token', attributes: { address: tokAddr(net, i), name: `${s} Coin`, symbol: s, image_url: null } })) }); }
   if (p === '/dex/latest/dex/search') return json(res, { pairs: [dexPair('ethereum', '0x6982508145454Ce325dDbE47a25d4ec3d2311933', 'PEPE', 91000000), dexPair('solana', 'DezXAZ8z7PnrnRJjz3wXBoRgixCa6xjnB7YaB1pPB263', 'BONK', 12000000)] });
+  if (p === '/dex/token-boosts/top/v1') {
+    return json(res, [
+      { chainId: 'solana', tokenAddress: 'BoostAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAApump', totalAmount: 500, description: 'The most boosted cat', links: [{ type: 'twitter', url: 'https://x.com/boostcat' }] },
+      { chainId: 'bsc', tokenAddress: '0x2222222222222222222222222222222222222222', totalAmount: 120 },
+    ]);
+  }
+  if (p === '/dex/token-profiles/latest/v1' || p === '/dex/community-takeovers/latest/v1') return json(res, [{ chainId: 'solana', tokenAddress: 'FreshAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAApump', description: 'Fresh profile' }]);
+  if (p === '/dex/metas/trending/v1') return json(res, [{ name: 'Cat', slug: 'cat', icon: { type: 'emoji', value: '🐈' }, marketCap: 308000000, volume: 14000000, tokenCount: 96, marketCapChange: { h1: 1.5, h6: 0.7, h24: -8.3 } }]);
+  if (p.startsWith('/dex/metas/meta/v1/')) return json(res, { name: 'Cat', slug: p.split('/').pop(), pairs: [dexPair('solana', 'MeowAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAApump', 'MEOW', 300000)] });
   if (p.startsWith('/dex/latest/dex/tokens/')) { const addrs = p.split('/').pop().split(','); return json(res, { pairs: addrs.map((a) => dexPair(a.startsWith('0x') ? 'ethereum' : 'solana', a, 'TRK', 500000)) }); }
   if (p.startsWith('/goplus/token_security/') || p === '/goplus/solana/token_security') {
     const addr = url.searchParams.get('contract_addresses') || '';

@@ -17,6 +17,7 @@ pub mod ai_tools;
 pub mod binance;
 pub mod config;
 pub mod db;
+pub mod discover;
 pub mod error;
 pub mod fx;
 pub mod indexers;
@@ -81,6 +82,7 @@ pub struct AppState {
     pub portfolio_cache: KeyedCache<portfolio::PortfolioResponse>,
     pub nft_cache: KeyedCache<portfolio::NftsResponse>,
     pub fx_cache: KeyedCache<fx::FxResponse>,
+    pub discover_cache: KeyedCache<serde_json::Value>,
     pub waitlist_count: KeyedCache<i64>,
     pub waitlist_mem: Mutex<HashSet<String>>,
     pub ws_slots: Arc<Semaphore>,
@@ -111,6 +113,8 @@ pub async fn build_state(config: Config) -> Arc<AppState> {
         nft_cache: KeyedCache::new(Duration::from_secs(300), Duration::from_secs(1800)),
         // Exchange rates move slowly; a day old rate is still fine for display.
         fx_cache: KeyedCache::new(Duration::from_secs(3600), Duration::from_secs(48 * 3600)),
+        // DexScreener's trending lists move by the minute.
+        discover_cache: KeyedCache::new(Duration::from_secs(45), Duration::from_secs(600)),
         waitlist_count: KeyedCache::new(Duration::from_secs(30), Duration::from_secs(600)),
         waitlist_mem: Mutex::new(HashSet::new()),
         ws_slots: Arc::new(Semaphore::new(1500)),
@@ -333,6 +337,8 @@ pub fn cdn_cache_policy(path: &str) -> Option<(u32, u32)> {
         "/api/news" => (60, 600),
         "/api/stocks" => (30, 120),
         "/api/fx" => (1800, 86400),
+        "/api/discover" | "/api/discover/metas" => (30, 120),
+        p if p.starts_with("/api/discover/meta/") => (30, 120),
         "/api/waitlist/count" => (30, 120),
         p if p.starts_with("/api/portfolio/") && p.ends_with("/nfts") => (120, 600),
         p if p.starts_with("/api/portfolio/") => (15, 60),
@@ -436,11 +442,14 @@ pub fn build_router(state: Arc<AppState>) -> Router {
         .route("/api/news", get(news::get_news))
         .route("/api/stocks", get(stocks::get_quotes))
         .route("/api/fx", get(fx::get_rates))
+        .route("/api/discover", get(discover::get_list))
+        .route("/api/discover/metas", get(discover::get_metas))
+        .route("/api/discover/meta/:slug", get(discover::get_meta))
         // AI and waitlist
         .route("/api/ai/status", get(ai::status))
         .route(
             "/api/ai/chat",
-            post(ai::chat).layer(DefaultBodyLimit::max(48 * 1024)),
+            post(ai::chat).layer(DefaultBodyLimit::max(96 * 1024)),
         )
         .route("/api/waitlist", post(waitlist::join))
         .route("/api/waitlist/count", get(waitlist::count))

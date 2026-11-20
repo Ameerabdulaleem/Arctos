@@ -1,26 +1,29 @@
 import { useCallback, useEffect, useRef, useState, type KeyboardEvent } from 'react';
-import { Check, Copy, Newspaper, PaperPlaneRight, Sparkle, Trash, TrendUp, User, WarningCircle } from '@phosphor-icons/react';
+import { ArrowClockwise, Check, Copy, Newspaper, PaperPlaneRight, Sparkle, Trash, TrendUp, User, Wallet, WarningCircle } from '@phosphor-icons/react';
 import { IconTile, Pill } from './ui/common';
 import { useAIContext } from '../hooks/useAIContext';
+import { useConnectedWallets } from '../hooks/useConnectedWallets';
 import { usePolling } from '../hooks/usePolling';
 import { useTickers } from '../hooks/useTickers';
-import { useAuth } from '../contexts/auth-context';
 import { usePaper } from '../contexts/paper-context';
 import { aiService, type ChatTurn } from '../services/aiService';
 import { marketService } from '../services/marketService';
 import { newsService } from '../services/newsService';
 import { portfolioService } from '../services/portfolioService';
 import { errorMessage } from '../services/api';
-import { formatDollars, formatPct, formatPrice, formatUsd, pnlClass } from '../lib/format';
+import { formatDollars, formatPct, formatPrice, formatUsd, pnlClass, shortAddress } from '../lib/format';
 
 interface Message {
   id: string;
   text: string;
   role: 'user' | 'ai';
   isError?: boolean;
+  /** For a failed answer: the conversation to send again. */
+  retry?: ChatTurn[];
 }
 
 const QUICK_PROMPTS = [
+  'What is trending on DexScreener right now? Which metas are gaining, and which tokens in them look strongest?',
   'Which new Pump.fun tokens have a good snipe score and a developer with a clean record?',
   'Give me a quick read on the market right now',
   'How has SOL moved over the last day, and are whales moving it to exchanges?',
@@ -33,7 +36,7 @@ const QUICK_PROMPTS = [
 const WELCOME: Message = {
   id: 'welcome',
   role: 'ai',
-  text: "Hi, I'm the Arctos assistant. I can see live prices, the Fear and Greed index, recent headlines and large whale transfers, plus your paper account and trade book. I can also look things up across Arctos: new launches on Pump.fun and other launchpads with their snipe scores, developer records and contract risk, price history and order books, whale moves by chain, news on any topic, stock quotes and the holdings of a wallet you give me.\n\nAsk me about the market, a token, a launchpad, a wallet or your trades. I can't place trades or touch your wallet.",
+  text: "Hi, I'm the Arctos assistant. I can see live prices, the Fear and Greed index, recent headlines and large whale transfers, plus your connected wallets, your paper account and your trade book. I can also look things up across Arctos: what is trending on DexScreener (boosted tokens, new profiles, takeovers and the hottest metas), new launches on Pump.fun and other launchpads with their snipe scores, developer records and contract risk, price history and order books, whale moves by chain, news on any topic, stock quotes and the holdings of any public wallet address.\n\nAsk me about the market, a token, a launchpad, a wallet or your trades. I can't place trades or touch your wallet.",
 };
 
 function renderInline(text: string) {
@@ -61,15 +64,20 @@ function Markdown({ text }: { text: string }) {
 }
 
 export function AIChat() {
-  const { user, isWalletConnected } = useAuth();
   const paper = usePaper();
   const { tickers } = useTickers();
-  const address = isWalletConnected ? user?.walletAddress : undefined;
+  const { wallets: connected } = useConnectedWallets();
+  const walletKey = connected.map((w) => w.address).join(',');
   const status = usePolling((s) => aiService.status(s), 60_000);
   const overview = usePolling((s) => marketService.overview(s), 60_000);
   const news = usePolling((s) => newsService.list(3, s), 120_000);
-  const wallet = usePolling((s) => (address ? portfolioService.get(address, s) : Promise.resolve(null)), address ? 60_000 : null, [address]);
-  const ai = useAIContext(wallet.data?.totalUsd ?? null);
+  // What each connected wallet holds, so "analyse my wallet" is answered straight away.
+  const portfolios = usePolling(
+    (s) => Promise.all(connected.slice(0, 3).map((w) => portfolioService.get(w.address, s).catch(() => null))),
+    connected.length ? 60_000 : null,
+    [walletKey],
+  );
+  const ai = useAIContext(connected, portfolios.data);
 
   const [messages, setMessages] = useState<Message[]>([WELCOME]);
   const [input, setInput] = useState('');
@@ -83,28 +91,48 @@ export function AIChat() {
 
   const configured = status.data?.configured;
 
+  const ask = useCallback(async (history: ChatTurn[]) => {
+    setBusy(true);
+    abortRef.current = new AbortController();
+    const signal = abortRef.current.signal;
+    try {
+      let reply: string;
+      try {
+        ({ reply } = await aiService.chat(history, ai.context(), signal));
+      } catch (e) {
+        // A dropped connection is tried once more before it is shown.
+        if (signal.aborted || !/could not reach/i.test(errorMessage(e, ''))) throw e;
+        ({ reply } = await aiService.chat(history, ai.context(), signal));
+      }
+      setMessages((m) => [...m, { id: `a-${Date.now()}`, role: 'ai', text: reply }]);
+    } catch (e) {
+      if (signal.aborted) return;
+      setMessages((m) => [...m, { id: `e-${Date.now()}`, role: 'ai', isError: true, retry: history, text: errorMessage(e, 'The assistant could not answer. Please try again.') }]);
+    } finally {
+      setBusy(false);
+    }
+  }, [ai]);
+
   const send = useCallback(async (raw: string) => {
     const text = raw.trim();
     if (!text || busy) return;
     const userMsg: Message = { id: `u-${Date.now()}`, role: 'user', text };
     setMessages((m) => [...m, userMsg]);
     setInput('');
-    setBusy(true);
     const history: ChatTurn[] = [...messages, userMsg]
       .filter((m) => m.id !== 'welcome' && !m.isError)
       .slice(-16)
       .map((m) => ({ role: m.role === 'ai' ? 'assistant' : 'user', content: m.text.slice(0, 4000) }));
-    abortRef.current = new AbortController();
-    try {
-      const { reply } = await aiService.chat(history, ai.context(), abortRef.current.signal);
-      setMessages((m) => [...m, { id: `a-${Date.now()}`, role: 'ai', text: reply }]);
-    } catch (e) {
-      if (abortRef.current?.signal.aborted) return;
-      setMessages((m) => [...m, { id: `e-${Date.now()}`, role: 'ai', isError: true, text: errorMessage(e, 'The assistant could not answer. Please try again.') }]);
-    } finally {
-      setBusy(false);
-    }
-  }, [busy, messages, ai]);
+    await ask(history);
+  }, [busy, messages, ask]);
+
+  const retry = (m: Message) => {
+    if (!m.retry || busy) return;
+    setMessages((list) => list.filter((x) => x.id !== m.id));
+    void ask(m.retry);
+  };
+
+  const prompts = connected.length ? ['Analyse my connected wallet', ...QUICK_PROMPTS] : QUICK_PROMPTS;
 
   const onKey = (e: KeyboardEvent<HTMLTextAreaElement>) => {
     if (e.key === 'Enter' && !e.shiftKey) {
@@ -160,7 +188,21 @@ export function AIChat() {
             <ul className="space-y-1 text-xs">
               <li className="flex justify-between"><span className="text-zinc-500">Paper equity</span><span className="text-zinc-200 num">{formatDollars(paper.equity)}</span></li>
               <li className="flex justify-between"><span className="text-zinc-500">Open positions</span><span className="text-zinc-200">{paper.positions.length}</span></li>
-              <li className="flex justify-between"><span className="text-zinc-500">Wallet</span><span className="text-zinc-200">{wallet.data ? formatUsd(wallet.data.totalUsd) : address ? 'Loading' : 'Not connected'}</span></li>
+            </ul>
+          </section>
+          <section>
+            <p className="flex items-center gap-1.5 text-zinc-400 text-[11px] font-semibold uppercase tracking-widest mb-2"><Wallet className="w-3.5 h-3.5 text-emerald-300" aria-hidden />Connected wallets</p>
+            <ul className="space-y-1 text-xs">
+              {connected.map((w) => {
+                const data = portfolios.data?.find((p) => p?.address.toLowerCase() === w.address.toLowerCase());
+                return (
+                  <li key={w.address} className="flex justify-between gap-2">
+                    <span className="text-zinc-500">{w.kind === 'solana' ? 'Solana' : 'EVM'} <span className="num">{shortAddress(w.address, 4, 4)}</span></span>
+                    <span className="text-zinc-200 num">{data ? formatUsd(data.totalUsd) : 'Loading'}</span>
+                  </li>
+                );
+              })}
+              {connected.length === 0 && <li className="text-zinc-600">None. Connect one at the top right and the assistant can analyse it.</li>}
             </ul>
           </section>
         </aside>
@@ -180,6 +222,9 @@ export function AIChat() {
                 </div>
                 <div className={`relative max-w-[85%] md:max-w-[76%] rounded-2xl px-4 py-3 ${m.role === 'user' ? 'rounded-tr-sm border border-blue-300/30 bg-gradient-to-br from-blue-400/25 to-blue-600/15 text-white' : m.isError ? 'rounded-tl-sm border border-rose-400/25 bg-rose-400/10 text-rose-200' : 'rounded-tl-sm border border-white/[0.07] bg-white/[0.035] text-zinc-100'}`}>
                   {m.role === 'ai' ? <Markdown text={m.text} /> : <p className="text-sm leading-relaxed whitespace-pre-wrap">{m.text}</p>}
+                  {m.isError && m.retry && (
+                    <button onClick={() => retry(m)} disabled={busy} className="btn btn-secondary btn-sm mt-2.5"><ArrowClockwise className="h-3.5 w-3.5" aria-hidden />Try again</button>
+                  )}
                   {m.role === 'ai' && m.id !== 'welcome' && !m.isError && (
                     <button onClick={() => copy(m.id, m.text)} aria-label="Copy answer" className="absolute -top-2 -right-2 opacity-0 group-hover:opacity-100 focus:opacity-100 p-1.5 bg-white/[0.06] border border-white/10 rounded-lg text-zinc-400 hover:text-zinc-200">
                       {copied === m.id ? <Check className="w-3 h-3 text-green-400" /> : <Copy className="w-3 h-3" />}
@@ -200,7 +245,7 @@ export function AIChat() {
           </div>
 
           <div className="px-4 md:px-6 pt-3 pb-2 border-t border-white/[0.07] flex gap-2 flex-wrap">
-            {QUICK_PROMPTS.map((p) => (
+            {prompts.map((p) => (
               <button key={p} onClick={() => void send(p)} disabled={busy || configured === false} className="text-xs px-3 py-1.5 rounded-full border border-white/10 text-zinc-400 hover:border-blue-500/50 hover:text-blue-200 disabled:opacity-40 disabled:cursor-not-allowed">{p}</button>
             ))}
           </div>

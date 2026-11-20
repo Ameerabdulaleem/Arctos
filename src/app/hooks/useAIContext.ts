@@ -1,14 +1,33 @@
 import { useMemo } from 'react';
-import { useAuth } from '../contexts/auth-context';
 import { usePaper } from '../contexts/paper-context';
 import { readTrades } from '../lib/tradebook';
-import type { UserContext } from '../services/aiService';
+import type { PortfolioResponse } from '../services/portfolioService';
+import type { UserContext, WalletContext } from '../services/aiService';
+import type { ConnectedWallet } from './useConnectedWallets';
 
-/** Builds the portfolio facts shared with the AI assistant. Live market data is added by the server. */
-export function useAIContext(walletTotalUsd: number | null): { context: () => UserContext } {
-  const { user } = useAuth();
+/** The largest holdings of each wallet are shared; the rest are counted. */
+const HOLDINGS_SHARED = 25;
+
+function walletContext(w: ConnectedWallet, data: PortfolioResponse | null | undefined): WalletContext {
+  if (!data) return { address: w.address, kind: w.kind };
+  const sorted = [...data.holdings].sort((a, b) => (b.valueUsd ?? -1) - (a.valueUsd ?? -1));
+  return {
+    address: w.address,
+    kind: w.kind,
+    totalUsd: data.totalUsd,
+    hiddenTokens: (data.hiddenTokens ?? 0) + Math.max(0, sorted.length - HOLDINGS_SHARED),
+    holdings: sorted.slice(0, HOLDINGS_SHARED).map((h) => ({
+      symbol: h.symbol, name: h.name, chain: h.chainName, amount: h.amount, valueUsd: h.valueUsd, change24h: h.change24h, ...(h.address ? { address: h.address } : {}),
+    })),
+  };
+}
+
+/**
+ * Builds the portfolio facts shared with the AI assistant: the connected wallets and what they
+ * hold, the paper account and the trade book. Live market data is added by the server.
+ */
+export function useAIContext(wallets: ConnectedWallet[], portfolios: Array<PortfolioResponse | null> | null): { context: () => UserContext } {
   const paper = usePaper();
-  const address = user?.walletAddress;
 
   return useMemo(
     () => ({
@@ -28,9 +47,9 @@ export function useAIContext(walletTotalUsd: number | null): { context: () => Us
           realizedPnlUsd: paper.account.realizedPnl,
           positions: paper.positions.slice(0, 15).map((p) => ({ symbol: p.symbol, qty: p.qty, avgPrice: p.avgPrice })),
         },
-        wallet: address ? { address, totalUsd: walletTotalUsd ?? undefined } : undefined,
+        wallets: wallets.slice(0, 3).map((w) => walletContext(w, portfolios?.find((p) => p?.address.toLowerCase() === w.address.toLowerCase()))),
       }),
     }),
-    [paper.account.cash, paper.equity, paper.account.realizedPnl, paper.positions, address, walletTotalUsd],
+    [paper.account.cash, paper.equity, paper.account.realizedPnl, paper.positions, wallets, portfolios],
   );
 }

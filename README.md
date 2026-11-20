@@ -62,6 +62,10 @@ Every token gets a snipe score out of 100, built from live data and shown with i
 
 A serious risk (honeypot, active mint or freeze authority, a very high tax, a developer holding a large share) blocks a token whatever else looks good. A token that has not been fully checked yet says so, stays out of the top grades, and is never bought by the auto sniper.
 
+**Paper account or your own wallet.** A switch at the top of the page chooses how snipes are made. The paper account simulates them at the live price, runs auto sniping and sells by the exit plan even while you are away. With **My wallet**, each Buy is a real swap of the amount you set per chain (for example 0.1 SOL) through the best route (Jupiter, Relay, KyberSwap and others), shown on the same review screen and checked the same way as the Trading Terminal, and signed in your wallet. Wallet snipes are listed with live profit and loss and Sell 50% and Sell all buttons. Selling needs your signature, so in wallet mode the exit plan alerts you when a target is hit while the page is open, with a one click sell, and auto sniping stays on the paper account. Arctos never holds funds or keys.
+
+**DexScreener tab.** Alongside Just launched and Most active, the sniper lists what is trending on DexScreener: the tokens with the most boosts (paid promotion, so judged on their numbers like any other), tokens whose teams just published a profile, community takeovers, and the trending metas (narratives such as AI or cats) with the biggest tokens in each. Every token gets the contract risk check and can be paper sniped, bought from the wallet or tracked. A Live DexScreener view embeds DexScreener's own trending, top, gainers and new pairs lists. The data comes from `/api/discover`, cached for everyone for 30 seconds.
+
 Three honest limits:
 
 * **No win rate can be promised.** Most newly launched tokens lose value. The score ranks candidates. The page shows the sniper's real win rate, measured from its own closed paper snipes, so you can judge the filters on results.
@@ -142,6 +146,10 @@ The panel says which keyed providers are switched on. Nothing else changes.
 * Slippage defaults to 0.5 percent and warns above 5 percent.
 * Arctos adds no fee and never holds funds.
 
+**Market panel.** Beside the swap panel: a search box for any token on DexScreener (by name, symbol or contract address, on every chain Arctos swaps), and three views of the chosen token. Chart is DexScreener's live chart. Info shows the token's website and social accounts (X, Telegram, Discord and others), price, liquidity, market cap and FDV, price change, volume and buys against sells over 5 minutes, 1 hour, 6 hours and 24 hours, its contract and top pool with copy buttons, and its other pools. DexScreener embeds DexScreener's own trending, top volume, gainers and new pairs lists for any chain. Search and Info call DexScreener's public API straight from the browser and keep answers for 30 to 60 seconds, so switching views is instant.
+
+**Copy buttons.** Every token with a contract, in the swap panel, the token picker, the dashboard's wallet and NFTs, the sniper and the market panel, has a copy button beside it.
+
 **Fast wallet prompts:** Solana swaps are signed through the Wallet Standard (Phantom, Solflare, Backpack and others register with it), which takes the transaction as bytes, so nothing heavy loads between the click and the wallet window. Phantom's older injected API remains a fallback. Relay's SDK and chain list load when the review opens, not at the click.
 
 **Limits:** Squid deposit address routes are not run (the panel says so and you can pick another quote). Squid is used between EVM chains only; Relay covers Solana bridges. Recent swaps are remembered on your device only.
@@ -162,7 +170,12 @@ The assistant answers from live data the service puts in its instructions (price
 | `whale_activity` | Recent large transfers, by chain and minimum value |
 | `news_search` | Recent headlines matching a keyword, with source, category and expected impact |
 | `stock_quotes` | Live quotes for listed stocks |
-| `wallet_holdings` | What a public wallet holds, for an address the user gives |
+| `wallet_holdings` | What a public wallet holds: one of the user's connected wallets, or an address they give |
+| `dexscreener_trends` | DexScreener's trending metas and their biggest tokens, the most boosted tokens, new token profiles and community takeovers, priced with live pool data |
+
+**Your connected wallets.** The app tells the assistant which wallets are connected in the browser (Phantom and any EVM wallet, from the swap panel or the sign in) and what they hold, so "analyse my wallet" works without pasting an address. Only public addresses and balances are shared. Token names from wallets are cleaned and marked as data, so a scam token's name cannot pass for an instruction.
+
+**Trends.** Asked what is trending or what could make money, the assistant reads DexScreener's metas first, then the strongest narratives' tokens and the boosted list, checks contracts on anything small it picks, and ranks by evidence (rising market cap with real volume, enough liquidity to exit, more buyers than sellers). It never promises profit.
 
 The service runs the tools itself (`backend/src/ai_tools.rs`) through the same functions, checks and caches as the pages: only known chains and launchpads, valid addresses and symbols, short queries. Text from outside, such as token names, is cleaned before the model sees it, and the instructions tell the model to treat tool data as data. The model may use tools for up to three rounds, and the whole answer must finish within 52 seconds.
 

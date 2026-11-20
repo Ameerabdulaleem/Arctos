@@ -109,15 +109,40 @@ export async function lookupOnChain(chain: SwapChain, address: string, signal?: 
     if (signal?.aborted) return null;
     return { chainId: chain.id, address, symbol: String(symbol).slice(0, 16), name: String(name).slice(0, 48), decimals: Number(decimals), verified: false };
   }
-  const res = await fetch(chain.rpc, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ jsonrpc: '2.0', id: 1, method: 'getTokenSupply', params: [address] }),
-    signal,
-  });
-  const json = (await res.json()) as { result?: { value?: { decimals?: unknown } } };
-  const decimals = json.result?.value?.decimals;
-  if (typeof decimals !== 'number') return null;
-  const short = `${address.slice(0, 4)}…${address.slice(-4)}`;
-  return { chainId: chain.id, address, symbol: short, name: 'Unlisted token', decimals, verified: false };
+  // Jupiter's token list first: it names the token and is not rate limited like public RPCs.
+  try {
+    const res = await fetch(`https://lite-api.jup.ag/tokens/v2/search?query=${encodeURIComponent(address)}`, { signal, credentials: 'omit', referrerPolicy: 'no-referrer' });
+    const list = res.ok ? ((await res.json()) as unknown) : null;
+    const hit = Array.isArray(list) ? (list as Array<Record<string, unknown>>).find((t) => t?.id === address) : undefined;
+    if (hit && typeof hit.decimals === 'number' && Number.isInteger(hit.decimals) && hit.decimals >= 0 && hit.decimals <= 18) {
+      const icon = typeof hit.icon === 'string' && hit.icon.startsWith('https://') ? hit.icon : undefined;
+      return {
+        chainId: chain.id, address, decimals: hit.decimals,
+        symbol: typeof hit.symbol === 'string' && hit.symbol ? hit.symbol.slice(0, 16) : `${address.slice(0, 4)}…${address.slice(-4)}`,
+        name: typeof hit.name === 'string' && hit.name ? hit.name.slice(0, 48) : 'Unlisted token',
+        logo: icon, verified: hit.isVerified === true,
+      };
+    }
+  } catch (e) {
+    if (signal?.aborted) throw e;
+  }
+  // Then the chain itself, through each public RPC in turn.
+  for (const rpc of [chain.rpc, ...(chain.rpcFallback ? [chain.rpcFallback] : [])]) {
+    try {
+      const res = await fetch(rpc, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ jsonrpc: '2.0', id: 1, method: 'getTokenSupply', params: [address] }),
+        signal,
+      });
+      const json = (await res.json()) as { result?: { value?: { decimals?: unknown } } };
+      const decimals = json.result?.value?.decimals;
+      if (typeof decimals !== 'number') continue;
+      const short = `${address.slice(0, 4)}…${address.slice(-4)}`;
+      return { chainId: chain.id, address, symbol: short, name: 'Unlisted token', decimals, verified: false };
+    } catch (e) {
+      if (signal?.aborted) throw e;
+    }
+  }
+  return null;
 }

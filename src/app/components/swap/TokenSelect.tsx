@@ -7,6 +7,7 @@ import type { HeldToken } from '../../swap/useWalletHoldings';
 import type { ProviderContext, Token } from '../../swap/types';
 import { formatUsd, shortAddress } from '../../lib/format';
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from '../ui/dialog';
+import { CopyAddress } from '../ui/CopyAddress';
 
 export function TokenLogo({ token, size = 28 }: { token: Token; size?: number }) {
   const [broken, setBroken] = useState(false);
@@ -20,18 +21,22 @@ export function TokenLogo({ token, size = 28 }: { token: Token; size?: number })
   );
 }
 
-/** The button inside the pay and receive boxes. */
+/** The button inside the pay and receive boxes, with a copy button for the token's contract. */
 export function TokenButton({ token, onClick, label }: { token: Token | null; onClick: () => void; label: string }) {
   const chain = token ? chainById(token.chainId) : undefined;
+  const contract = token && chain && !isNative(chain, token.address) ? token.address : null;
   return (
-    <button type="button" onClick={onClick} aria-label={label} className="flex shrink-0 items-center gap-2 rounded-xl border border-white/10 bg-white/[0.05] py-1.5 pl-1.5 pr-2.5 text-left transition hover:border-white/25 hover:bg-white/[0.09]">
-      {token ? <TokenLogo token={token} size={30} /> : <span className="h-[30px] w-[30px] rounded-full bg-white/10" />}
-      <span className="min-w-0">
-        <span className="block text-sm font-semibold leading-tight text-white">{token?.symbol ?? 'Select'}</span>
-        <span className="block text-[11px] leading-tight text-zinc-400">{chain?.name ?? 'token'}</span>
-      </span>
-      <CaretDown className="h-3.5 w-3.5 text-zinc-400" aria-hidden />
-    </button>
+    <span className="flex shrink-0 items-center gap-0.5">
+      {contract && <CopyAddress value={contract} label={`Copy ${token?.symbol} contract address`} />}
+      <button type="button" onClick={onClick} aria-label={label} className="flex shrink-0 items-center gap-2 rounded-xl border border-white/10 bg-white/[0.05] py-1.5 pl-1.5 pr-2.5 text-left transition hover:border-white/25 hover:bg-white/[0.09]">
+        {token ? <TokenLogo token={token} size={30} /> : <span className="h-[30px] w-[30px] rounded-full bg-white/10" />}
+        <span className="min-w-0">
+          <span className="block text-sm font-semibold leading-tight text-white">{token?.symbol ?? 'Select'}</span>
+          <span className="block text-[11px] leading-tight text-zinc-400">{chain?.name ?? 'token'}</span>
+        </span>
+        <CaretDown className="h-3.5 w-3.5 text-zinc-400" aria-hidden />
+      </button>
+    </span>
   );
 }
 
@@ -64,8 +69,10 @@ export function TokenSelect({ open, onOpenChange, ctx, initialChainId, title, on
 const EMPTY = new Map<number, HeldToken[]>();
 
 function TokenRow({ t, chain, balance, onPick }: { t: Token; chain: SwapChain; balance?: HeldToken; onPick: (t: Token) => void }) {
+  const native = isNative(chain, t.address);
   return (
-    <button type="button" onClick={() => onPick(t)} className="flex w-full items-center gap-3 rounded-xl px-2.5 py-2 text-left transition hover:bg-white/[0.06]">
+    <div className="flex items-center gap-1 rounded-xl transition hover:bg-white/[0.06]">
+    <button type="button" onClick={() => onPick(t)} className="flex min-w-0 flex-1 items-center gap-3 px-2.5 py-2 text-left">
       <TokenLogo token={t} size={32} />
       <span className="min-w-0 flex-1">
         <span className="flex items-center gap-1.5 text-sm font-semibold text-white">
@@ -80,9 +87,11 @@ function TokenRow({ t, chain, balance, onPick }: { t: Token; chain: SwapChain; b
           {balance.usd != null && <span className="num block text-[11px] text-zinc-500">{formatUsd(balance.usd)}</span>}
         </span>
       ) : (
-        <span className="num text-[11px] text-zinc-500">{isNative(chain, t.address) ? 'Native' : shortAddress(t.address)}</span>
+        <span className="num text-[11px] text-zinc-500">{native ? 'Native' : shortAddress(t.address)}</span>
       )}
     </button>
+    {!native && <CopyAddress value={t.address} label={`Copy ${t.symbol} contract address`} className="mr-2" />}
+    </div>
   );
 }
 

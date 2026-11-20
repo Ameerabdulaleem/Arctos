@@ -61,6 +61,11 @@ fn set_quote(address: &str, price: f64, liquidity: f64, dev_pct: f64) {
         );
 }
 
+/// A valid looking Solana mint that the fake DexScreener prices as a trending token.
+fn trend_mint(tag: &str) -> String {
+    format!("{:A<44}", format!("TREND{tag}"))
+}
+
 fn quote(address: &str) -> Option<Quote> {
     BOARD.lock().unwrap().as_ref()?.get(address).copied()
 }
@@ -165,12 +170,38 @@ fn fake_upstream() -> Router {
         }))
         .route("/dex/latest/dex/tokens/:addresses", get(|Path(addresses): Path<String>| async move {
             let pairs: Vec<Value> = addresses.split(',').filter_map(|a| {
+                if a.starts_with("TREND") {
+                    return Some(json!({"chainId": "solana", "dexId": "raydium", "pairAddress": format!("pool{a}"),
+                        "baseToken": {"address": a, "symbol": "HOT", "name": "Hot Token"}, "priceUsd": "0.01", "liquidity": {"usd": 80000},
+                        "marketCap": 900000, "volume": {"h24": 250000}, "priceChange": {"m5": 1, "h1": 6, "h24": 40},
+                        "txns": {"h24": {"buys": 900, "sells": 400}}, "url": format!("https://dexscreener.com/solana/pool{a}")}));
+                }
                 let q = quote(a)?;
                 Some(json!({"chainId": "solana", "dexId": "pumpswap", "pairAddress": format!("pool-{a}"),
                     "baseToken": {"address": a, "symbol": "KEEP", "name": "Keeper Test"},
                     "priceUsd": q.price.to_string(), "liquidity": {"usd": q.liquidity}}))
             }).collect();
             Json(json!({"pairs": pairs}))
+        }))
+        .route("/dex/token-boosts/top/v1", get(|| async {
+            Json(json!([
+                {"chainId": "solana", "tokenAddress": trend_mint("two"), "totalAmount": 500, "description": "Second\nline <b>bold</b>",
+                 "links": [{"type": "twitter", "url": "https://x.com/hot"}, {"label": "Website", "url": "javascript:alert(1)"}]},
+                {"chainId": "solana", "tokenAddress": trend_mint("one"), "totalAmount": 100},
+                {"chainId": "mars", "tokenAddress": trend_mint("one")},
+                {"chainId": "solana", "tokenAddress": "Unpriced1111111111111111111111111111111111"}
+            ]))
+        }))
+        .route("/dex/metas/trending/v1", get(|| async {
+            Json(json!([{"name": "Cat", "slug": "cat", "icon": {"type": "emoji", "value": "🐈"}, "marketCap": 308078831.0, "volume": 14337427.0,
+                "tokenCount": 96, "marketCapChange": {"h1": 1.5, "h6": 0.7, "h24": -8.3}}]))
+        }))
+        .route("/dex/metas/meta/v1/:slug", get(|Path(slug): Path<String>| async move {
+            Json(json!({"name": "Cat", "slug": slug, "marketCap": 308078831.0, "pairs": [
+                {"chainId": "solana", "dexId": "raydium", "pairAddress": "poolCatAAAAAAAAAAAAAAAAAAAA", "baseToken": {"address": trend_mint("cat"), "symbol": "MEOW", "name": "Meow"},
+                 "priceUsd": "0.5", "marketCap": 5000000, "liquidity": {"usd": 300000}},
+                {"chainId": "mars", "dexId": "up", "pairAddress": "0x4E8649Be40aE67EBbcff99C291B92eE03015917b", "baseToken": {"address": "0x4E8649Be40aE67EBbcff99C291B92eE03015917b", "symbol": "X", "name": "X"}, "priceUsd": "1"}
+            ]}))
         }))
         .route("/goplus/token_security/:chain", get(|| async {
             Json(json!({"code": 1, "result": {"0x6982508145454ce325ddbe47a25d4ec3d2311933": {"is_honeypot": "0", "buy_tax": "0", "sell_tax": "0.02", "is_open_source": "1", "holder_count": "1000"}}}))
@@ -2174,4 +2205,92 @@ async fn exchange_rates_fall_back_and_stay_cached() {
     let (s, again) = get_json(&c, format!("{base}/api/fx")).await;
     assert_eq!(s, 200);
     assert_eq!(again, fx);
+}
+
+#[tokio::test]
+async fn dexscreener_trends_for_the_sniper_and_the_assistant() {
+    let (base, state) = boot_on_demand().await;
+    let c = reqwest::Client::new();
+
+    let r = c
+        .get(format!("{base}/api/discover?list=boosted&chain=solana"))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(r.status(), 200);
+    let cache = r
+        .headers()
+        .get("cache-control")
+        .and_then(|v| v.to_str().ok())
+        .unwrap_or_default()
+        .to_string();
+    assert!(cache.contains("s-maxage=30"), "{cache}");
+    let boosted: Value = r.json().await.unwrap();
+    let tokens = boosted["tokens"].as_array().unwrap();
+    assert_eq!(
+        tokens.len(),
+        2,
+        "the unknown chain and the token with no pool are dropped: {boosted}"
+    );
+    assert_eq!(tokens[0]["address"], trend_mint("two"));
+    assert_eq!(tokens[0]["rank"], 1);
+    assert_eq!(tokens[0]["boosts"], 500.0);
+    assert_eq!(tokens[0]["priceUsd"], 0.01);
+    assert_eq!(
+        tokens[0]["links"],
+        json!([{"kind": "twitter", "url": "https://x.com/hot"}])
+    );
+    assert!(!tokens[0]["description"].as_str().unwrap().contains('<'));
+    assert_eq!(tokens[1]["address"], trend_mint("one"));
+
+    let (s, _) = get_json(&c, format!("{base}/api/discover?list=secret")).await;
+    assert_eq!(s, 400);
+    let (s, _) = get_json(&c, format!("{base}/api/discover?list=boosted&chain=mars")).await;
+    assert_eq!(s, 400);
+
+    let (s, metas) = get_json(&c, format!("{base}/api/discover/metas")).await;
+    assert_eq!(s, 200);
+    assert_eq!(metas["metas"][0]["slug"], "cat");
+    assert_eq!(metas["metas"][0]["icon"], "🐈");
+    let (s, meta) = get_json(&c, format!("{base}/api/discover/meta/cat")).await;
+    assert_eq!(s, 200);
+    assert_eq!(
+        meta["tokens"].as_array().unwrap().len(),
+        1,
+        "only chains the sniper knows: {meta}"
+    );
+    assert_eq!(meta["tokens"][0]["symbol"], "MEOW");
+    let (s, _) = get_json(&c, format!("{base}/api/discover/meta/Bad%20Slug")).await;
+    assert_eq!(s, 400);
+
+    // The assistant reads the same lists, trimmed and without pictures or links.
+    let trends = arctos_backend::ai_tools::run(
+        &state,
+        "dexscreener_trends",
+        &json!({"view": "boosted", "limit": 1}),
+        Duration::from_secs(20),
+    )
+    .await
+    .unwrap();
+    assert_eq!(trends["tokens"].as_array().unwrap().len(), 1, "{trends}");
+    assert!(
+        trends["tokens"][0].get("links").is_none() && trends["tokens"][0].get("imageUrl").is_none()
+    );
+    let narratives = arctos_backend::ai_tools::run(
+        &state,
+        "dexscreener_trends",
+        &json!({"view": "metas"}),
+        Duration::from_secs(20),
+    )
+    .await
+    .unwrap();
+    assert_eq!(narratives["metas"][0]["name"], "Cat");
+    let missing = arctos_backend::ai_tools::run(
+        &state,
+        "dexscreener_trends",
+        &json!({"view": "meta"}),
+        Duration::from_secs(20),
+    )
+    .await;
+    assert!(missing.is_err());
 }
