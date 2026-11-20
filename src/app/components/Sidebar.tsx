@@ -3,7 +3,7 @@ import { ArrowUpRight, Flask, House, X } from '@phosphor-icons/react';
 import arctosLogo from '../../assets/images/arctos-logo-120.webp';
 import type { ViewId } from '../hooks/useHashView';
 import { usePaper } from '../contexts/paper-context';
-import { formatPct, formatUsd, pnlClass } from '../lib/format';
+import { formatDollars, formatPct, pnlClass } from '../lib/format';
 import { NAV_GROUPS, SETTINGS_ITEM, type NavItem } from './navigation';
 import { prefetchView } from '../viewLoaders';
 
@@ -97,7 +97,7 @@ export function Sidebar({ active, onNavigate, open, onClose }: Props) {
               </span>
               <ArrowUpRight className="h-3.5 w-3.5 text-zinc-500 transition group-hover:text-white" weight="bold" aria-hidden />
             </span>
-            <span className="num mt-1.5 block text-lg font-semibold text-white">{formatUsd(paper.equity)}</span>
+            <span className="num mt-1.5 block text-lg font-semibold text-white">{formatDollars(paper.equity)}</span>
             <span className={`num block text-xs ${pnlClass(paper.totalPnl)}`}>{formatPct(paper.totalPnlPct)} all time</span>
           </button>
           <NavButton item={SETTINGS_ITEM} active={active === 'settings'} onClick={() => go('settings')} />

@@ -1,7 +1,7 @@
 import { useState, type ReactNode } from 'react';
 import { ArrowDownRight, ArrowUpRight, ChartPieSlice, Fire, GlobeHemisphereWest, Sparkle, Wallet } from '@phosphor-icons/react';
 import type { Altseason, FearGreed, GlobalStats } from '../services/marketService';
-import { formatCompactUsd, formatPct, formatUsd, sparklinePath } from '../lib/format';
+import { formatCompactUsd, formatDollars, formatPct, formatUsd, sparklinePath } from '../lib/format';
 import { IconTile, Skeleton, type Tone } from './ui/common';
 
 function Delta({ value }: { value: number | null | undefined }) {
@@ -55,10 +55,11 @@ function Meter({ value, label, className }: { value: number; label: string; clas
   );
 }
 
-export function PortfolioValueWidget({ value, change, sourceLabel, hint }: { value: number | null; change: number | null; sourceLabel: string; hint?: ReactNode }) {
+/** `dollars` keeps the value in US dollars, for the USDT practice account. */
+export function PortfolioValueWidget({ value, change, sourceLabel, hint, dollars = false }: { value: number | null; change: number | null; sourceLabel: string; hint?: ReactNode; dollars?: boolean }) {
   return (
     <Widget title="Portfolio value" tone="violet" icon={<Wallet />} footer={<p className="text-[11px] text-zinc-500">{hint ?? sourceLabel}</p>}>
-      <p className={VALUE}>{value == null ? <Skeleton className="h-7 w-28" /> : formatUsd(value)}</p>
+      <p className={VALUE}>{value == null ? <Skeleton className="h-7 w-28" /> : dollars ? formatDollars(value) : formatUsd(value)}</p>
       <div className="mt-1.5 flex flex-wrap items-center gap-2">
         <Delta value={change} />
         <span className="text-[11px] text-violet-300">{sourceLabel}</span>

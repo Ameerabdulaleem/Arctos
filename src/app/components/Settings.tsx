@@ -8,7 +8,8 @@ import { usePolling } from '../hooks/usePolling';
 import { statusService } from '../services/statusService';
 import { parseTrades, TRADEBOOK_KEY } from '../lib/tradebook';
 import { sanitizeAccount } from '../lib/paperTrading';
-import { formatUsd, shortAddress, timeAgo } from '../lib/format';
+import { formatDollars, shortAddress, timeAgo } from '../lib/format';
+import { CurrencyButton } from './CurrencyButton';
 
 const DATA_KEYS = ['arctos_tradebook', 'arctos_paper_v1', 'arctos_whales', 'arctos_sniper_filters', 'arctos_sniper_tracked', 'arctos_sniper_auto_done', 'arctos_whale_notify'];
 
@@ -111,6 +112,12 @@ export function Settings({ onConnectWallet }: { onConnectWallet: () => void }) {
       </Card>
 
       <Card className="p-6">
+        <h2 className="text-lg font-semibold text-white mb-1">Display currency</h2>
+        <p className="text-sm text-zinc-400 mb-4">Show prices, balances and portfolio values in your own currency, such as the Nigerian naira. Amounts are converted from US dollars at today’s rate.</p>
+        <CurrencyButton variant="full" />
+      </Card>
+
+      <Card className="p-6">
         <h2 className="text-lg font-semibold text-white mb-4">Account and wallet</h2>
         {isAuthenticated ? (
           <div className="flex items-center justify-between gap-3 flex-wrap">
@@ -127,7 +134,7 @@ export function Settings({ onConnectWallet }: { onConnectWallet: () => void }) {
 
       <Card className="p-6">
         <h2 className="text-lg font-semibold text-white mb-1">Paper trading account</h2>
-        <p className="text-sm text-zinc-400 mb-4">Equity {formatUsd(paper.equity)}, started with {formatUsd(paper.account.startingBalance, 0)}, {paper.account.fills.length} fills.</p>
+        <p className="text-sm text-zinc-400 mb-4">Equity {formatDollars(paper.equity)}, started with {formatDollars(paper.account.startingBalance, 0)}, {paper.account.fills.length} fills.</p>
         <button onClick={() => { paper.reset(); toast.success('Paper account reset to $10,000.'); }} className={btn}>Reset paper account</button>
       </Card>
 

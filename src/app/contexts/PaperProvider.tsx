@@ -10,7 +10,7 @@ import { useTickers } from '../hooks/useTickers';
 import { errorMessage } from '../services/api';
 import { hasDeviceKey, keeperService, keeperStateOf, type KeeperSale } from '../services/keeperService';
 import { sniperService } from '../services/sniperService';
-import { formatPrice } from '../lib/format';
+import { formatDollarPrice as formatPrice } from '../lib/format';
 
 const STORAGE_KEY = 'arctos_paper_v1';
 /** How often open sniper trades are checked while the app is open. */

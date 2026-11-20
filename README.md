@@ -136,10 +136,13 @@ The panel says which keyed providers are switched on. Nothing else changes.
 * A firm quote is fetched for the connected wallet and shown on a review screen first: amount paid, the least that will arrive after slippage, the receiving address, the route, any approval, and any bridge fee in native coin.
 * Approvals are for the exact amount of the swap, never unlimited, and only to the contract the swap then calls. For 0x only its AllowanceHolder contract is accepted, never Settler, as 0x advises.
 * A plan that would send native coin on a token sale, send a different amount than you typed, run on another chain, call the token contract itself, or pay another address is refused.
-* Relay quotes must name your wallet as sender and the address you chose as recipient, and every step must come from your wallet. Jupiter transactions must list your wallet as a signer.
+* Relay quotes must name your wallet as sender and the address you chose as recipient, and every step must come from your wallet. Jupiter transactions must list your wallet as a signer, and the wallet's answer must carry its signature before anything is sent.
+* Jupiter's signed order lives only about a minute, so the firm price is refreshed quietly while the review is open, and fetched again at the click if it is older than 12 seconds. If the price moved against you by more than 1 percent in that time, you are asked to look again. An order that still expires while the wallet is open is reported plainly, nothing is swapped, and a fresh price is ready for the next press.
 * Tokens that are not on a verified list show a contract risk check (honeypot, taxes, flags) and need a tick before the swap button works. So does a price impact worse than 15 percent.
 * Slippage defaults to 0.5 percent and warns above 5 percent.
 * Arctos adds no fee and never holds funds.
+
+**Fast wallet prompts:** Solana swaps are signed through the Wallet Standard (Phantom, Solflare, Backpack and others register with it), which takes the transaction as bytes, so nothing heavy loads between the click and the wallet window. Phantom's older injected API remains a fallback. Relay's SDK and chain list load when the review opens, not at the click.
 
 **Limits:** Squid deposit address routes are not run (the panel says so and you can pick another quote). Squid is used between EVM chains only; Relay covers Solana bridges. Recent swaps are remembered on your device only.
 
@@ -216,6 +219,14 @@ Tokens without a price (almost always airdropped spam, often using a famous name
 
 Solana's free public RPC refuses bundled requests from busy shared servers, so every Solana call is sent on its own and falls back to a second public RPC. For heavier traffic, set `SOLANA_RPC_URL` to your own RPC (Helius and others have free plans); it is tried first.
 
+## Display currency
+
+Prices, balances, portfolio values, market caps and trade journal results can be shown in the visitor's own currency, such as the Nigerian naira, the euro or the Ghanaian cedi. The picker sits in the top bar and in Settings, lists 54 currencies, and suggests the one for the browser's region.
+
+Every amount the service returns stays in US dollars; the web app only converts for display, with daily rates from `/api/fx`. The service reads them from the free currency API on jsDelivr, falls back to its mirror and then to ExchangeRate-API, keeps them for an hour (and serves the last good rates for up to two days if every source is down), and lets the CDN cache them. The choice and the last rates are remembered on the visitor's device, so the first screen already shows the right currency.
+
+Swap amounts stay in the tokens being traded. The practice account stays in USDT, because it trades USDT pairs and its order fields are in USDT. Trade journal prices are entered in US dollars and shown in the chosen currency.
+
 ## What is simulated, and what is not covered
 
 Be clear about these before you rely on the app:
@@ -278,6 +289,7 @@ Data service (`backend/.env.example`):
 | `COINGECKO_API_KEY`, `BLOCKCHAIR_API_KEY` | Optional keys that raise provider limits. A CoinGecko key also speeds up the sniper's token checks. |
 | `RELAY_API_KEY`, `ZEROX_API_KEY`, `SQUID_INTEGRATOR_ID` | Swap and bridge providers that need a key. See [Swaps and bridges](#swaps-and-bridges). They stay on the server. |
 | `ALCHEMY_API_KEY`, `SOLANA_RPC_URL` | Every token and NFT in EVM wallets, and your own Solana RPC. See [Wallet balances and NFTs](#wallet-balances-and-nfts). Both stay on the server. |
+| `FX_SOURCES` | Optional. Comma separated exchange rate sources, tried in order. See [Display currency](#display-currency). |
 | `*_RPC_URL`, `TRACKED_SYMBOLS`, `WHALE_MIN_USD`, `STOCK_WATCHLIST`, `NEWS_FEEDS` | Optional tuning. |
 
 Every provider base URL can also be overridden, which is how the fixtures work.

@@ -3,6 +3,7 @@ import { toast } from 'sonner';
 import { useAuth } from '../contexts/auth-context';
 import { useTickers } from '../hooks/useTickers';
 import { formatPct, formatPrice, pnlClass, shortAddress } from '../lib/format';
+import { CurrencyButton } from './CurrencyButton';
 import { LiveStatus } from './LiveStatus';
 
 interface Props {
@@ -51,6 +52,7 @@ export function TopBar({ title, onMenu, onConnectWallet, onSignIn }: Props) {
 
       <div className="flex items-center gap-2">
         <MarketStrip />
+        <CurrencyButton />
         {!isAuthenticated ? (
           <>
             <button onClick={onSignIn} className="btn btn-secondary btn-sm hidden h-9 sm:inline-flex">

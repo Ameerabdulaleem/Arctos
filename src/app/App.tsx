@@ -11,6 +11,10 @@ import { Loading } from './components/ui/common';
 import { useHashView, type ViewId } from './hooks/useHashView';
 import { navItem } from './components/navigation';
 import { prefetchView, VIEW_LOADERS, whenIdle } from './viewLoaders';
+import { initCurrency, useCurrency } from './lib/currency';
+
+// The saved display currency and rates are read before the first paint.
+initCurrency();
 
 const DashboardView = lazy(VIEW_LOADERS.dashboard);
 const TradingTerminal = lazy(VIEW_LOADERS.trading);
@@ -39,6 +43,8 @@ const ICON_DEFAULTS = { color: 'currentColor', size: '1em', weight: 'duotone' as
 
 function Shell() {
   const { view, navigate } = useHashView();
+  // Every amount on screen is formatted from this, so a change re-renders the whole app.
+  useCurrency();
   const [menuOpen, setMenuOpen] = useState(false);
   const [waitlistOpen, setWaitlistOpen] = useState(false);
   const [walletOpen, setWalletOpen] = useState(false);

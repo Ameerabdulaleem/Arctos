@@ -3,11 +3,14 @@
 export class ProviderError extends Error {
   readonly provider: string;
   readonly status: number | null;
-  constructor(provider: string, message: string, status: number | null = null) {
+  /** The provider's error answer, for callers that read its error code. */
+  readonly body: unknown;
+  constructor(provider: string, message: string, status: number | null = null, body: unknown = null) {
     super(message);
     this.name = 'ProviderError';
     this.provider = provider;
     this.status = status;
+    this.body = body;
   }
 }
 
@@ -60,7 +63,7 @@ export async function fetchJson(provider: string, url: string, opts: FetchOption
     }
     if (!res.ok) {
       const why = errorMessage(body) ?? (res.status === 429 ? 'too many requests right now' : `answered ${res.status}`);
-      throw new ProviderError(provider, why, res.status);
+      throw new ProviderError(provider, why, res.status, body);
     }
     return { body, headers: res.headers };
   } catch (e) {

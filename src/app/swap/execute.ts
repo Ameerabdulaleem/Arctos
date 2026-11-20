@@ -8,6 +8,7 @@ import { chainById, SOLANA_ID, txUrl, type SwapChain } from './chains';
 import { fetchJson, ProviderError } from './http';
 import { JUPITER_BASE } from './providers/solana';
 import type { Plan, ProviderContext, QuoteRequest } from './types';
+import { signSolanaTransaction } from './solanaSign';
 import type { EvmWallet, SolanaWallet } from './wallets';
 
 export type StepState = 'waiting' | 'active' | 'done' | 'failed';
@@ -165,6 +166,21 @@ async function trackSquid(track: NonNullable<Extract<Plan, { vm: 'evm' }>['track
 
 // ------------------------------------------------------------------ Solana (Jupiter)
 
+/** The firm price ran out before the signed swap reached Jupiter. Nothing was swapped. */
+export class QuoteExpiredError extends Error {
+  constructor() {
+    super('The price expired while your wallet was open, so nothing was swapped. A fresh price is ready, confirm again to sign it.');
+    this.name = 'QuoteExpiredError';
+  }
+}
+
+// Jupiter /execute codes that mean the order or its transaction ran out of time.
+const EXPIRED_CODES = new Set([-1, -1004, -1005, -2003]);
+
+export function jupiterExpired(code: unknown, text: unknown): boolean {
+  return (typeof code === 'number' && EXPIRED_CODES.has(code)) || (typeof text === 'string' && /not found|expired|block ?height/i.test(text));
+}
+
 function base64ToBytes(b64: string): Uint8Array {
   const bin = atob(b64);
   const out = new Uint8Array(bin.length);
@@ -174,55 +190,73 @@ function base64ToBytes(b64: string): Uint8Array {
 
 function bytesToBase64(bytes: Uint8Array): string {
   let bin = '';
-  for (const b of bytes) bin += String.fromCharCode(b);
+  for (let i = 0; i < bytes.length; i += 0x8000) bin += String.fromCharCode(...bytes.subarray(i, i + 0x8000));
   return btoa(bin);
 }
 
 async function runJupiter(plan: Extract<Plan, { vm: 'svm' }>, wallet: SolanaWallet, emit: OnSteps): Promise<ExecResult> {
   const chain = chainById(SOLANA_ID) as SwapChain;
-  const steps = new Steps(emit, [['sign', 'Sign the swap in Phantom'], ['land', 'Wait for Solana to confirm']]);
+  const steps = new Steps(emit, [['sign', 'Sign the swap in your wallet'], ['land', 'Wait for Solana to confirm']]);
   try {
-    if (!wallet.provider.signTransaction) throw new Error('This wallet cannot sign Solana transactions.');
     steps.set('sign', 'active');
-    const { VersionedTransaction } = await import('@solana/web3.js');
-    const tx = VersionedTransaction.deserialize(base64ToBytes(plan.transaction));
-    const signers = tx.message.staticAccountKeys.slice(0, tx.message.header.numRequiredSignatures).map((k) => k.toBase58());
-    if (!signers.includes(wallet.address)) throw new ProviderError('Jupiter', 'built a transaction for another wallet');
-    const signed = await wallet.provider.signTransaction(tx);
+    const signed = await signSolanaTransaction(wallet.provider, wallet.address, base64ToBytes(plan.transaction));
     steps.set('sign', 'done');
     steps.set('land', 'active');
-    const { body } = await fetchJson('Jupiter', `${JUPITER_BASE}/execute`, {
-      method: 'POST',
-      body: { signedTransaction: bytesToBase64(signed.serialize()), requestId: plan.requestId },
-      timeoutMs: 60_000,
-    });
-    const res = body as { status?: unknown; signature?: unknown; error?: unknown };
+    let res: { status?: unknown; signature?: unknown; error?: unknown; code?: unknown };
+    try {
+      const { body } = await fetchJson('Jupiter', `${JUPITER_BASE}/execute`, {
+        method: 'POST',
+        body: { signedTransaction: bytesToBase64(signed), requestId: plan.requestId },
+        timeoutMs: 60_000,
+      });
+      res = (body ?? {}) as typeof res;
+    } catch (e) {
+      const b = (e instanceof ProviderError ? e.body : null) as { code?: unknown; error?: unknown } | null;
+      if (jupiterExpired(b?.code, b?.error ?? (e as Error).message)) throw new QuoteExpiredError();
+      throw e;
+    }
     const link = typeof res.signature === 'string' ? txUrl(chain, res.signature) : null;
     if (res.status !== 'Success') {
       steps.set('land', 'failed', link ?? undefined);
-      throw new Error(typeof res.error === 'string' ? `The swap did not land: ${res.error}` : 'The swap did not land. Nothing was swapped.');
+      if (jupiterExpired(res.code, res.error)) throw new QuoteExpiredError();
+      throw new Error(typeof res.error === 'string' ? `The swap did not land: ${res.error.slice(0, 160)}` : 'The swap did not land. Nothing was swapped.');
     }
     steps.set('land', 'done', link ?? undefined);
     return { link, delivered: true };
   } catch (e) {
     steps.failActive();
+    if (e instanceof QuoteExpiredError) throw e;
     throw new Error(walletMessage(e));
   }
 }
 
 // ------------------------------------------------------------------ Relay
 
-let relayClientFor: string | null = null;
+type RelaySdk = typeof import('@relayprotocol/relay-sdk');
+let relayReady: { base: string; sdk: Promise<RelaySdk> } | null = null;
 
-async function relayClient(ctx: ProviderContext) {
-  const sdk = await import('@relayprotocol/relay-sdk');
-  if (relayClientFor !== ctx.relayBase) {
-    const { fetchChainConfigs } = await import('@relayprotocol/relay-sdk/chain-utils');
-    const chains = await fetchChainConfigs(ctx.relayBase);
-    sdk.createClient({ baseApiUrl: ctx.relayBase, chains });
-    relayClientFor = ctx.relayBase;
+/** Relay's SDK with its chain list, loaded once per API base and shared by every caller. */
+function relayClient(ctx: ProviderContext): Promise<RelaySdk> {
+  if (relayReady?.base !== ctx.relayBase) {
+    const sdk = (async () => {
+      const [mod, { fetchChainConfigs }] = await Promise.all([import('@relayprotocol/relay-sdk'), import('@relayprotocol/relay-sdk/chain-utils')]);
+      const chains = await fetchChainConfigs(ctx.relayBase);
+      mod.createClient({ baseApiUrl: ctx.relayBase, chains });
+      return mod;
+    })();
+    const entry = { base: ctx.relayBase, sdk };
+    relayReady = entry;
+    sdk.catch(() => {
+      if (relayReady === entry) relayReady = null;
+    });
   }
-  return sdk;
+  return relayReady!.sdk;
+}
+
+/** Loads Relay's SDK and chain list before the click, so its wallet prompt opens straight away. */
+export function warmRelay(ctx: ProviderContext, fromSolana: boolean): void {
+  relayClient(ctx).catch(() => {});
+  if (fromSolana) void Promise.all([import('@relayprotocol/relay-svm-wallet-adapter'), import('@solana/web3.js')]).catch(() => {});
 }
 
 async function runRelay(plan: Extract<Plan, { vm: 'relay' }>, req: QuoteRequest, ctx: ProviderContext, wallet: EvmWallet | SolanaWallet, emit: OnSteps): Promise<ExecResult> {

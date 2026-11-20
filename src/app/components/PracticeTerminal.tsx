@@ -9,7 +9,7 @@ import { usePolling } from '../hooks/usePolling';
 import { useTickers } from '../hooks/useTickers';
 import { marketService, walkBook, type ChartInterval } from '../services/marketService';
 import { FEE_RATE } from '../lib/paperTrading';
-import { formatNumber, formatPct, formatPrice, formatUsd, pnlClass } from '../lib/format';
+import { formatDollarPrice as formatPrice, formatDollars as formatUsd, formatNumber, formatPct, pnlClass } from '../lib/format';
 
 const BOOK_ROWS = 8;
 

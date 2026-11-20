@@ -55,7 +55,7 @@ export function QuoteList({ quotes, failures, to, selected, onSelect, loading }:
             <div className="mt-1 flex flex-wrap items-center gap-x-3 gap-y-0.5 text-[11px] text-zinc-400">
               {net != null && <span className="num">≈ {formatUsd(net)} after costs</span>}
               {diffPct != null && diffPct < 0 && <span className="num text-rose-300/90">{diffPct.toFixed(2)}%</span>}
-              {costUsd(q) > 0 && <span className="inline-flex items-center gap-1"><GasPump className="h-3 w-3" aria-hidden />{costUsd(q) < 0.01 ? 'under $0.01' : formatUsd(costUsd(q))}</span>}
+              {costUsd(q) > 0 && <span className="inline-flex items-center gap-1"><GasPump className="h-3 w-3" aria-hidden />{costUsd(q) < 0.01 ? `under ${formatUsd(0.01)}` : formatUsd(costUsd(q))}</span>}
               {eta(q.etaSec) && <span className="inline-flex items-center gap-1"><Clock className="h-3 w-3" aria-hidden />{eta(q.etaSec)}</span>}
               {q.route.length > 0 && <span className="inline-flex min-w-0 items-center gap-1 truncate"><Lightning className="h-3 w-3 shrink-0" aria-hidden />{q.route.join(', ')}</span>}
             </div>

@@ -11,7 +11,7 @@ import { portfolioService } from '../services/portfolioService';
 import { newsService } from '../services/newsService';
 import { whaleService } from '../services/whaleService';
 import { readTrades } from '../lib/tradebook';
-import { formatCompactUsd, formatPct, formatPrice, formatUsd, pnlClass, safeHref, shortAddress, timeAgo } from '../lib/format';
+import { formatCompactUsd, formatDollarPrice, formatDollars, formatPct, formatPrice, formatUsd, pnlClass, safeHref, shortAddress, timeAgo } from '../lib/format';
 import type { ViewId } from '../hooks/useHashView';
 
 interface Props {
@@ -49,14 +49,16 @@ export function DashboardView({ onNavigate, onConnectWallet }: Props) {
     return { gainers: sorted.slice(0, 4), losers: sorted.slice(-4).reverse() };
   }, [coins.data]);
 
+  // Raw numbers only: amounts are formatted while rendering, so they follow the display currency.
+  // Paper trades stay in dollars like the rest of the USDT practice account.
   const activity = useMemo(() => {
     const fills = paper.account.fills.slice(0, 8).map((f) => ({
       id: f.id, time: f.time, title: `${f.side === 'buy' ? 'Bought' : 'Sold'} ${f.symbol}`,
-      detail: `${f.qty.toFixed(6)} at ${formatPrice(f.price)} (${f.note})`, value: f.qty * f.price, side: f.side, tag: 'Paper',
+      qty: f.qty.toFixed(6), price: f.price, note: f.note as string | null, value: f.qty * f.price, side: f.side, tag: 'Paper', dollars: true,
     }));
     const trades = readTrades().slice(0, 5).map((t) => ({
       id: t.id, time: Date.parse(t.date), title: `Logged ${t.tokenName}`,
-      detail: `${t.amount} at ${formatPrice(Number(t.priceBought))}`, value: Number(t.priceBought) * Number(t.amount), side: 'buy' as const, tag: 'Trade book',
+      qty: String(t.amount), price: Number(t.priceBought), note: null, value: Number(t.priceBought) * Number(t.amount), side: 'buy' as const, tag: 'Trade book', dollars: false,
     }));
     return [...fills, ...trades].sort((a, b) => b.time - a.time).slice(0, 8);
   }, [paper.account.fills]);
@@ -85,7 +87,7 @@ export function DashboardView({ onNavigate, onConnectWallet }: Props) {
         {address ? (
           <PortfolioValueWidget value={walletData?.totalUsd ?? null} change={walletChange} sourceLabel={`Wallet ${shortAddress(address)}`} hint={wallet.error && !walletData ? wallet.error : 'Live on chain balances'} />
         ) : (
-          <PortfolioValueWidget value={paper.equity} change={paper.totalPnlPct} sourceLabel="Paper account" hint={<button onClick={onConnectWallet} className="text-blue-300 underline-offset-2 hover:text-blue-200 hover:underline">Connect a wallet for real balances</button>} />
+          <PortfolioValueWidget value={paper.equity} dollars change={paper.totalPnlPct} sourceLabel="Paper account" hint={<button onClick={onConnectWallet} className="text-blue-300 underline-offset-2 hover:text-blue-200 hover:underline">Connect a wallet for real balances</button>} />
         )}
         <AltseasonWidget data={loadingFirst ? undefined : overview.data?.altseason} />
         <DominanceWidget global={g} />
@@ -124,11 +126,11 @@ export function DashboardView({ onNavigate, onConnectWallet }: Props) {
 
         <Card className="p-5">
           <div className="mb-4 flex items-center justify-between gap-3">
-            <h2 className="flex items-center gap-2.5 font-semibold text-white"><IconTile tone="ice" size="sm"><Waves /></IconTile>Whale transfers over $1M</h2>
+            <h2 className="flex items-center gap-2.5 font-semibold text-white"><IconTile tone="ice" size="sm"><Waves /></IconTile>Whale transfers over {formatCompactUsd(1_000_000)}</h2>
             <button onClick={() => onNavigate('whale')} className="btn btn-ghost btn-sm text-blue-300">View all <ArrowUpRight className="h-3 w-3" weight="bold" aria-hidden /></button>
           </div>
           {whales.loading && !whales.data ? <Loading /> : whales.error && !whales.data ? <ErrorNotice message={whales.error} onRetry={whales.refresh} />
-          : whales.data && whales.data.events.length === 0 ? <Empty title="Nothing that large yet">The tracker has not seen a transfer above $1M since it started.</Empty>
+          : whales.data && whales.data.events.length === 0 ? <Empty title="Nothing that large yet">The tracker has not seen a transfer above {formatCompactUsd(1_000_000)} since it started.</Empty>
           : (
             <ul className="space-y-2">
               {whales.data?.events.map((e) => (
@@ -181,11 +183,11 @@ export function DashboardView({ onNavigate, onConnectWallet }: Props) {
                   </IconTile>
                   <div className="min-w-0">
                     <p className="text-white text-sm font-medium truncate">{a.title} <span className="ml-1 rounded-md border border-white/10 bg-white/[0.04] px-1.5 py-0.5 text-[10px] text-zinc-400">{a.tag}</span></p>
-                    <p className="text-zinc-500 text-xs truncate">{a.detail}</p>
+                    <p className="text-zinc-500 text-xs truncate">{a.qty} at {a.dollars ? formatDollarPrice(a.price) : formatPrice(a.price)}{a.note ? ` (${a.note})` : ''}</p>
                   </div>
                 </div>
                 <div className="text-right shrink-0">
-                  <p className="num text-sm font-medium text-white">{formatUsd(a.value)}</p>
+                  <p className="num text-sm font-medium text-white">{a.dollars ? formatDollars(a.value) : formatUsd(a.value)}</p>
                   <p className="text-zinc-500 text-xs inline-flex items-center gap-1"><Clock className="w-3 h-3" aria-hidden />{timeAgo(a.time)}</p>
                 </div>
               </li>
