@@ -94,7 +94,7 @@ export function DashboardView({ onNavigate, onConnectWallet }: Props) {
       </div>
 
       <AssetTabs
-        wallet={{ connected: Boolean(address), data: walletData, loading: wallet.loading, error: wallet.error, onConnect: onConnectWallet, onRetry: wallet.refresh }}
+        wallet={{ connected: Boolean(address), address, data: walletData, loading: wallet.loading, error: wallet.error, onConnect: onConnectWallet, onRetry: wallet.refresh }}
         coins={coins.data?.coins ?? null}
         paperPositions={paper.positions}
         onOpenTerminal={() => onNavigate('trading')}

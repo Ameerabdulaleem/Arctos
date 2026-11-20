@@ -6,23 +6,33 @@ import { Toaster } from './components/ui/sonner';
 import { Sidebar } from './components/Sidebar';
 import { TopBar } from './components/TopBar';
 import { Homepage } from './components/Homepage';
-import { WaitlistModal } from './components/WaitlistModal';
-import { WalletConnectionModal } from './components/WalletConnectionModal';
-import { EmailAuthModal } from './components/EmailAuthModal';
 import { ErrorBoundary } from './components/ErrorBoundary';
 import { Loading } from './components/ui/common';
 import { useHashView, type ViewId } from './hooks/useHashView';
 import { navItem } from './components/navigation';
+import { prefetchView, VIEW_LOADERS, whenIdle } from './viewLoaders';
 
-const DashboardView = lazy(() => import('./components/DashboardView').then((m) => ({ default: m.DashboardView })));
-const TradingTerminal = lazy(() => import('./components/TradingTerminal').then((m) => ({ default: m.TradingTerminal })));
-const SniperPanel = lazy(() => import('./components/SniperPanel').then((m) => ({ default: m.SniperPanel })));
-const TradeBook = lazy(() => import('./components/TradeBook').then((m) => ({ default: m.TradeBook })));
-const WhaleAlert = lazy(() => import('./components/WhaleAlert').then((m) => ({ default: m.WhaleAlert })));
-const FundamentalNews = lazy(() => import('./components/FundamentalNews').then((m) => ({ default: m.FundamentalNews })));
-const StocksPreIPO = lazy(() => import('./components/StocksPreIPO').then((m) => ({ default: m.StocksPreIPO })));
-const AIChat = lazy(() => import('./components/AIChat').then((m) => ({ default: m.AIChat })));
-const Settings = lazy(() => import('./components/Settings').then((m) => ({ default: m.Settings })));
+const DashboardView = lazy(VIEW_LOADERS.dashboard);
+const TradingTerminal = lazy(VIEW_LOADERS.trading);
+const SniperPanel = lazy(VIEW_LOADERS.sniper);
+const TradeBook = lazy(VIEW_LOADERS.tradebook);
+const WhaleAlert = lazy(VIEW_LOADERS.whale);
+const FundamentalNews = lazy(VIEW_LOADERS.news);
+const StocksPreIPO = lazy(VIEW_LOADERS.stocks);
+const AIChat = lazy(VIEW_LOADERS.chat);
+const Settings = lazy(VIEW_LOADERS.settings);
+
+// Dialogs load the first time they open, which keeps their code out of the first page load.
+const WaitlistModal = lazy(() => import('./components/WaitlistModal').then((m) => ({ default: m.WaitlistModal })));
+const WalletConnectionModal = lazy(() => import('./components/WalletConnectionModal').then((m) => ({ default: m.WalletConnectionModal })));
+const EmailAuthModal = lazy(() => import('./components/EmailAuthModal').then((m) => ({ default: m.EmailAuthModal })));
+
+/** True from the first time `open` is true, so a dialog stays mounted for its closing animation. */
+function useOpenedOnce(open: boolean): boolean {
+  const [opened, setOpened] = useState(open);
+  if (open && !opened) setOpened(true);
+  return opened;
+}
 
 // Icons are duotone everywhere unless a component asks for another weight.
 const ICON_DEFAULTS = { color: 'currentColor', size: '1em', weight: 'duotone' as const, mirrored: false };
@@ -34,6 +44,14 @@ function Shell() {
   const [walletOpen, setWalletOpen] = useState(false);
   const [emailOpen, setEmailOpen] = useState(false);
   const closeMenu = useCallback(() => setMenuOpen(false), []);
+  const waitlistReady = useOpenedOnce(waitlistOpen);
+  const walletReady = useOpenedOnce(walletOpen);
+  const emailReady = useOpenedOnce(emailOpen);
+
+  // Once the first screen is up, quietly fetch the page most people open next.
+  useEffect(() => {
+    whenIdle(() => prefetchView(view ? 'trading' : 'dashboard'));
+  }, [view]);
 
   // "Get started" always gives access. No sign in, wallet or waitlist is needed to use the app.
   const launch = useCallback((target: ViewId = 'dashboard') => navigate(target), [navigate]);
@@ -46,8 +64,10 @@ function Shell() {
     return (
       <>
         <Homepage onLaunch={launch} onOpenWaitlist={() => setWaitlistOpen(true)} onOpenWallet={() => setWalletOpen(true)} />
-        <WaitlistModal isOpen={waitlistOpen} onClose={() => setWaitlistOpen(false)} />
-        <WalletConnectionModal open={walletOpen} onOpenChange={setWalletOpen} />
+        <Suspense fallback={null}>
+          {waitlistReady && <WaitlistModal isOpen={waitlistOpen} onClose={() => setWaitlistOpen(false)} />}
+          {walletReady && <WalletConnectionModal open={walletOpen} onOpenChange={setWalletOpen} />}
+        </Suspense>
       </>
     );
   }
@@ -78,8 +98,10 @@ function Shell() {
           </ErrorBoundary>
         </main>
       </div>
-      <WalletConnectionModal open={walletOpen} onOpenChange={setWalletOpen} />
-      <EmailAuthModal open={emailOpen} onOpenChange={setEmailOpen} />
+      <Suspense fallback={null}>
+        {walletReady && <WalletConnectionModal open={walletOpen} onOpenChange={setWalletOpen} />}
+        {emailReady && <EmailAuthModal open={emailOpen} onOpenChange={setEmailOpen} />}
+      </Suspense>
     </div>
   );
 }

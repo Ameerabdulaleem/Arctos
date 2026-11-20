@@ -1,10 +1,11 @@
 import { useEffect } from 'react';
 import { ArrowUpRight, Flask, House, X } from '@phosphor-icons/react';
-import arctosLogo from '../../assets/images/arctos-logo.png.png';
+import arctosLogo from '../../assets/images/arctos-logo-120.webp';
 import type { ViewId } from '../hooks/useHashView';
 import { usePaper } from '../contexts/paper-context';
 import { formatPct, formatUsd, pnlClass } from '../lib/format';
 import { NAV_GROUPS, SETTINGS_ITEM, type NavItem } from './navigation';
+import { prefetchView } from '../viewLoaders';
 
 interface Props {
   active: ViewId;
@@ -18,6 +19,8 @@ function NavButton({ item, active, onClick }: { item: NavItem; active: boolean; 
   return (
     <button
       onClick={onClick}
+      onPointerEnter={() => prefetchView(item.id)}
+      onFocus={() => prefetchView(item.id)}
       aria-current={active ? 'page' : undefined}
       className={`group relative flex w-full items-center gap-3 rounded-xl px-2.5 py-2 text-left text-sm transition duration-150 ${
         active ? 'bg-white/[0.07] font-medium text-white shadow-[inset_0_1px_0_0_rgba(255,255,255,0.06)]' : 'text-zinc-400 hover:bg-white/[0.04] hover:text-zinc-100'

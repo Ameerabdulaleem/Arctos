@@ -42,7 +42,11 @@ export function ImageWithFallback({
       className={className}
       onLoad={handleLoad}
       onError={handleError}
-      style={{ display: isLoading || hasError ? 'none' : 'block' }}
+      // Lazy images only load when laid out, so the image is hidden with opacity, not display.
+      loading="lazy"
+      decoding="async"
+      referrerPolicy="no-referrer"
+      style={{ opacity: isLoading ? 0 : 1, transition: 'opacity 200ms ease' }}
     />
   );
 }

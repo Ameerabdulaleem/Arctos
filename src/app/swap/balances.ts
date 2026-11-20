@@ -4,16 +4,25 @@ import { createPublicClient, erc20Abi, http, type Address } from 'viem';
 import { chainById, isNative, SOL_MINT } from './chains';
 import type { Token } from './types';
 
-async function solanaRpc<T>(url: string, method: string, params: unknown[], signal?: AbortSignal): Promise<T> {
-  const res = await fetch(url, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ jsonrpc: '2.0', id: 1, method, params }),
-    signal,
-  });
-  const json = (await res.json()) as { result?: T; error?: unknown };
-  if (json.error || json.result === undefined) throw new Error('rpc error');
-  return json.result;
+async function solanaRpc<T>(urls: string[], method: string, params: unknown[], signal?: AbortSignal): Promise<T> {
+  let last: unknown = new Error('rpc error');
+  for (const url of urls) {
+    try {
+      const res = await fetch(url, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ jsonrpc: '2.0', id: 1, method, params }),
+        signal,
+      });
+      const json = (await res.json()) as { result?: T; error?: unknown };
+      if (!json.error && json.result !== undefined) return json.result;
+      last = new Error('rpc error');
+    } catch (e) {
+      if (signal?.aborted) throw e;
+      last = e;
+    }
+  }
+  throw last;
 }
 
 /** The balance in the token's smallest unit, or null when it could not be read. */
@@ -26,12 +35,13 @@ export async function balanceOf(token: Token, owner: string, signal?: AbortSigna
       if (isNative(chain, token.address)) return await client.getBalance({ address: owner as Address });
       return await client.readContract({ address: token.address as Address, abi: erc20Abi, functionName: 'balanceOf', args: [owner as Address] });
     }
+    const rpcs = [chain.rpc, ...(chain.rpcFallback ? [chain.rpcFallback] : [])];
     if (token.address === SOL_MINT) {
-      const r = await solanaRpc<{ value: number }>(chain.rpc, 'getBalance', [owner, { commitment: 'confirmed' }], signal);
+      const r = await solanaRpc<{ value: number }>(rpcs, 'getBalance', [owner, { commitment: 'confirmed' }], signal);
       return BigInt(r.value);
     }
     const r = await solanaRpc<{ value: Array<{ account: { data: { parsed: { info: { tokenAmount: { amount: string } } } } } }> }>(
-      chain.rpc,
+      rpcs,
       'getTokenAccountsByOwner',
       [owner, { mint: token.address }, { encoding: 'jsonParsed', commitment: 'confirmed' }],
       signal,

@@ -24,6 +24,8 @@ Add these in Vercel, Project Settings, Environment Variables, then redeploy.
 - [ ] `ZEROX_API_KEY` (free, from dashboard.0x.org) adds 0x to the swap comparison.
 - [ ] `SQUID_INTEGRATOR_ID` (request through Squid's partnership form) adds Squid bridges between EVM chains.
 - [ ] After a redeploy, open `/api/swap/providers` on the site. It shows which of the three are on, never the keys.
+- [ ] `ALCHEMY_API_KEY` (free, from dashboard.alchemy.com) shows every token and NFT in EVM wallets on the dashboard and in the swap panel. Solana wallets need no key.
+- [ ] Optional: `SOLANA_RPC_URL` with your own Solana RPC (for example a free Helius endpoint) if Solana balances ever load slowly under heavy traffic.
 
 ## 3. Optional: a standalone server
 

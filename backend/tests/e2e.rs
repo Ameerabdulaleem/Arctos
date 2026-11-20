@@ -177,6 +177,51 @@ fn fake_upstream() -> Router {
             ([("x-request-id", "req-123"), ("set-cookie", "tracker=1")], Json(json!({"route": {"quoteId": "q-1", "estimate": {"toAmount": "5"}}, "sawIntegrator": id, "echo": body})))
         }))
         .route("/squid/v2/status", get(|| async { Json(json!({"squidTransactionStatus": "success"})) }))
+        .route("/jup/tokens/v2/search", get(|| async { Json(json!([
+            {"id": "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v", "symbol": "USDC", "name": "USD Coin", "icon": "https://img.example/usdc.png", "decimals": 6, "usdPrice": 1.0, "isVerified": true},
+            {"id": "SpamSpamSpamSpamSpamSpamSpamSpamSpamSpamSpam", "symbol": "USDC", "name": "Claim USDC", "decimals": 0, "isVerified": false},
+            {"id": "So11111111111111111111111111111111111111112", "symbol": "SOL", "name": "Wrapped SOL", "decimals": 9, "usdPrice": 150.0, "isVerified": true}
+        ])) }))
+        .route("/me/wallets/:wallet/tokens", get(|| async { Json(json!([
+            {"mintAddress": "7tUh6q172wHmPJzM2HC111Wc7v5845kGcBXqi6UHBySd", "name": "Codino #110", "collectionName": "codino", "image": "ipfs://QmCodino"},
+            {"mintAddress": "8tUh6q172wHmPJzM2HC111Wc7v5845kGcBXqi6UHBySd", "name": "No picture, no collection"}
+        ])) }))
+        .route("/alchemy/:key/assets/tokens/by-address", post(|Path(key): Path<String>, Json(body): Json<Value>| async move {
+            if key != "alchemy-test-key" {
+                return Json(json!({"error": {"message": "bad key"}}));
+            }
+            let networks = body["addresses"][0]["networks"].as_array().cloned().unwrap_or_default();
+            let wallet = body["addresses"][0]["address"].clone();
+            let has = |n: &str| networks.iter().any(|x| x == n);
+            let mut tokens = vec![];
+            let mut errors = vec![];
+            if has("eth-mainnet") {
+                tokens.push(json!({"address": wallet, "network": "eth-mainnet", "tokenAddress": null, "tokenBalance": "0x1bc16d674ec80000",
+                    "tokenMetadata": {"decimals": 18, "symbol": "ETH", "name": "Ethereum"}, "tokenPrices": [{"currency": "usd", "value": "3000", "lastUpdatedAt": "2026-01-01T00:00:00Z"}]}));
+                tokens.push(json!({"address": wallet, "network": "base-mainnet", "tokenAddress": "0x833589fcd6edb6e08f4c7c32d4f71b54bda02913", "tokenBalance": "0x5f5e100",
+                    "tokenMetadata": {"decimals": 6, "symbol": "USDC", "name": "USD Coin", "logo": "https://img.example/usdc.png"}, "tokenPrices": [{"currency": "usd", "value": "1", "lastUpdatedAt": "2026-01-01T00:00:00Z"}]}));
+                tokens.push(json!({"address": wallet, "network": "arb-mainnet", "tokenAddress": "0x9999999999999999999999999999999999999999", "tokenBalance": "0x3635c9adc5dea00000",
+                    "tokenMetadata": {"decimals": 18, "symbol": "FREE", "name": "Visit claim-free.example"}, "tokenPrices": []}));
+                errors.push(json!({"network": "bnb-mainnet", "message": "timeout"}));
+            }
+            if has("matic-mainnet") {
+                tokens.push(json!({"address": wallet, "network": "matic-mainnet", "tokenAddress": null, "tokenBalance": "0x3635c9adc5dea00000",
+                    "tokenMetadata": {"decimals": 18, "symbol": "POL", "name": "Polygon"}, "tokenPrices": [{"currency": "usd", "value": "0.2", "lastUpdatedAt": "2026-01-01T00:00:00Z"}]}));
+            }
+            let mut out = json!({"data": {"tokens": tokens}});
+            if !errors.is_empty() {
+                out["error"] = json!({"message": "Failed to fetch tokens on certain networks", "partialErrors": errors});
+            }
+            Json(out)
+        }))
+        .route("/alchemy/:key/assets/nfts/by-address", post(|Json(body): Json<Value>| async move {
+            let networks = body["addresses"][0]["networks"].as_array().cloned().unwrap_or_default();
+            let items = if networks.iter().any(|n| n == "eth-mainnet") {
+                json!([{"network": "eth-mainnet", "contract": {"address": "0xBC4CA0EdA7647A8aB7C2061c2E118A18a936f13D", "tokenType": "ERC721", "name": "BoredApeYachtClub"},
+                        "tokenId": "42", "name": "Ape 42", "image": {"thumbnailUrl": "https://img.example/ape.png"}}])
+            } else { json!([]) };
+            Json(json!({"data": {"ownedNfts": items}}))
+        }))
         .route("/relay/chains", get(|| async { Json(json!({"chains": [{"id": 8453, "name": "base", "displayName": "Base"}]})) }))
         .route("/relay/quote/v2", post(|headers: axum::http::HeaderMap, Json(body): Json<Value>| async move {
             if body["amount"] == "0" {
@@ -194,7 +239,21 @@ fn fake_upstream() -> Router {
         .route("/anthropic/v1/messages", post(|Json(body): Json<Value>| async move { Json(fake_model(&body)) }))
         .route("/rpc", post(|Json(req): Json<Value>| async move {
             // One answer per request, batches included, each carrying its request's id.
-            let answer = |r: &Value| json!({"jsonrpc": "2.0", "id": r["id"].clone(), "result": "0x10"});
+            let answer = |r: &Value| {
+                // Solana wallet reads get realistic answers; everything else a hex quantity.
+                let result = match r["method"].as_str() {
+                    Some("getBalance") => json!({"context": {"slot": 1}, "value": 2_500_000_000u64}),
+                    Some("getTokenAccountsByOwner") if r["params"][1]["programId"] == "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA" => json!({"context": {"slot": 1}, "value": [
+                        {"account": {"data": {"parsed": {"info": {"mint": "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v", "tokenAmount": {"amount": "12500000", "decimals": 6}}}}}},
+                        {"account": {"data": {"parsed": {"info": {"mint": "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v", "tokenAmount": {"amount": "500000", "decimals": 6}}}}}},
+                        {"account": {"data": {"parsed": {"info": {"mint": "SpamSpamSpamSpamSpamSpamSpamSpamSpamSpamSpam", "tokenAmount": {"amount": "999999999", "decimals": 0}}}}}},
+                        {"account": {"data": {"parsed": {"info": {"mint": "DezXAZ8z7PnrnRJjz3wXBoRgixCa6xjnB7YaB1pPB263", "tokenAmount": {"amount": "0", "decimals": 5}}}}}}
+                    ]}),
+                    Some("getTokenAccountsByOwner") => json!({"context": {"slot": 1}, "value": []}),
+                    _ => json!("0x10"),
+                };
+                json!({"jsonrpc": "2.0", "id": r["id"].clone(), "result": result})
+            };
             Json(match req.as_array() {
                 Some(batch) => Value::Array(batch.iter().map(answer).collect()),
                 None => answer(&req),
@@ -287,6 +346,9 @@ fn test_config(base: &str) -> Config {
         *rpc = format!("{base}/rpc");
     }
     cfg.blockchair_base = format!("{base}/blockchair");
+    cfg.jupiter_base = format!("{base}/jup");
+    cfg.magiceden_base = format!("{base}/me");
+    cfg.alchemy_api_key = None;
     cfg
 }
 
@@ -1966,4 +2028,113 @@ async fn keyed_swap_providers_stay_off_without_keys() {
     assert_eq!(r.status(), 200);
     let v: Value = r.json().await.unwrap();
     assert_eq!(v["sawKey"], Value::Null);
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn solana_wallet_lists_every_priced_token_and_its_nfts() {
+    let (base, _) = boot_on_demand().await;
+    let client = reqwest::Client::new();
+    let wallet = "9WzDXwBbmkg8ZTbNMqUxvQRAyrZzDsGYdLVL9zYtAWWM";
+
+    let (status, v) = get_json(&client, format!("{base}/api/portfolio/{wallet}")).await;
+    assert_eq!(status, 200, "{v}");
+    let holdings = v["holdings"].as_array().unwrap();
+    let symbols: Vec<&str> = holdings
+        .iter()
+        .map(|h| h["symbol"].as_str().unwrap())
+        .collect();
+    assert!(symbols.contains(&"SOL"), "{v}");
+    // Two accounts of the same token add up, exactly.
+    let usdc = holdings
+        .iter()
+        .find(|h| h["address"] == "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v")
+        .expect("usdc");
+    assert_eq!(usdc["rawAmount"], "13000000");
+    assert_eq!(usdc["decimals"], 6);
+    assert_eq!(usdc["logo"], "https://img.example/usdc.png");
+    assert!((usdc["valueUsd"].as_f64().unwrap() - 13.0).abs() < 1e-9);
+    // The fake "USDC" airdrop has no price and is not verified, so it is counted, not listed.
+    assert_eq!(holdings.iter().filter(|h| h["symbol"] == "USDC").count(), 1);
+    assert_eq!(v["hiddenTokens"], 1);
+    assert_eq!(v["partial"], false);
+    assert_eq!(v["complete"], true);
+    let sol = holdings.iter().find(|h| h["symbol"] == "SOL").unwrap();
+    assert_eq!(sol["rawAmount"], "2500000000");
+
+    let (status, v) = get_json(&client, format!("{base}/api/portfolio/{wallet}/nfts")).await;
+    assert_eq!(status, 200, "{v}");
+    let nfts = v["nfts"].as_array().unwrap();
+    assert_eq!(
+        nfts.len(),
+        1,
+        "the NFT with no picture and no collection is dropped: {v}"
+    );
+    assert_eq!(nfts[0]["image"], "https://ipfs.io/ipfs/QmCodino");
+    assert_eq!(v["available"], true);
+
+    // EVM wallets without a wallet index: major tokens only, said plainly, and no NFTs.
+    let (status, v) = get_json(
+        &client,
+        format!("{base}/api/portfolio/0x28C6c06298d514Db089934071355E5743bf21d60"),
+    )
+    .await;
+    assert_eq!(status, 200, "{v}");
+    assert_eq!(v["complete"], false);
+    let (status, v) = get_json(
+        &client,
+        format!("{base}/api/portfolio/0x28C6c06298d514Db089934071355E5743bf21d60/nfts"),
+    )
+    .await;
+    assert_eq!(status, 200);
+    assert_eq!(v["available"], false);
+    assert_eq!(v["nfts"].as_array().map(|a| a.len()), Some(0));
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn evm_wallet_with_an_index_lists_every_token_and_nft() {
+    let up = serve(fake_upstream()).await;
+    let mut cfg = test_config(&format!("http://{up}"));
+    cfg.alchemy_base = format!("http://{up}/alchemy");
+    cfg.alchemy_api_key = Some("alchemy-test-key".into());
+    let state = build_state(cfg.into_on_demand()).await;
+    let base = format!("http://{}", serve(build_router(state)).await);
+    let client = reqwest::Client::new();
+    let wallet = "0x1111111111111111111111111111111111111111";
+
+    let (status, v) = get_json(&client, format!("{base}/api/portfolio/{wallet}")).await;
+    assert_eq!(status, 200, "{v}");
+    let holdings = v["holdings"].as_array().unwrap();
+    let find = |chain: &str, symbol: &str| {
+        holdings
+            .iter()
+            .find(|h| h["chain"] == chain && h["symbol"] == symbol)
+            .cloned()
+    };
+    let eth = find("ethereum", "ETH").expect("eth");
+    assert_eq!(eth["rawAmount"], "2000000000000000000");
+    assert!((eth["valueUsd"].as_f64().unwrap() - 6000.0).abs() < 1e-6);
+    assert_eq!(
+        find("base", "USDC").expect("usdc")["address"],
+        "0x833589fcd6edb6e08f4c7c32d4f71b54bda02913"
+    );
+    assert!(
+        find("polygon", "POL").is_some(),
+        "second batch of networks: {v}"
+    );
+    // The unpriced airdrop is hidden, and BNB Chain, which the index missed, came from plain RPC.
+    assert!(find("arbitrum", "FREE").is_none());
+    assert_eq!(v["hiddenTokens"], 1);
+    assert!(
+        find("bsc", "BNB").is_some(),
+        "BNB Chain fell back to RPC: {v}"
+    );
+    assert_eq!(v["complete"], false, "one chain was only partly read");
+    // The key never reaches the browser.
+    assert!(!v.to_string().contains("alchemy-test-key"));
+
+    let (status, v) = get_json(&client, format!("{base}/api/portfolio/{wallet}/nfts")).await;
+    assert_eq!(status, 200, "{v}");
+    assert_eq!(v["available"], true);
+    assert_eq!(v["nfts"][0]["name"], "Ape 42");
+    assert_eq!(v["nfts"][0]["chain"], "ethereum");
 }

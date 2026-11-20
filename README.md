@@ -36,7 +36,7 @@ The web app asks `/api/status` which mode it is talking to and adapts, so nothin
 | Page | Data | Source |
 | --- | --- | --- |
 | Homepage | Prices, market cap, volume, dominance, Fear and Greed | Binance stream, CoinGecko, Alternative.me |
-| Dashboard | Market widgets, altseason index, top movers, headlines, whale feed, wallet balances | All of the above plus chain RPC |
+| Dashboard | Market widgets, altseason index, top movers, headlines, whale feed, your wallet's tokens and NFTs | All of the above plus chain RPC, Jupiter, Magic Eden, and Alchemy when keyed |
 | Trading Terminal | Real spot swaps and bridges signed in your own wallet, with a live DexScreener chart. A Practice tab keeps paper trading on live candles and order books | Relay, Jupiter, KyberSwap, 0x, Sushi, Squid, DexScreener, Binance |
 | Sniper Engine | New liquidity pools on 5 chains, token search, contract risk checks | GeckoTerminal, DexScreener, GoPlus |
 | Whale Alerts | Large transfers on Ethereum, BNB Chain, Base, Arbitrum and Bitcoin | Chain RPC, Blockchair |
@@ -200,6 +200,22 @@ Every query is sent as an unnamed statement, which the pooler's transaction mode
 
 **Backups.** Supabase's free plan gives you no backups you can download. A daily copy to a private Railway storage bucket can be added later within Railway's free allowance.
 
+## Wallet balances and NFTs
+
+The dashboard's Wallet and NFTs tabs, and the "In your wallet" list in the swap panel, read the connected wallet:
+
+| Wallet | Tokens | NFTs |
+| --- | --- | --- |
+| Solana | Every token, named, with a logo and a price from Jupiter's token list | Yes, from Magic Eden |
+| EVM, without a key | Native coins and major tokens (stablecoins, wrapped ETH, BNB, BTC) on Ethereum, BNB Chain, Base and Arbitrum | No |
+| EVM, with `ALCHEMY_API_KEY` | Every token, priced, on Ethereum, BNB Chain, Base, Arbitrum, Optimism, Polygon, Avalanche, Linea and Sonic | Yes, on the chains Alchemy indexes (not BNB Chain or Sonic) |
+
+Get a free Alchemy key at dashboard.alchemy.com and set `ALCHEMY_API_KEY` in Vercel. It stays on the server. A chain Alchemy cannot read at that moment falls back to plain RPC.
+
+Tokens without a price (almost always airdropped spam, often using a famous name) and dust under a cent are counted, not listed; the page says how many. Exact balances are kept in the token's smallest unit, so the swap panel's Max uses all of it. NFTs have their own endpoint and a longer cache, so balances never wait for pictures.
+
+Solana's free public RPC refuses bundled requests from busy shared servers, so every Solana call is sent on its own and falls back to a second public RPC. For heavier traffic, set `SOLANA_RPC_URL` to your own RPC (Helius and others have free plans); it is tried first.
+
 ## What is simulated, and what is not covered
 
 Be clear about these before you rely on the app:
@@ -207,7 +223,7 @@ Be clear about these before you rely on the app:
 * **Practice and sniper trades are paper trades.** Orders in the terminal's Practice tab and in the sniper are simulated against real order books and prices, with a 0.1 percent fee, limit orders, take profit and stop loss. Sniper trades are sold by the exit plan described above. Real funds only move in the Swap and bridge tab, after you review the swap and sign it in your own wallet.
 * **PRE-IPO cards are static.** Private companies have no free live price feed. The listings and valuations in `src/app/data/preIpoListings.ts` are maintained by hand and are labelled as possibly out of date. Update them when you refresh the cards.
 * **Solana whale alerts are not available yet.** A reliable Solana feed needs a dedicated RPC provider. The page says so.
-* **DeFi positions and NFTs are not read.** Wallet balances cover native coins and major tokens (stablecoins, wrapped ETH, BNB and BTC). Positions need an indexer.
+* **Wallet coverage depends on the chain.** See [Wallet balances and NFTs](#wallet-balances-and-nfts). DeFi positions (liquidity, lending, staking) are not read.
 * **Whale direction labels** only appear for a short built in list of well known exchange wallets. Everything else is shown as a plain transfer.
 * **Accounts are local to the browser.** Email sign in stores a salted PBKDF2 hash on the device. There is no cloud account system yet. Connecting a wallet only reads its address; the swap panel is the one place that asks for signatures, after its review screen.
 
@@ -261,6 +277,7 @@ Data service (`backend/.env.example`):
 | `MAIL_*`, `PUBLIC_SITE_URL` | SMTP settings for the welcome email (optional). |
 | `COINGECKO_API_KEY`, `BLOCKCHAIR_API_KEY` | Optional keys that raise provider limits. A CoinGecko key also speeds up the sniper's token checks. |
 | `RELAY_API_KEY`, `ZEROX_API_KEY`, `SQUID_INTEGRATOR_ID` | Swap and bridge providers that need a key. See [Swaps and bridges](#swaps-and-bridges). They stay on the server. |
+| `ALCHEMY_API_KEY`, `SOLANA_RPC_URL` | Every token and NFT in EVM wallets, and your own Solana RPC. See [Wallet balances and NFTs](#wallet-balances-and-nfts). Both stay on the server. |
 | `*_RPC_URL`, `TRACKED_SYMBOLS`, `WHALE_MIN_USD`, `STOCK_WATCHLIST`, `NEWS_FEEDS` | Optional tuning. |
 
 Every provider base URL can also be overridden, which is how the fixtures work.
@@ -276,6 +293,7 @@ Every provider base URL can also be overridden, which is how the fixtures work.
   * `DATABASE_URL` connects the database (see [The database](#the-database)): real waitlist positions, open snipes managed while you are away, and developer records that survive restarts. `MAIL_USERNAME`, `MAIL_PASSWORD` and `MAIL_FROM` send the welcome email.
   * `COINGECKO_API_KEY` and `BLOCKCHAIR_API_KEY` raise provider limits.
   * `RELAY_API_KEY`, `ZEROX_API_KEY` and `SQUID_INTEGRATOR_ID` switch on the keyed swap and bridge providers.
+  * `ALCHEMY_API_KEY` shows every token and NFT in EVM wallets. `SOLANA_RPC_URL` points Solana reads at your own RPC.
 * After a deploy, open `/api/status` on your site. It lists every provider and whether it is reachable.
 
 The function runs in Frankfurt (`fra1` in `vercel.json`). Binance refuses requests from some regions, the United States among them, so keep the function in a region Binance serves. If the exchange is ever unreachable, prices fall back to the CoinGecko market list and the status page says so.

@@ -26,7 +26,7 @@ export const NAV_GROUPS: NavGroup[] = [
   {
     label: 'Trade',
     items: [
-      { id: 'trading', label: 'Trading Terminal', blurb: 'Live candles, order book and paper orders.', icon: ChartLineUp, tone: 'mint' },
+      { id: 'trading', label: 'Trading Terminal', blurb: 'Spot swaps and bridges across chains, plus paper practice.', icon: ChartLineUp, tone: 'mint' },
       { id: 'sniper', label: 'Sniper Engine', blurb: 'New liquidity pools with contract risk checks.', icon: Crosshair, tone: 'amber' },
       { id: 'tradebook', label: 'Trade Book', blurb: 'Your journal, with live profit and loss.', icon: Notebook, tone: 'violet' },
     ],
