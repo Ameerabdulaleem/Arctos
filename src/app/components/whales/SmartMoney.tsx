@@ -250,6 +250,14 @@ export function SmartMoney({ isTracked, onTrack }: { isTracked: (address: string
     try { localStorage.setItem(CHAIN_KEY, next); } catch { /* storage unavailable */ }
   };
 
+  // A failed scan (usually the provider being busy) is tried again a minute later.
+  const { error: scanError, refresh: rescan } = data;
+  useEffect(() => {
+    if (!scanError) return;
+    const t = setTimeout(rescan, 60_000);
+    return () => clearTimeout(t);
+  }, [scanError, rescan]);
+
   const scan = data.data?.chain === chain ? data.data : null;
   const wallets = useMemo(() => {
     const list = (scan?.wallets ?? []).filter((w) => grade === 'all' || w.grade === grade);

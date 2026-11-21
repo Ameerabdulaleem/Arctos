@@ -8,6 +8,7 @@ use std::{net::SocketAddr, sync::Arc, time::Duration};
 use arctos_backend::{build_router, build_state, spawn_background, Config};
 use axum::{
     extract::Path,
+    response::IntoResponse,
     routing::{get, post},
     Json, Router,
 };
@@ -95,14 +96,18 @@ fn launchpad_provider() -> Router {
             Json(json!({"data": data}))
         }))
         // Smart money: MOON rose 400%, the stablecoin pool is not graded.
-        .route("/networks/:net/trending_pools", get(|| async {
+        .route("/networks/:net/trending_pools", get(|Path(net): Path<String>| async move {
+            // Base acts out a provider that stays busy.
+            if net == "base" {
+                return (axum::http::StatusCode::TOO_MANY_REQUESTS, Json(json!({"status": {"error_code": 429}}))).into_response();
+            }
             let pool = |sym: &str, mint: &str, price: &str, change: &str| json!({"id": format!("solana_pool{sym}"), "type": "pool",
                 "attributes": {"name": format!("{sym} / SOL"), "address": format!("pool{sym}"), "base_token_price_usd": price,
                 "reserve_in_usd": "90000", "fdv_usd": "2000000", "price_change_percentage": {"h24": change}, "volume_usd": {"h24": "800000"},
                 "transactions": {"h24": {"buys": 900, "sells": 500}}},
                 "relationships": {"base_token": {"data": {"id": format!("solana_{mint}")}}, "dex": {"data": {"id": "raydium"}}}});
             Json(json!({"data": [pool("USDC", "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v", "1", "0"), pool("MOON", &trend_mint("moon"), "0.01", "400")],
-                "included": [{"id": format!("solana_{}", trend_mint("moon")), "type": "token", "attributes": {"symbol": "MOON", "name": "Moon Coin"}}]}))
+                "included": [{"id": format!("solana_{}", trend_mint("moon")), "type": "token", "attributes": {"symbol": "MOON", "name": "Moon Coin"}}]})).into_response()
         }))
         .route("/networks/:net/pools/:pool/trades", get(|Path((_net, pool)): Path<(String, String)>, axum::extract::RawQuery(q): axum::extract::RawQuery| async move {
             assert_eq!(pool, "poolMOON");
@@ -2456,4 +2461,8 @@ async fn smart_money_grades_wallets_that_bought_pumps_early() {
     // A chain the scan does not cover is refused, not fetched.
     let (s, _) = get_json(&client, format!("{base}/api/whales/smart?chain=near")).await;
     assert_eq!(s, 400);
+    // A provider that stays busy after one retry gets a clear answer, not a generic failure.
+    let (s, v) = get_json(&client, format!("{base}/api/whales/smart?chain=base")).await;
+    assert_eq!(s, 503, "{v}");
+    assert!(v.to_string().contains("GeckoTerminal is busy"), "{v}");
 }
