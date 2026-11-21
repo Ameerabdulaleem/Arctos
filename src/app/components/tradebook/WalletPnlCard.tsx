@@ -124,7 +124,7 @@ export function WalletPnlCard() {
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div>
           <h2 className="flex items-center gap-2.5 font-semibold text-white"><IconTile tone="mint" size="sm"><Wallet /></IconTile>Connected wallet profit and loss</h2>
-          <p className="mt-1 flex items-center gap-1 text-xs text-zinc-500">Solana <span className="num">{shortAddress(solana.address, 5, 5)}</span><CopyAddress value={solana.address} label="Copy the wallet address" />{state && <> , updated {timeAgo(state.at)}</>}</p>
+          <p className="mt-1 flex items-center gap-1 text-xs text-zinc-500">Solana <span className="num">{shortAddress(solana.address, 5, 5)}</span><CopyAddress value={solana.address} label="Copy the wallet address" />{state && <span>, updated {timeAgo(state.at)}</span>}</p>
         </div>
         <div className="flex gap-2">
           {state && !state.complete && <button type="button" disabled={progress != null} onClick={() => void run(true)} className="btn btn-secondary btn-sm"><ClockCounterClockwise className="h-4 w-4" aria-hidden />Read older trades</button>}

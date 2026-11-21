@@ -366,7 +366,7 @@ function WalletSnipeRow({ snipe, price, alerts, onSell, onForget }: {
       <div className="flex items-start justify-between gap-3">
         <div className="min-w-0">
           <p className="flex items-center gap-1 font-semibold text-white">{snipe.symbol}<CopyAddress value={snipe.address} label={`Copy ${snipe.symbol} contract address`} /><span className="text-xs font-normal text-zinc-500">{chain?.name ?? snipe.chain}</span></p>
-          <p className="text-xs text-zinc-500">Bought with {snipe.spent} at {formatPrice(snipe.entryPriceUsd)}, {timeAgo(snipe.at)}{snipe.link && <> , <a href={snipe.link} target="_blank" rel="noopener noreferrer" className="text-blue-300">transaction</a></>}</p>
+          <p className="text-xs text-zinc-500">Bought with {snipe.spent} at {formatPrice(snipe.entryPriceUsd)}, {timeAgo(snipe.at)}{snipe.link && <>, <a href={snipe.link} target="_blank" rel="noopener noreferrer" className="text-blue-300">transaction</a></>}</p>
         </div>
         <div className="shrink-0 text-right">
           <p className="num text-sm text-white">{price == null ? 'No price' : formatUsd(snipe.qty * price)}</p>
