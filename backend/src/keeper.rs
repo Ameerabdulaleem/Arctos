@@ -46,7 +46,7 @@ use crate::{
 
 pub const MAX_TAKE_PROFITS: u8 = 3;
 /// Open snipes one browser may hand to the keeper.
-const MAX_POSITIONS_PER_OWNER: usize = 12;
+const MAX_POSITIONS_PER_OWNER: usize = 50;
 /// Open snipes the store holds across everyone. Beyond it, new ones are
 /// managed from the browser only.
 const MAX_OPEN_POSITIONS: i64 = 5_000;

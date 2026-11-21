@@ -422,7 +422,8 @@ pub fn build_router(state: Arc<AppState>) -> Router {
         // Trade keeper: exit plans for open snipes
         .route(
             "/api/sniper/keeper/sync",
-            post(keeper::sync).layer(DefaultBodyLimit::max(64 * 1024)),
+            // Room for 50 open snipes with their exit plans.
+            post(keeper::sync).layer(DefaultBodyLimit::max(160 * 1024)),
         )
         .route(
             "/api/sniper/keeper/tick",
