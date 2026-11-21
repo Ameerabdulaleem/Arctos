@@ -383,7 +383,7 @@ The function runs in Frankfurt (`fra1` in `vercel.json`). Binance refuses reques
 ```bash
 npm test                          # unit tests for the paper trading engine, exit plan, sniper filters, formatting, trade book, password hashing
 npm run lint && npm run build
-cd backend && cargo test          # 126 unit tests and 27 end to end tests against a fake upstream, in both modes
+cd backend && cargo test          # 127 unit tests and 27 end to end tests against a fake upstream, in both modes
                                   # set TEST_DATABASE_URL to also run the database tests against a real PostgreSQL
 cargo build                       # the Vercel function crate (repository root)
 cd backend && cargo clippy --all-targets -- -D warnings
