@@ -308,12 +308,25 @@ pub fn positions(trades: &[Trade]) -> HashMap<String, Position> {
         .collect()
 }
 
+/// True for a stablecoin or wrapped coin, including bridged copies such as USDT.z or USDC.e.
+fn is_quote(symbol: &str) -> bool {
+    let s = symbol.to_ascii_uppercase();
+    QUOTES.contains(&s.as_str())
+        || s.starts_with("USD")
+        || s.ends_with("USD")
+        || s.contains("USDT")
+        || s.contains("USDC")
+        || QUOTES
+            .iter()
+            .any(|q| s.split(['.', '-', '_']).next() == Some(q))
+}
+
 /// True for a pool worth grading wallets on.
 pub fn legit(t: &SniperToken) -> bool {
     t.price_usd > 0.0
         && t.liquidity_usd >= MIN_LIQUIDITY_USD
         && t.volume_24h_usd >= MIN_VOLUME_USD
-        && !QUOTES.contains(&t.symbol.to_ascii_uppercase().as_str())
+        && !is_quote(&t.symbol)
 }
 
 /// The pools to read trades of: the legit ones that rose most, then a couple of others not
@@ -848,6 +861,18 @@ mod tests {
         assert_eq!(late.grade, "C");
         assert_eq!(early.positions[0].token.symbol, "MOON");
         assert!((early.positions[0].multiple - 5.0).abs() < 1e-9);
+    }
+
+    #[test]
+    fn skips_stablecoins_and_wrapped_coins_with_bridge_suffixes() {
+        for s in [
+            "USDT.z", "USDC.e", "axlUSDC", "WETH.e", "usd1", "FDUSD", "SOL",
+        ] {
+            assert!(is_quote(s), "{s}");
+        }
+        for s in ["MOON", "SOLAMA", "ELSA", "WIF", "BUSDOG"] {
+            assert!(!is_quote(s), "{s}");
+        }
     }
 
     #[test]
