@@ -101,10 +101,13 @@ function KeeperNote({ keeper, capability, openCount }: { keeper: KeeperStatus; c
   );
 }
 
-export function ExitPlanCard({ exit, onChange, keeper, capability, openCount }: {
+export function ExitPlanCard({ exit, onChange, keeper, capability, openCount, bare = false }: {
   exit: ExitSettings; onChange: (next: ExitSettings) => void; keeper: KeeperStatus;
   capability: { offline: boolean; durable: boolean } | null; openCount: number;
+  /** Inside a section that already has its own frame and title. */
+  bare?: boolean;
 }) {
+  const Frame = bare ? 'div' : Card;
   const split = allocation(exit);
   const setLevel = (index: number, level: TakeProfitLevel) => {
     const takeProfits = [...exit.takeProfits] as ExitSettings['takeProfits'];
@@ -112,10 +115,10 @@ export function ExitPlanCard({ exit, onChange, keeper, capability, openCount }: 
     onChange({ ...exit, takeProfits });
   };
   return (
-    <Card className="p-5">
+    <Frame className={bare ? '' : 'p-5'}>
       <div className="mb-4 flex flex-wrap items-start justify-between gap-3">
         <div>
-          <h2 className="flex items-center gap-2.5 font-semibold text-white"><IconTile tone="mint" size="sm"><Target /></IconTile>Exit plan</h2>
+          {!bare && <h2 className="flex items-center gap-2.5 font-semibold text-white"><IconTile tone="mint" size="sm"><Target /></IconTile>Exit plan</h2>}
           <p className="mt-1.5 text-xs text-zinc-500">How every snipe is sold. A change here also applies to the snipes you already hold.</p>
         </div>
         <button onClick={() => onChange(DEFAULT_EXIT)} className="text-xs text-zinc-400 hover:text-white">Reset exit plan</button>
@@ -171,7 +174,7 @@ export function ExitPlanCard({ exit, onChange, keeper, capability, openCount }: 
       <p className="mt-2.5 text-[11px] leading-relaxed text-zinc-500">
         Sales are simulated at the price seen when a check runs, so a fast move can fill past a target. The guard reads the developer wallet about once a minute per token and cannot see every way a developer can leave.
       </p>
-    </Card>
+    </Frame>
   );
 }
 

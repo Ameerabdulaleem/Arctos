@@ -6,6 +6,7 @@ import { usePolling } from '../hooks/usePolling';
 import { marketService } from '../services/marketService';
 import { readTrades, tradesToCsv, TRADEBOOK_KEY } from '../lib/tradebook';
 import { formatUsd } from '../lib/format';
+import { WalletPnlCard } from './tradebook/WalletPnlCard';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -303,7 +304,7 @@ export function TradeBook() {
             <IconTile tone="violet" size="lg"><Notebook /></IconTile>
             <div className="min-w-0">
               <h1 className="text-2xl font-semibold tracking-tight text-white sm:text-[28px] sm:leading-8">Trade Book</h1>
-              <p className="mt-1 text-sm text-zinc-400">Log your trades. Open positions are marked to live prices. Saved in this browser.</p>
+              <p className="mt-1 text-sm text-zinc-400">Your connected wallet's real profit and loss, plus a journal for trades you log yourself.</p>
             </div>
           </div>
 
@@ -332,6 +333,10 @@ export function TradeBook() {
           </button>
           </div>
         </div>
+
+        <WalletPnlCard />
+
+        <h2 className="mb-3 text-lg font-semibold text-white">My journal</h2>
 
         {/* ── Stats ───────────────────────────────────────────────────────── */}
         <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-3 mb-6">

@@ -19,23 +19,36 @@ export interface WalletSnipe {
   link: string | null;
   /** Exit plan alerts already shown, such as "tp1" or "sl". */
   alerted: string[];
+  /** Bought from the user's own wallet (each trade approved) or from the sniper wallet (automatic). */
+  source?: 'wallet' | 'sniper';
+  decimals?: number;
 }
 
 const KEY = 'arctos_wallet_snipes_v1';
 const MODE_KEY = 'arctos_sniper_mode';
 const SETTINGS_KEY = 'arctos_sniper_wallet_settings';
 
-export type SniperMode = 'paper' | 'wallet';
+export type SniperMode = 'paper' | 'wallet' | 'sniper';
+export type AutoStrategy = 'smart' | 'filters';
 
 export interface WalletSettings {
   /** Native coin spent per buy, by sniper chain key. */
   spend: Record<string, string>;
   slippagePct: number;
+  /** How the auto sniper picks tokens. */
+  strategy: AutoStrategy;
+  /** Most paper money the auto sniper may have in open snipes at once. */
+  paperBudgetUsd: number;
+  /** SOL the sniper wallet spends per buy. */
+  sniperSpend: string;
 }
 
 export const DEFAULT_WALLET_SETTINGS: WalletSettings = {
   spend: { solana: '0.1', bsc: '0.02', ethereum: '0.005', base: '0.005', arbitrum: '0.005', polygon: '10', avalanche: '0.5', optimism: '0.005', linea: '0.005', sonic: '10' },
   slippagePct: 5,
+  strategy: 'smart',
+  paperBudgetUsd: 1000,
+  sniperSpend: '0.05',
 };
 
 function read(key: string): unknown {
@@ -72,7 +85,8 @@ export function saveWalletSnipes(list: WalletSnipe[]) {
 }
 
 export function readMode(): SniperMode {
-  return read(MODE_KEY) === 'wallet' ? 'wallet' : 'paper';
+  const m = read(MODE_KEY);
+  return m === 'wallet' || m === 'sniper' ? m : 'paper';
 }
 
 export function saveMode(mode: SniperMode) {
@@ -86,7 +100,14 @@ export function readWalletSettings(): WalletSettings {
     for (const [k, v] of Object.entries(raw.spend)) if (typeof v === 'string' && AMOUNT.test(v)) spend[k] = v;
   }
   const slip = Number(raw?.slippagePct);
-  return { spend, slippagePct: Number.isFinite(slip) && slip >= 0.1 && slip <= 50 ? slip : DEFAULT_WALLET_SETTINGS.slippagePct };
+  const budget = Number(raw?.paperBudgetUsd);
+  return {
+    spend,
+    slippagePct: Number.isFinite(slip) && slip >= 0.1 && slip <= 50 ? slip : DEFAULT_WALLET_SETTINGS.slippagePct,
+    strategy: raw?.strategy === 'filters' ? 'filters' : 'smart',
+    paperBudgetUsd: Number.isFinite(budget) && budget >= 10 && budget <= 1e7 ? budget : DEFAULT_WALLET_SETTINGS.paperBudgetUsd,
+    sniperSpend: typeof raw?.sniperSpend === 'string' && AMOUNT.test(raw.sniperSpend) ? raw.sniperSpend : DEFAULT_WALLET_SETTINGS.sniperSpend,
+  };
 }
 
 export function saveWalletSettings(s: WalletSettings) {

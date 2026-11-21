@@ -522,6 +522,7 @@ pub async fn run(
                     symbol: symbol.clone(),
                     interval: Some(interval.into()),
                     limit: Some(count),
+                    end_time: None,
                 }),
             )
             .await

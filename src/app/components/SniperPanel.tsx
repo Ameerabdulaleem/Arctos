@@ -1,7 +1,7 @@
 import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import {
   ArrowSquareOut, ArrowsLeftRight, Bell, ChartBar, CheckCircle, CircleNotch, Crosshair, Fire, FunnelSimple, GraduationCap, MagnifyingGlass, Pause, Play, Plus,
-  Shield, ShieldCheck, ShieldWarning, Trophy, UserCircle, Wallet, Warning, X,
+  Shield, ShieldCheck, ShieldWarning, Target, Trophy, UserCircle, Vault, Wallet, Warning, X,
 } from '@phosphor-icons/react';
 import { toast } from 'sonner';
 import { Card, Empty, ErrorNotice, IconTile, Loading, PageHeader, PaperBadge, Pill } from './ui/common';
@@ -21,10 +21,22 @@ import {
 } from '../services/sniperService';
 import {
   dueAlerts, readMode, readWalletSettings, readWalletSnipes, saveMode, saveWalletSettings, saveWalletSnipes, validSpend,
-  type SniperMode, type WalletSettings, type WalletSnipe,
+  type AutoStrategy, type SniperMode, type WalletSettings, type WalletSnipe,
 } from '../lib/walletSnipes';
 import { useSwapWallets } from '../swap/useSwapWallets';
-import { toNumber } from '../swap/amount';
+import { parseAmount, toNumber } from '../swap/amount';
+import { balanceOf } from '../swap/balances';
+import { SOLANA_ID } from '../swap/chains';
+import { sniperAddress, SOL_RESERVE } from '../swap/sniperWallet';
+import { sniperBuy, sniperSell } from '../swap/sniperTrade';
+import { lookupOnChain } from '../swap/tokens';
+import { chaseCheck, smartVerdict } from '../lib/smartSnipe';
+import { describePlan } from '../lib/exitPlan';
+import { useTickers } from '../hooks/useTickers';
+import { Collapsible } from './ui/Collapsible';
+import { AutoSniperCard } from './sniper/AutoSniperCard';
+import { SniperWalletCard } from './sniper/SniperWalletCard';
+import { useAutoSniper } from './sniper/useAutoSniper';
 import { formatCompactUsd, formatDollarPrice, formatDollars, formatNumber, formatPct, formatPrice, formatUsd, pnlClass, safeHref, shortAddress, timeAgo } from '../lib/format';
 import { WALLET_OPTIONS } from '../services/walletService';
 import { chainByKey, looksLikeAddress } from '../swap/chains';
@@ -148,11 +160,12 @@ interface BuyAction {
   title?: string;
 }
 
-function FeedCard({ token, filters, riskChecks, held, tracked, onSnipe, onTrack, buy }: {
+function FeedCard({ token, filters, riskChecks, held, tracked, onSnipe, onTrack, buy, strategy }: {
   token: FeedToken; filters: SniperFilters; riskChecks: boolean; held: boolean; tracked: boolean;
-  onSnipe: (t: SniperToken) => void; onTrack: (t: SniperToken) => void; buy: BuyAction;
+  onSnipe: (t: SniperToken) => void; onTrack: (t: SniperToken) => void; buy: BuyAction; strategy: AutoStrategy;
 }) {
-  const verdict = judge(token, filters, riskChecks);
+  // Judged the way the auto sniper is set to judge: the automatic filter, or the user's filters.
+  const verdict = strategy === 'smart' ? (() => { const v = smartVerdict(token, token.security); return { ok: v.ok, reasons: v.reasons }; })() : judge(token, filters, riskChecks);
   const link = safeHref(token.url);
   const flow = token.flow1h.buys + token.flow1h.sells >= 10 ? token.flow1h : token.flow24h;
   const flowLabel = flow === token.flow1h ? 'last hour' : 'last 24h';
@@ -167,7 +180,7 @@ function FeedCard({ token, filters, riskChecks, held, tracked, onSnipe, onTrack,
             <CopyAddress value={token.address} label={`Copy ${token.symbol} contract address`} show />
             {token.launchpad && <Pill tone="violet">{token.launchpad}</Pill>}
             <RiskBadge security={token.score.checked ? token.security : 'loading'} />
-            {verdict.ok && <Pill tone="green"><CheckCircle className="h-3 w-3" weight="fill" aria-hidden />Passes your filters</Pill>}
+            {verdict.ok && <Pill tone="green"><CheckCircle className="h-3 w-3" weight="fill" aria-hidden />{strategy === 'smart' ? 'Passes the automatic filter' : 'Passes your filters'}</Pill>}
             {held && <Pill tone="blue">Holding</Pill>}
           </div>
           <p className="truncate text-sm text-zinc-400">{token.name}</p>
@@ -207,6 +220,7 @@ function FeedCard({ token, filters, riskChecks, held, tracked, onSnipe, onTrack,
         )}
       </div>
 
+      <ChaseNote token={token} />
       <div className="mt-3"><DeveloperLine token={token} /></div>
 
       <dl className="mt-3 grid grid-cols-2 gap-2 text-xs sm:grid-cols-4">
@@ -224,7 +238,7 @@ function FeedCard({ token, filters, riskChecks, held, tracked, onSnipe, onTrack,
           {token.score.warnings.slice(0, 3).map((w) => <li key={w} className="flex items-start gap-1.5 text-amber-200/90"><Warning className="mt-0.5 h-3 w-3 shrink-0" aria-hidden />{w}</li>)}
         </ul>
       )}
-      {!verdict.ok && <p className="mt-2 text-xs text-zinc-500">Not bought by the auto sniper: {verdict.reasons.slice(0, 3).join('; ')}.</p>}
+      {!verdict.ok && <p className="mt-2 text-xs text-zinc-500">{strategy === 'smart' ? 'The automatic filter skips it' : 'Not bought by the auto sniper'}: {verdict.reasons.slice(0, 2).join('; ')}.</p>}
 
       <div className="mt-3 flex gap-2">
         <button onClick={() => onSnipe(token)} disabled={buy.disabled} title={buy.title} className={`btn h-10 flex-1 ${token.score.blocked ? 'btn-secondary' : 'btn-buy'}`}>
@@ -279,6 +293,7 @@ function BasicCard({ token, security, filters, held, onSnipe, onTrack, tracked, 
         </div>
       </div>
       {extra}
+      <ChaseNote token={token} className="-mt-1 mb-3" />
       <dl className="mb-3 grid grid-cols-2 gap-2 text-xs sm:grid-cols-4">
         {[
           ['Liquidity', formatCompactUsd(token.liquidityUsd)], ['Market cap', formatCompactUsd(token.marketCapUsd)],
@@ -301,6 +316,13 @@ function BasicCard({ token, security, filters, held, onSnipe, onTrack, tracked, 
       </div>
     </article>
   );
+}
+
+/** Warns when buying now would mean chasing a spike or catching a falling price. */
+function ChaseNote({ token, className = 'mt-2' }: { token: SniperToken; className?: string }) {
+  const c = chaseCheck(token);
+  if (!c.note) return null;
+  return <p className={`flex items-start gap-1.5 text-xs text-amber-200 ${className}`}><Warning className="mt-0.5 h-3.5 w-3.5 shrink-0" aria-hidden />{c.chasing ? 'Chasing risk' : 'Falling'}: {c.note}</p>;
 }
 
 /** Rank, boosts, description and links for a token from one of DexScreener's lists. */
@@ -427,7 +449,15 @@ export function SniperPanel() {
 
   // Live prices for wallet snipes, and the exit plan's alerts for them.
   const walletIds = useMemo(() => walletSnipes.map((w) => w.id), [walletSnipes]);
-  const walletLive = usePolling((s) => sniperService.refresh(walletIds, s), mode === 'wallet' && walletIds.length ? 15_000 : null, [walletIds.join(','), mode]);
+  const walletLive = usePolling((s) => sniperService.refresh(walletIds, s), walletIds.length ? 15_000 : null, [walletIds.join(',')]);
+  const { tickers } = useTickers();
+  const solPrice = tickers.SOL?.price ?? null;
+  const [sniperLamports, setSniperLamports] = useState<bigint | null>(null);
+  const onSniperBalance = useCallback((b: bigint | null) => setSniperLamports(b), []);
+  const decimals = useRef(new Map<string, number>());
+  const selling = useRef(new Set<string>());
+  const slippageBps = Math.round(walletSettings.slippagePct * 100);
+  const sniperOpen = walletSnipes.filter((w) => w.source === 'sniper');
   const walletPrice = useCallback((id: string) => walletLive.data?.find((t) => t.id === id)?.priceUsd ?? null, [walletLive.data]);
   const trackedTokens = useMemo(() => {
     const fresh = new Map((trackedLive.data ?? []).map((t) => [t.id, t]));
@@ -511,13 +541,108 @@ export function SniperPanel() {
     }
   }, []);
 
-  // Exit plan alerts for wallet snipes: shown once each, with a one click sell.
+  // ------------------------------------------------------------ sniper wallet trades (no popups)
+
+  const decimalsOf = useCallback(async (mint: string): Promise<number | null> => {
+    const known = decimals.current.get(mint);
+    if (known != null) return known;
+    const sol = chainByKey('solana');
+    const t = sol ? await lookupOnChain(sol, mint).catch(() => null) : null;
+    if (t) decimals.current.set(mint, t.decimals);
+    return t?.decimals ?? null;
+  }, []);
+
+  const sniperBuyToken = useCallback(async (token: SniperToken, automatic: boolean, why = ''): Promise<boolean> => {
+    if (token.chain !== 'solana') {
+      if (!automatic) toast.error('The sniper wallet trades on Solana.');
+      return false;
+    }
+    if (!sniperAddress()) {
+      if (!automatic) toast.error('Unlock the sniper wallet first.');
+      return false;
+    }
+    const lamports = parseAmount(walletSettings.sniperSpend, 9);
+    if (!lamports) {
+      toast.error('Set how much SOL the sniper wallet spends per buy.');
+      return false;
+    }
+    if (sniperLamports != null && sniperLamports < lamports + SOL_RESERVE) {
+      toast.error('Not enough SOL in the sniper wallet. Deposit more or lower the amount per buy.');
+      return false;
+    }
+    const pending = toast.loading(`Buying ${token.symbol} with ${walletSettings.sniperSpend} SOL…`);
+    try {
+      const fill = await sniperBuy(token.address, lamports, slippageBps);
+      const dec = (await decimalsOf(token.address)) ?? 6;
+      const qty = Number(fill.received) / 10 ** dec;
+      const spentSol = Number(fill.spent) / 1e9;
+      const entry = solPrice && qty > 0 ? (spentSol * solPrice) / qty : token.priceUsd;
+      const id = `solana:${token.address}`;
+      setWalletSnipes((list) => {
+        const old = list.find((w) => w.id === id);
+        const next: WalletSnipe = old
+          ? { ...old, qty: old.qty + qty, entryPriceUsd: (old.entryPriceUsd * old.qty + entry * qty) / (old.qty + qty), alerted: [] }
+          : { id, chain: 'solana', address: token.address, symbol: token.symbol, name: token.name, entryPriceUsd: entry, qty, spent: `${walletSettings.sniperSpend} SOL`, at: Date.now(), link: fill.signature ? `https://solscan.io/tx/${fill.signature}` : null, alerted: [], source: 'sniper', decimals: dec };
+        return [next, ...list.filter((w) => w.id !== id)];
+      });
+      toast.success(`${automatic ? 'Auto sniped' : 'Bought'} ${token.symbol}`, { id: pending, description: `${spentSol.toFixed(4)} SOL from the sniper wallet${why ? `. ${why}` : ''}` });
+      setSniperLamports((b) => (b == null ? b : b - fill.spent));
+      return true;
+    } catch (e) {
+      toast.error(`${token.symbol} was not bought`, { id: pending, description: e instanceof Error ? e.message : undefined });
+      return false;
+    }
+  }, [walletSettings.sniperSpend, sniperLamports, slippageBps, decimalsOf, solPrice]);
+
+  const autoLog = useRef<(tone: 'buy' | 'sell' | 'skip' | 'info' | 'error', text: string) => void>(() => {});
+
+  const sniperSellSnipe = useCallback(async (w: WalletSnipe, fraction: number, reason: string) => {
+    if (selling.current.has(w.id)) return;
+    const owner = sniperAddress();
+    if (!owner) {
+      toast.error('Unlock the sniper wallet so it can sell.');
+      return;
+    }
+    selling.current.add(w.id);
+    const pending = toast.loading(`Selling ${Math.round(fraction * 100)}% of ${w.symbol}…`);
+    try {
+      const dec = w.decimals ?? (await decimalsOf(w.address)) ?? 6;
+      const raw = await balanceOf({ chainId: SOLANA_ID, address: w.address, symbol: w.symbol, name: w.name, decimals: dec }, owner);
+      if (raw == null) throw new Error('The token balance could not be read. Try again.');
+      if (raw === 0n) {
+        setWalletSnipes((list) => list.filter((x) => x.id !== w.id));
+        toast.info(`No ${w.symbol} left in the sniper wallet.`, { id: pending });
+        return;
+      }
+      const amount = fraction >= 1 ? raw : (raw * BigInt(Math.round(fraction * 10_000))) / 10_000n;
+      const fill = await sniperSell(w.address, amount, slippageBps);
+      const sol = Number(fill.received) / 1e9;
+      setWalletSnipes((list) => (fraction >= 1 ? list.filter((x) => x.id !== w.id) : list.map((x) => (x.id === w.id ? { ...x, qty: x.qty * (1 - fraction) } : x))));
+      setSniperLamports((b) => (b == null ? b : b + fill.received));
+      autoLog.current('sell', `Sold ${Math.round(fraction * 100)}% of ${w.symbol} for ${sol.toFixed(4)} SOL (${reason})`);
+      toast.success(`Sold ${w.symbol}`, { id: pending, description: `${sol.toFixed(4)} SOL back in the sniper wallet. ${reason}` });
+    } catch (e) {
+      autoLog.current('error', `Selling ${w.symbol} failed: ${e instanceof Error ? e.message : 'unknown error'}`);
+      toast.error(`${w.symbol} was not sold`, { id: pending, description: e instanceof Error ? e.message : undefined });
+    } finally {
+      selling.current.delete(w.id);
+    }
+  }, [slippageBps, decimalsOf]);
+
+  // Exit plan for wallet snipes. Sniper wallet snipes are sold automatically; snipes bought from
+  // the user's own wallet raise an alert with a one click sell, since they need a signature.
   useEffect(() => {
-    if (mode !== 'wallet') return;
     const fired: Array<{ id: string; alert: string }> = [];
     for (const w of walletSnipes) {
+      const auto = w.source === 'sniper';
+      if (!auto && mode !== 'wallet') continue;
+      if (auto && !sniperAddress()) continue;
       for (const a of dueAlerts(w, walletPrice(w.id), exit)) {
         fired.push({ id: w.id, alert: a.id });
+        if (auto) {
+          void sniperSellSnipe(w, a.sellPct / 100, a.text);
+          break;
+        }
         toast.warning(`${w.symbol}: ${a.text}`, {
           description: `Your exit plan sells ${a.sellPct}% here. In wallet mode you confirm it yourself.`,
           duration: 30_000,
@@ -526,14 +651,43 @@ export function SniperPanel() {
       }
     }
     if (fired.length) setWalletSnipes((list) => list.map((w) => ({ ...w, alerted: [...w.alerted, ...fired.filter((f) => f.id === w.id).map((f) => f.alert)] })));
-  }, [mode, walletSnipes, walletPrice, exit, walletSell]);
+  }, [mode, walletSnipes, walletPrice, exit, walletSell, sniperSellSnipe]);
 
   const buyFor = (t: SniperToken): BuyAction => {
     if (mode === 'paper') return { label: `Paper snipe ${formatDollars(filters.maxPositionUsd, 0)}` };
+    if (mode === 'sniper') {
+      return t.chain === 'solana'
+        ? { label: `Buy ${walletSettings.sniperSpend} SOL`, title: 'From the sniper wallet, with no popup' }
+        : { label: 'Sniper wallet is Solana only', disabled: true };
+    }
     const chain = chainByKey(t.chain);
     if (!chain || !looksLikeAddress(chain, t.address)) return { label: 'Paper only on this chain', disabled: true, title: `Arctos cannot swap on ${chainLabel(t.chain)} yet.` };
     return { label: `Buy ${walletSettings.spend[t.chain] ?? '?'} ${chain.native.symbol}` };
   };
+
+  const paperBuy = useCallback((token: SniperToken, spend: number, note: string): boolean => {
+    if (!token.priceUsd || token.priceUsd <= 0) {
+      toast.error('No live price for this token.');
+      return false;
+    }
+    if (!paper.account.positions[token.id] && sniperPositions.length >= MAX_MANAGED_SNIPES) {
+      toast.error(`You can hold ${MAX_MANAGED_SNIPES} snipes at a time. Sell one first.`);
+      return false;
+    }
+    const scored = token as Partial<FeedToken>;
+    const qty = spend / (token.priceUsd * 1.001);
+    const r = paper.buyMarket({ key: token.id, symbol: token.symbol, label: token.name, source: 'sniper' }, qty, token.priceUsd, {
+      // Sold by the exit plan. The developer's share now is the mark the exit guard measures from.
+      devHoldingPct: scored.developer?.holdingPct ?? undefined,
+      note,
+    });
+    if (!r.ok) {
+      toast.error(r.error);
+      return false;
+    }
+    toast.success(`${note === 'Auto snipe' ? 'Auto sniped' : 'Sniped'} ${token.symbol}`, { description: `${formatDollars(spend)} of paper money at ${formatDollarPrice(token.priceUsd)}.` });
+    return true;
+  }, [paper, sniperPositions.length]);
 
   const snipe = useCallback(
     (token: SniperToken, automatic = false) => {
@@ -541,38 +695,68 @@ export function SniperPanel() {
         void walletBuy(token);
         return;
       }
-      if (!token.priceUsd || token.priceUsd <= 0) return toast.error('No live price for this token.');
-      const scored = token as Partial<FeedToken>;
-      if (!paper.account.positions[token.id] && sniperPositions.length >= MAX_MANAGED_SNIPES) {
-        return toast.error(`You can hold ${MAX_MANAGED_SNIPES} snipes at a time. Sell one first.`);
+      if (mode === 'sniper' && !automatic) {
+        void sniperBuyToken(token, false);
+        return;
       }
+      const scored = token as Partial<FeedToken>;
       if (!automatic && scored.score?.blocked) {
         toast.warning(`${scored.score.warnings[0] ?? 'A serious risk was found'}. This is a paper trade only.`);
       }
-      const spend = Math.min(filters.maxPositionUsd, paper.availableCash);
-      const qty = spend / (token.priceUsd * 1.001);
-      const r = paper.buyMarket({ key: token.id, symbol: token.symbol, label: token.name, source: 'sniper' }, qty, token.priceUsd, {
-        // Sold by the exit plan. The developer's share now is the mark the exit guard measures from.
-        devHoldingPct: scored.developer?.holdingPct ?? undefined,
-        note: automatic ? 'Auto snipe' : 'Paper snipe',
-      });
-      if (!r.ok) return toast.error(r.error);
-      toast.success(`${automatic ? 'Auto sniped' : 'Sniped'} ${token.symbol}`, { description: `${formatDollars(spend)} of paper money at ${formatDollarPrice(token.priceUsd)}.` });
+      const chase = chaseCheck(token);
+      if (!automatic && chase.note) toast.warning(chase.note);
+      paperBuy(token, Math.min(filters.maxPositionUsd, paper.availableCash), automatic ? 'Auto snipe' : 'Paper snipe');
     },
-    [filters, paper, sniperPositions.length, mode, walletBuy],
+    [filters, paper, mode, walletBuy, sniperBuyToken, paperBuy],
   );
 
   const passing = useMemo(() => tokens.filter((t) => judge(t, filters, activeChain.riskChecks).ok), [tokens, filters, activeChain.riskChecks]);
 
-  // Auto mode: buy the best rated token that passes every filter. Runs only while this page is open.
-  useEffect(() => {
-    if (!auto || mode !== 'paper' || sniperPositions.length >= MAX_AUTO_POSITIONS) return;
-    const pick = passing.find((t) => !autoDone.current.has(t.id) && !paper.account.positions[t.id]);
-    if (!pick) return;
-    autoDone.current.add(pick.id);
-    writeJson(AUTO_KEY, [...autoDone.current].slice(-300));
-    snipe(pick, true);
-  }, [auto, mode, passing, paper.account.positions, sniperPositions.length, snipe]);
+  // ------------------------------------------------------------ auto sniping
+
+  const paperInSnipes = sniperPositions.reduce((s, p) => s + p.qty * p.avgPrice, 0);
+  const autoBlocked = (): string | null => {
+    if (mode === 'wallet') return 'each buy from your own wallet needs your approval. Use the paper account or the sniper wallet for auto sniping.';
+    if (mode === 'paper') {
+      if (sniperPositions.length >= MAX_AUTO_POSITIONS) return `${MAX_AUTO_POSITIONS} snipes are open, the most at once.`;
+      if (walletSettings.paperBudgetUsd - paperInSnipes < 10) return `the auto snipe budget of ${formatDollars(walletSettings.paperBudgetUsd, 0)} is all in open snipes.`;
+      if (paper.availableCash < 10) return 'the paper cash is used up.';
+      return null;
+    }
+    if (activeChain.key !== 'solana') return 'the sniper wallet trades on Solana. Pick Solana above.';
+    if (!sniperAddress()) return 'unlock the sniper wallet first.';
+    if (sniperOpen.length >= MAX_AUTO_POSITIONS) return `${MAX_AUTO_POSITIONS} snipes are open, the most at once.`;
+    const spend = parseAmount(walletSettings.sniperSpend, 9);
+    if (!spend) return 'set how much SOL to spend per buy.';
+    if (sniperLamports == null) return 'reading the sniper wallet balance.';
+    if (sniperLamports < spend + SOL_RESERVE) return 'the sniper wallet budget is used up. Deposit more SOL to continue.';
+    return null;
+  };
+
+  const autoSniper = useAutoSniper({
+    enabled: auto,
+    strategy: walletSettings.strategy,
+    chain: activeChain,
+    filters,
+    isDone: (id) => autoDone.current.has(id) || Boolean(paper.account.positions[id]) || walletSnipes.some((w) => w.id === id),
+    blocked: autoBlocked,
+    buy: async (token, why) => {
+      let ok: boolean;
+      if (mode === 'sniper') {
+        ok = await sniperBuyToken(token, true, why);
+      } else {
+        const spend = Math.min(filters.maxPositionUsd, walletSettings.paperBudgetUsd - paperInSnipes, paper.availableCash);
+        ok = spend >= 10 && paperBuy(token, spend, 'Auto snipe');
+      }
+      if (ok) {
+        autoDone.current.add(token.id);
+        writeJson(AUTO_KEY, [...autoDone.current].slice(-300));
+      }
+      return ok;
+    },
+  });
+  autoLog.current = autoSniper.log;
+  const setStrategy = (strategy: AutoStrategy) => setWalletSettings((s) => ({ ...s, strategy }));
 
   const runSearch = async () => {
     const q = query.trim();
@@ -606,17 +790,20 @@ export function SniperPanel() {
     <div className="mx-auto max-w-[1500px] space-y-5 p-4 md:p-6">
       <PageHeader
         icon={<Crosshair />} tone="amber" title="Sniper Engine"
-        badge={mode === 'paper' ? <PaperBadge /> : <Pill tone="green"><Wallet className="h-3 w-3" weight="fill" aria-hidden />Real wallet</Pill>}
+        badge={mode === 'paper' ? <PaperBadge /> : mode === 'sniper' ? <Pill tone="violet"><Vault className="h-3 w-3" weight="fill" aria-hidden />Sniper wallet</Pill> : <Pill tone="green"><Wallet className="h-3 w-3" weight="fill" aria-hidden />Real wallet</Pill>}
         subtitle={mode === 'paper'
-          ? 'Launchpad tokens ranked by buy pressure, developer record and contract safety. Snipes are simulated at the live price.'
-          : 'Launchpad tokens ranked by buy pressure, developer record and contract safety. Buys and sells are real swaps signed in your wallet.'}
+          ? 'Tokens ranked by buy pressure, developer record and contract safety. Snipes are simulated at the live price.'
+          : mode === 'sniper'
+            ? 'Real trades from your sniper wallet, with no popup per trade. Only what you deposit can be spent.'
+            : 'Real swaps from your own wallet. You approve every buy and sell.'}
         actions={
           <>
             <div className="seg flex" role="radiogroup" aria-label="Trade with">
-              <button type="button" role="radio" aria-checked={mode === 'paper'} onClick={() => setMode('paper')} className="seg-item px-3 py-1.5 text-xs font-medium">Paper account</button>
+              <button type="button" role="radio" aria-checked={mode === 'paper'} onClick={() => setMode('paper')} className="seg-item px-3 py-1.5 text-xs font-medium">Paper</button>
+              <button type="button" role="radio" aria-checked={mode === 'sniper'} onClick={() => setMode('sniper')} className="seg-item inline-flex items-center gap-1 px-3 py-1.5 text-xs font-medium"><Vault className="h-3.5 w-3.5" aria-hidden />Sniper wallet</button>
               <button type="button" role="radio" aria-checked={mode === 'wallet'} onClick={() => setMode('wallet')} className="seg-item inline-flex items-center gap-1 px-3 py-1.5 text-xs font-medium"><Wallet className="h-3.5 w-3.5" aria-hidden />My wallet</button>
             </div>
-            <button onClick={() => setAuto((a) => !a)} aria-pressed={auto} disabled={mode === 'wallet'} title={mode === 'wallet' ? 'Every real buy needs your signature, so auto sniping uses the paper account.' : undefined} className={`btn h-10 px-5 ${auto ? 'btn-buy' : 'btn-secondary'}`}>
+            <button onClick={() => setAuto((a) => !a)} aria-pressed={auto} disabled={mode === 'wallet'} title={mode === 'wallet' ? 'Every buy from your own wallet needs your approval. Use Paper or the sniper wallet for auto sniping.' : undefined} className={`btn h-10 px-5 ${auto ? 'btn-buy' : 'btn-secondary'}`}>
               {auto ? <Pause className="h-4 w-4" weight="fill" aria-hidden /> : <Play className="h-4 w-4" weight="fill" aria-hidden />}
               {auto ? 'Auto sniping on' : 'Start auto sniping'}
             </button>
@@ -666,11 +853,6 @@ export function SniperPanel() {
           </Card>
         );
       })()}
-      {auto && (
-        <p role="status" className="rounded-xl border border-emerald-400/25 bg-emerald-400/[0.07] px-3.5 py-2.5 text-xs text-emerald-200">
-          Auto mode buys the best rated token that passes every filter on {activeChain.name}, up to {MAX_AUTO_POSITIONS} open positions. Buying only happens while this page is open. Each buy is then sold by your exit plan.
-        </p>
-      )}
 
       <Card className="space-y-3 p-4">
         <div>
@@ -693,32 +875,67 @@ export function SniperPanel() {
         </div>
       </Card>
 
-      <ExitPlanCard exit={exit} onChange={setExit} keeper={paper.keeper} capability={service.data?.keeper ?? null} openCount={sniperPositions.length} />
+      <Collapsible id="sniper-exit" title="Exit plan" icon={<IconTile tone="mint" size="sm"><Target /></IconTile>} summary={describePlan(exit)}>
+        <ExitPlanCard bare exit={exit} onChange={setExit} keeper={paper.keeper} capability={service.data?.keeper ?? null} openCount={sniperPositions.length} />
+        {mode !== 'paper' && <p className="mt-3 text-[11px] text-zinc-500">{mode === 'sniper' ? 'Sniper wallet snipes are sold by this plan automatically while this page is open and the wallet is unlocked.' : 'Snipes from your own wallet raise an alert at each target with a one click sell, since every sale needs your approval.'}</p>}
+      </Collapsible>
 
       <div className="grid grid-cols-1 gap-5 lg:grid-cols-3">
         <div className="space-y-5">
-          {mode === 'wallet' && (
+          {mode === 'sniper' && (
+            <SniperWalletCard phantom={wallets.svm} solPriceUsd={solPrice} onBalance={onSniperBalance}
+              onConnectPhantom={() => void wallets.connectSolanaWallet().catch((e) => toast.error(e instanceof Error ? e.message : 'Phantom could not connect.'))} />
+          )}
+          {mode !== 'wallet' && (
+            <AutoSniperCard
+              on={auto} onToggle={() => setAuto((a) => !a)} canRun={autoBlocked() == null} whyNot={autoBlocked() ? `Not ready: ${autoBlocked()}` : undefined}
+              strategy={walletSettings.strategy} onStrategy={setStrategy}
+              events={autoSniper.events} summary={autoSniper.summary} scanning={autoSniper.scanning}
+              budget={mode === 'paper' ? (
+                <div className="grid grid-cols-2 gap-2">
+                  <label className="block"><span className="eyebrow mb-1 block">Budget for auto snipes ($)</span>
+                    <input type="number" min={10} step={50} value={walletSettings.paperBudgetUsd} onChange={(e) => { const n = Number(e.target.value); if (Number.isFinite(n)) setWalletSettings((s) => ({ ...s, paperBudgetUsd: Math.min(1e7, Math.max(10, n)) })); }} className="field num py-2" />
+                  </label>
+                  <label className="block"><span className="eyebrow mb-1 block">Per snipe ($)</span>
+                    <input type="number" min={1} step={10} value={filters.maxPositionUsd} onChange={(e) => setFilter('maxPositionUsd', e.target.value, 1e7)} className="field num py-2" />
+                  </label>
+                  <p className="col-span-2 text-[11px] text-zinc-500">{formatDollars(paperInSnipes, 0)} of {formatDollars(walletSettings.paperBudgetUsd, 0)} is in open snipes. The auto sniper never goes over the budget.</p>
+                </div>
+              ) : (
+                <div className="grid grid-cols-2 gap-2">
+                  <label className="block"><span className="eyebrow mb-1 block">Spend per buy (SOL)</span>
+                    <input value={walletSettings.sniperSpend} inputMode="decimal" onChange={(e) => { const v = e.target.value.replace(',', '.').replace(/[^\d.]/g, '').slice(0, 12); setWalletSettings((s) => ({ ...s, sniperSpend: v })); }} className="field num py-2" />
+                  </label>
+                  <label className="block"><span className="eyebrow mb-1 block">Slippage %</span>
+                    <input type="number" min={0.1} max={50} step={0.5} value={walletSettings.slippagePct} onChange={(e) => { const n = Number(e.target.value); if (Number.isFinite(n)) setWalletSettings((s) => ({ ...s, slippagePct: Math.min(50, Math.max(0.1, n)) })); }} className="field num py-2" />
+                  </label>
+                  <p className="col-span-2 text-[11px] text-zinc-500">The budget is what you deposit into the sniper wallet. It stops buying when that runs low.</p>
+                </div>
+              )}
+            />
+          )}
+          {mode !== 'paper' && (
             <Card className="p-5">
-              <h2 className="mb-3 flex items-center gap-2.5 font-semibold text-white"><IconTile tone="mint" size="sm"><Wallet /></IconTile>Wallet snipes</h2>
-              {walletSnipes.length === 0 ? (
-                <p className="text-xs text-zinc-500">Tokens you buy here with your wallet show up with their live profit and loss, your exit plan alerts and one click sells.</p>
+              <h2 className="mb-3 flex items-center gap-2.5 font-semibold text-white"><IconTile tone="mint" size="sm"><Wallet /></IconTile>{mode === 'sniper' ? 'Sniper wallet snipes' : 'Wallet snipes'}</h2>
+              {walletSnipes.filter((w) => (mode === 'sniper') === (w.source === 'sniper')).length === 0 ? (
+                <p className="text-xs text-zinc-500">Tokens you buy here show up with their live profit and loss{mode === 'sniper' ? ', and are sold by your exit plan automatically.' : ', your exit plan alerts and one click sells.'}</p>
               ) : (
                 <ul className="space-y-2.5">
-                  {walletSnipes.map((w) => {
+                  {walletSnipes.filter((w) => (mode === 'sniper') === (w.source === 'sniper')).map((w) => {
                     const price = walletPrice(w.id);
                     const gain = price != null ? (price / w.entryPriceUsd - 1) * 100 : null;
                     const hits = gain == null ? [] : [
                       ...exit.takeProfits.map((tp, i) => (tp.enabled && gain >= tp.gainPct ? `Take profit ${i + 1} reached` : '')),
                       exit.stopLossPct > 0 && gain <= -exit.stopLossPct ? 'Stop loss reached' : '',
                     ].filter(Boolean);
-                    return <WalletSnipeRow key={w.id} snipe={w} price={price} alerts={hits} onSell={(f) => walletSell(w, f)} onForget={() => setWalletSnipes((list) => list.filter((x) => x.id !== w.id))} />;
+                    return <WalletSnipeRow key={w.id} snipe={w} price={price} alerts={hits} onSell={(f) => (w.source === 'sniper' ? void sniperSellSnipe(w, f, 'sold by you') : walletSell(w, f))} onForget={() => setWalletSnipes((list) => list.filter((x) => x.id !== w.id))} />;
                   })}
                 </ul>
               )}
             </Card>
           )}
-          <Card className="p-5">
-            <h2 className="mb-1 flex items-center gap-2.5 font-semibold text-white"><IconTile tone="mint" size="sm"><Trophy /></IconTile>{mode === 'wallet' ? 'Paper results' : 'Measured results'}</h2>
+          <Collapsible id="sniper-results" title={mode === 'paper' ? 'Measured results' : 'Paper results'} icon={<IconTile tone="mint" size="sm"><Trophy /></IconTile>}
+            summary={record.winRatePct == null ? 'No closed snipes yet' : `Win rate ${record.winRatePct.toFixed(0)}%, ${record.closed} closed`} defaultOpen>
             <p className="mb-4 text-[11px] leading-relaxed text-zinc-500">The sniper's real record from paper snipes that were sold out completely. A snipe sold in steps counts once. No filter can guarantee a win rate, so judge it on these numbers.</p>
             <dl className="grid grid-cols-2 gap-2 text-sm">
               <div className="panel-inset p-3"><dt className="eyebrow text-[10px]">Win rate</dt><dd className="num text-xl font-semibold text-white">{record.winRatePct == null ? 'No data' : `${record.winRatePct.toFixed(0)}%`}</dd></div>
@@ -733,7 +950,7 @@ export function SniperPanel() {
                 ['Paper cash', formatDollars(paper.availableCash)],
               ].map(([k, v]) => <div key={k} className="flex justify-between"><dt className="text-zinc-500">{k}</dt><dd className="num font-medium text-zinc-200">{v}</dd></div>)}
             </dl>
-          </Card>
+          </Collapsible>
 
           {sniperPositions.length > 0 && (
             <Card className="p-5">
@@ -754,8 +971,7 @@ export function SniperPanel() {
             </Card>
           )}
 
-          <Card className="p-5">
-            <h2 className="mb-4 flex items-center gap-2.5 font-semibold text-white"><IconTile tone="amber" size="sm"><FunnelSimple /></IconTile>Filters</h2>
+          <Collapsible id="sniper-filters" title="My filters" icon={<IconTile tone="amber" size="sm"><FunnelSimple /></IconTile>} summary="Used by the My filters auto mode and the Passes your filters badge">
             <div className="space-y-5">
               {FIELD_GROUPS.map((group) => (
                 <fieldset key={group.title} className="space-y-3">
@@ -771,7 +987,7 @@ export function SniperPanel() {
               ))}
               <button onClick={() => setFilters(DEFAULT_FILTERS)} className="text-xs text-zinc-400 hover:text-white">Reset to the strict defaults</button>
             </div>
-          </Card>
+          </Collapsible>
         </div>
 
         <Card className="p-5 lg:col-span-2">
@@ -860,7 +1076,7 @@ export function SniperPanel() {
               {feed.error && <div className="mb-3"><ErrorNotice message={`Showing the last list we received. ${feed.error}`} onRetry={feed.refresh} /></div>}
               <div className="space-y-3">
                 {tokens.map((t) => (
-                  <FeedCard key={t.id} token={t} filters={filters} riskChecks={activeChain.riskChecks} held={Boolean(paper.account.positions[t.id])} tracked={tracked.some((x) => x.id === t.id)} onSnipe={snipe} onTrack={track} buy={buyFor(t)} />
+                  <FeedCard key={t.id} token={t} filters={filters} riskChecks={activeChain.riskChecks} held={Boolean(paper.account.positions[t.id])} tracked={tracked.some((x) => x.id === t.id)} onSnipe={snipe} onTrack={track} buy={buyFor(t)} strategy={walletSettings.strategy} />
                 ))}
               </div>
             </>

@@ -88,8 +88,12 @@ require('node:fs').mkdirSync(SC + '/shots', { recursive: true });
     await page.getByText('Wallet on Solana').waitFor({ timeout: 5000 });
     await page.getByRole('button', { name: /Buy 0\.1 SOL/ }).first().waitFor({ timeout: 15000 });
     await page.getByText('Wallet snipes').waitFor();
-    await page.getByRole('radio', { name: 'Paper account' }).click();
+    await page.getByRole('radio', { name: 'Paper', exact: true }).click();
     await page.getByRole('button', { name: /Paper snipe/ }).first().waitFor({ timeout: 5000 });
+  });
+  await check('sniper: the exit plan opens from its folded header', async () => {
+    await page.getByRole('button', { name: /Exit plan/ }).click();
+    await page.getByText('Take profit targets').waitFor({ timeout: 5000 });
   });
   await page.waitForTimeout(500); await shot('04-sniper');
 
@@ -120,6 +124,14 @@ require('node:fs').mkdirSync(SC + '/shots', { recursive: true });
   });
   await market('mult=1&dev=2.4&liq=1');
 
+  // Run after the keeper checks, since an automatic buy adds positions they would count.
+  await check('sniper: automatic filter scans and explains', async () => {
+    await page.goto(BASE + '/#/sniper');
+    await page.getByRole('radio', { name: /Automatic filter/ }).click();
+    await page.getByRole('button', { name: 'Start auto sniping' }).first().click();
+    await page.getByText(/Last scan .*tokens, \d+ passed/).waitFor({ timeout: 60000 });
+    await page.getByRole('button', { name: /Auto sniping on/ }).first().click();
+  });
   await page.getByRole('button', { name: 'Trade Book' }).click();
   await check('tradebook: add trade and see live P/L', async () => {
     await page.getByRole('button', { name: 'Add Trade' }).first().click();

@@ -2294,3 +2294,25 @@ async fn dexscreener_trends_for_the_sniper_and_the_assistant() {
     .await;
     assert!(missing.is_err());
 }
+
+#[tokio::test]
+async fn klines_can_be_read_for_a_past_time() {
+    let (base, _state) = boot_on_demand().await;
+    let c = reqwest::Client::new();
+    let past = chrono::Utc::now().timestamp_millis() - 86_400_000;
+    let (s, v) = get_json(
+        &c,
+        format!("{base}/api/market/klines?symbol=SOLUSDT&interval=1h&limit=5&endTime={past}"),
+    )
+    .await;
+    assert_eq!(s, 200, "{v}");
+    assert!(v.as_array().is_some_and(|a| !a.is_empty()), "{v}");
+    for bad in ["1", "99999999999999"] {
+        let (s, _) = get_json(
+            &c,
+            format!("{base}/api/market/klines?symbol=SOLUSDT&interval=1h&endTime={bad}"),
+        )
+        .await;
+        assert_eq!(s, 400, "endTime {bad}");
+    }
+}
