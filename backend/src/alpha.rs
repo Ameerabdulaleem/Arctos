@@ -61,6 +61,9 @@ const WINDOW_SECS: i64 = 12 * 3600;
 const REFRESH_EVERY: Duration = Duration::from_secs(60);
 const MAX_POSTS: usize = 400;
 const PAGES_PER_QUERY: usize = 4;
+/// Calls to the X data source in one refresh. With the free tier's five second gap this keeps a
+/// refresh under half a minute; later refreshes only ask for posts newer than the last one.
+const MAX_CALLS_PER_REFRESH: usize = 5;
 const MAX_QUERY: usize = 480;
 
 /// Majors are mentioned all day; they would drown out new coins.
@@ -159,6 +162,8 @@ pub struct LaunchedCoin {
 
 pub struct AlphaStore {
     posts: Mutex<BTreeMap<String, AlphaPost>>,
+    /// When the next call to the X data source may go out.
+    next_call: Mutex<Instant>,
     fetched: Mutex<Option<Instant>>,
     last_error: std::sync::Mutex<Option<String>>,
     resolved: KeyedCache<HashMap<String, SniperToken>>,
@@ -175,6 +180,7 @@ impl AlphaStore {
     pub fn new() -> Self {
         Self {
             posts: Mutex::new(BTreeMap::new()),
+            next_call: Mutex::new(Instant::now()),
             fetched: Mutex::new(None),
             last_error: std::sync::Mutex::new(None),
             resolved: KeyedCache::new(Duration::from_secs(120), Duration::from_secs(900)),
@@ -564,12 +570,25 @@ pub fn source(state: &AppState) -> Option<&'static str> {
     }
 }
 
-async fn fetch_posts(
-    state: &AppState,
-    since: i64,
-) -> std::result::Result<Vec<AlphaPost>, UpstreamError> {
+/// Waits until the X data source may be called again.
+async fn turn(state: &AppState) {
+    let mut next = state.alpha.next_call.lock().await;
+    let now = Instant::now();
+    if *next > now {
+        tokio::time::sleep(*next - now).await;
+    }
+    *next = Instant::now() + Duration::from_millis(state.config.alpha_call_spacing_ms);
+}
+
+/// Posts read, and the error that stopped the reading early, if any. Posts read before a
+/// refusal are kept.
+async fn fetch_posts(state: &AppState, since: i64) -> (Vec<AlphaPost>, Option<UpstreamError>) {
     let mut posts = Vec::new();
+    let mut calls = 0usize;
     for query in queries(&state.config.alpha_accounts, since) {
+        if calls >= MAX_CALLS_PER_REFRESH {
+            break;
+        }
         if let Some(key) = state.config.twitterapi_key.as_deref() {
             let url = format!(
                 "{}/twitter/tweet/advanced_search",
@@ -577,15 +596,24 @@ async fn fetch_posts(
             );
             let mut cursor = String::new();
             for _ in 0..PAGES_PER_QUERY {
+                if calls >= MAX_CALLS_PER_REFRESH {
+                    break;
+                }
                 let q = [
                     ("query", query.clone()),
                     ("queryType", "Latest".to_string()),
                     ("cursor", cursor.clone()),
                 ];
-                let v: Value = state
+                turn(state).await;
+                calls += 1;
+                let v: Value = match state
                     .up
                     .get_json_with("twitterapi", &url, &q, &[("x-api-key", key)])
-                    .await?;
+                    .await
+                {
+                    Ok(v) => v,
+                    Err(e) => return (posts, Some(e)),
+                };
                 if let Some(list) = v.get("tweets").and_then(Value::as_array) {
                     posts.extend(list.iter().filter_map(parse_twitterapi_tweet));
                 }
@@ -621,14 +649,19 @@ async fn fetch_posts(
                 ),
             ];
             let auth = format!("Bearer {token}");
-            let v: Value = state
+            turn(state).await;
+            calls += 1;
+            match state
                 .up
-                .get_json_with("x-api", &url, &q, &[("authorization", auth.as_str())])
-                .await?;
-            posts.extend(parse_x_api(&v));
+                .get_json_with::<Value>("x-api", &url, &q, &[("authorization", auth.as_str())])
+                .await
+            {
+                Ok(v) => posts.extend(parse_x_api(&v)),
+                Err(e) => return (posts, Some(e)),
+            }
         }
     }
-    Ok(posts)
+    (posts, None)
 }
 
 /// Fetches new posts at most once a minute; concurrent callers share one fetch.
@@ -648,52 +681,47 @@ async fn refresh(state: &Arc<AppState>) {
                 (newest - 1).max(now - WINDOW_SECS)
             })
     };
-    match fetch_posts(state, since).await {
-        Ok(new) => {
-            let mut posts = state.alpha.posts.lock().await;
-            for p in new {
-                posts.insert(p.id.clone(), p);
-            }
-            let cutoff = (now - WINDOW_SECS) * 1000;
-            posts.retain(|_, p| p.created_at >= cutoff);
-            while posts.len() > MAX_POSTS {
-                let oldest = posts
-                    .iter()
-                    .min_by_key(|(_, p)| p.created_at)
-                    .map(|(k, _)| k.clone());
-                match oldest {
-                    Some(k) => posts.remove(&k),
-                    None => break,
-                };
-            }
-            *state
-                .alpha
-                .last_error
-                .lock()
-                .unwrap_or_else(|e| e.into_inner()) = None;
-            state.alpha.view.invalidate("view");
+    let (new, error) = fetch_posts(state, since).await;
+    let read = new.len();
+    if read > 0 || error.is_none() {
+        let mut posts = state.alpha.posts.lock().await;
+        for p in new {
+            posts.insert(p.id.clone(), p);
         }
-        Err(e) => {
-            tracing::warn!("alpha posts: {e}");
-            let msg = match &e {
-                UpstreamError::Http {
-                    status: 401 | 403, ..
-                } => "The X data key was refused. Check it in the server settings.".to_string(),
-                UpstreamError::Http { status: 402, .. } => {
-                    "The X data account is out of credits. Top it up to see new posts.".to_string()
-                }
-                UpstreamError::Http { status: 429, .. } => {
-                    "The X data source is rate limiting. New posts will follow shortly.".to_string()
-                }
-                _ => "New posts could not be read right now.".to_string(),
+        let cutoff = (now - WINDOW_SECS) * 1000;
+        posts.retain(|_, p| p.created_at >= cutoff);
+        while posts.len() > MAX_POSTS {
+            let oldest = posts
+                .iter()
+                .min_by_key(|(_, p)| p.created_at)
+                .map(|(k, _)| k.clone());
+            match oldest {
+                Some(k) => posts.remove(&k),
+                None => break,
             };
-            *state
-                .alpha
-                .last_error
-                .lock()
-                .unwrap_or_else(|e| e.into_inner()) = Some(msg);
         }
+        state.alpha.view.invalidate("view");
     }
+    let message = error.map(|e| {
+        tracing::warn!("alpha posts (kept {read} read before it): {e}");
+        match &e {
+            UpstreamError::Http {
+                status: 401 | 403, ..
+            } => "The X data key was refused. Check it in the server settings.".to_string(),
+            UpstreamError::Http { status: 402, .. } => {
+                "The X data account is out of credits. Top it up to see new posts.".to_string()
+            }
+            UpstreamError::Http { status: 429, .. } => {
+                "The X data source is rate limiting. New posts will follow shortly.".to_string()
+            }
+            _ => "New posts could not be read right now.".to_string(),
+        }
+    });
+    *state
+        .alpha
+        .last_error
+        .lock()
+        .unwrap_or_else(|e| e.into_inner()) = message;
     *fetched = Some(Instant::now());
 }
 

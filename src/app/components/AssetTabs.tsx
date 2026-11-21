@@ -126,7 +126,7 @@ export function AssetTabs({ wallet, coins, paperPositions, onOpenTerminal }: Pro
                 <span>
                   {wallet.data.hiddenTokens ? `${wallet.data.hiddenTokens} small or unpriced ${wallet.data.hiddenTokens === 1 ? 'token is' : 'tokens are'} not shown, mostly airdropped spam. ` : ''}
                   {wallet.data.partial ? 'Some balances could not be read just now, so the total may be low. ' : ''}
-                  {wallet.data.complete === false ? 'On EVM chains only native coins and major tokens are checked for now.' : ''}
+                  {wallet.data.complete === false ? 'On EVM chains only native coins and major tokens (stablecoins, wrapped ETH, BNB and BTC) are checked right now, so other tokens are missing. Every token on every network shows once the site owner adds a free Alchemy key (ALCHEMY_API_KEY) on the server.' : ''}
                 </span>
               </p>
             )}

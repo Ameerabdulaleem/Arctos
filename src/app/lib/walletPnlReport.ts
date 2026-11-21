@@ -22,6 +22,11 @@ export interface PnlReport {
   oldest: string | null;
   complete: boolean;
   at: number;
+  /** Transactions the public Solana network refused to send, even after retries. */
+  unread: number;
+  /** What the wallet holds now, in US dollars, and how many tokens. */
+  valueUsd: number | null;
+  tokensHeld: number;
 }
 
 /** Names for mints the portfolio did not list, from Jupiter's token list. */
@@ -71,6 +76,7 @@ export async function loadPnlReport(
   let before = older?.oldest ?? undefined;
   let oldest: string | null = older?.oldest ?? null;
   let complete = false;
+  let unread = 0;
   for (let round = 0; round < (deep ? 4 : 1); round++) {
     const base = scanned;
     const history = await loadWalletHistory(address, { limit, before, signal, onProgress: (d, t) => onProgress?.(base + d, base + t) });
@@ -78,6 +84,7 @@ export async function loadPnlReport(
     scanned += history.scanned;
     oldest = history.oldest;
     complete = history.complete;
+    unread += history.unread;
     before = history.oldest ?? undefined;
     if (complete || !oldest) break;
     // Stop once every token held has a buy among the transactions read.
@@ -115,7 +122,11 @@ export async function loadPnlReport(
     });
   }
   Object.assign(names, await namesFor(pnl.tokens.map((t) => t.mint).filter((m) => !names[m])));
-  const report: PnlReport = { address, pnl, names, txs, scanned, oldest, complete, at: Date.now() };
+  const report: PnlReport = {
+    address, pnl, names, txs, scanned, oldest, complete, at: Date.now(), unread,
+    valueUsd: portfolio ? portfolio.totalUsd : null,
+    tokensHeld: (portfolio?.holdings ?? []).filter((h) => h.kind === 'token').length,
+  };
   reports.set(address, report);
   return report;
 }

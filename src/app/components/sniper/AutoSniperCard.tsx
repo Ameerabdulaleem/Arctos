@@ -8,13 +8,15 @@ const TONE: Record<AutoEvent['tone'], string> = {
   buy: 'text-emerald-300', sell: 'text-blue-300', skip: 'text-zinc-400', info: 'text-zinc-300', error: 'text-rose-300',
 };
 
-export function AutoSniperCard({ on, onToggle, canRun, whyNot, strategy, onStrategy, budget, events, summary, scanning }: {
+export function AutoSniperCard({ on, onToggle, canRun, whyNot, strategy, onStrategy, scope, budget, events, summary, scanning }: {
   on: boolean;
   onToggle: () => void;
   canRun: boolean;
   whyNot?: string;
   strategy: AutoStrategy;
   onStrategy: (s: AutoStrategy) => void;
+  /** The chains it covers. */
+  scope?: React.ReactNode;
   /** The budget fields for the current mode. */
   budget: React.ReactNode;
   events: AutoEvent[];
@@ -45,6 +47,7 @@ export function AutoSniperCard({ on, onToggle, canRun, whyNot, strategy, onStrat
         ))}
       </div>
 
+      {scope}
       {budget}
 
       {summary && (

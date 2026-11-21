@@ -41,7 +41,14 @@ export interface WalletSettings {
   paperBudgetUsd: number;
   /** SOL the sniper wallet spends per buy. */
   sniperSpend: string;
+  /** Native coin the EVM sniper wallet spends per buy, by chain key (BNB on BNB Chain, ETH on Base). */
+  sniperSpendEvm: Record<string, string>;
+  /** Chains the auto sniper scans and buys on. */
+  autoChains: string[];
 }
+
+/** Chains the auto sniper can cover, Solana and BNB Chain first. */
+export const AUTO_CHAINS = ['solana', 'bsc', 'base', 'ethereum'];
 
 export const DEFAULT_WALLET_SETTINGS: WalletSettings = {
   spend: { solana: '0.1', bsc: '0.02', ethereum: '0.005', base: '0.005', arbitrum: '0.005', polygon: '10', avalanche: '0.5', optimism: '0.005', linea: '0.005', sonic: '10' },
@@ -49,6 +56,8 @@ export const DEFAULT_WALLET_SETTINGS: WalletSettings = {
   strategy: 'smart',
   paperBudgetUsd: 1000,
   sniperSpend: '0.05',
+  sniperSpendEvm: { bsc: '0.01', base: '0.002', ethereum: '0.005', arbitrum: '0.002', polygon: '5', avalanche: '0.2', optimism: '0.002', linea: '0.002', sonic: '5' },
+  autoChains: ['solana', 'bsc'],
 };
 
 function read(key: string): unknown {
@@ -99,6 +108,11 @@ export function readWalletSettings(): WalletSettings {
   if (raw?.spend && typeof raw.spend === 'object') {
     for (const [k, v] of Object.entries(raw.spend)) if (typeof v === 'string' && AMOUNT.test(v)) spend[k] = v;
   }
+  const sniperSpendEvm = { ...DEFAULT_WALLET_SETTINGS.sniperSpendEvm };
+  if (raw?.sniperSpendEvm && typeof raw.sniperSpendEvm === 'object') {
+    for (const [k, v] of Object.entries(raw.sniperSpendEvm)) if (typeof v === 'string' && AMOUNT.test(v)) sniperSpendEvm[k] = v;
+  }
+  const autoChains = Array.isArray(raw?.autoChains) ? raw.autoChains.filter((c): c is string => typeof c === 'string' && AUTO_CHAINS.includes(c)) : [];
   const slip = Number(raw?.slippagePct);
   const budget = Number(raw?.paperBudgetUsd);
   return {
@@ -107,6 +121,8 @@ export function readWalletSettings(): WalletSettings {
     strategy: raw?.strategy === 'filters' ? 'filters' : 'smart',
     paperBudgetUsd: Number.isFinite(budget) && budget >= 10 && budget <= 1e7 ? budget : DEFAULT_WALLET_SETTINGS.paperBudgetUsd,
     sniperSpend: typeof raw?.sniperSpend === 'string' && AMOUNT.test(raw.sniperSpend) ? raw.sniperSpend : DEFAULT_WALLET_SETTINGS.sniperSpend,
+    sniperSpendEvm,
+    autoChains: autoChains.length ? autoChains : DEFAULT_WALLET_SETTINGS.autoChains,
   };
 }
 
