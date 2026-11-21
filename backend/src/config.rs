@@ -77,6 +77,9 @@ pub struct Config {
     /// Official X API bearer token, used when no TwitterAPI.io key is set. Server side only.
     pub x_bearer_token: Option<String>,
     pub x_api_base: String,
+    /// Gap between calls to the X data source. TwitterAPI.io's free tier allows one call every
+    /// five seconds; accounts with credit can lower it.
+    pub alpha_call_spacing_ms: u64,
     /// X accounts the Alpha page follows.
     pub alpha_accounts: Vec<String>,
 
@@ -225,6 +228,9 @@ impl Config {
             twitterapi_base: var_or("TWITTERAPI_BASE", "https://api.twitterapi.io"),
             x_bearer_token: var("X_BEARER_TOKEN"),
             x_api_base: var_or("X_API_BASE", "https://api.x.com"),
+            alpha_call_spacing_ms: var("ALPHA_CALL_SPACING_MS")
+                .and_then(|v| v.parse().ok())
+                .unwrap_or(5200),
             alpha_accounts: {
                 let accounts: Vec<String> = list("ALPHA_ACCOUNTS", crate::alpha::DEFAULT_ACCOUNTS)
                     .into_iter()

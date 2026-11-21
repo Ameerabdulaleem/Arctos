@@ -1,5 +1,6 @@
-// The auto sniper loop. While it is on and the page is open, it scans the launchpad feed, the
-// busiest pools and DexScreener's lists every 30 seconds, judges every token with either the
+// The auto sniper loop. While it is on and the page is open, it scans the launchpad feeds, the
+// busiest pools and DexScreener's lists of every chain it covers (Solana and BNB Chain by default)
+// every 30 seconds, judges every token with either the
 // automatic filter or the user's own filters, and buys the best one that passes, within the
 // budget and open position limit. Every scan is logged, with why tokens were skipped.
 
@@ -31,7 +32,10 @@ export interface ScanSummary {
 interface Options {
   enabled: boolean;
   strategy: AutoStrategy;
-  chain: ChainOption;
+  /** The chains to scan now. Read at each scan, so a chain whose wallet runs dry drops out. */
+  chains: () => ChainOption[];
+  /** Names the chains covered, for the log, and restarts the loop when they change. */
+  scope: string;
   filters: SniperFilters;
   /** Already bought or held, so never bought again. */
   isDone: (id: string) => boolean;
@@ -89,7 +93,7 @@ export function useAutoSniper(o: Options) {
   }, []);
 
   const scan = useCallback(async () => {
-    const { chain, strategy, filters, isDone, blocked, buy } = opts.current;
+    const { chains, strategy, filters, isDone, blocked, buy } = opts.current;
     if (busy.current) return;
     const block = blocked();
     if (block) {
@@ -98,18 +102,26 @@ export function useAutoSniper(o: Options) {
       return;
     }
     lastBlock.current = null;
+    const scope = chains();
+    if (scope.length === 0) return;
+    const byKey = new Map(scope.map((c) => [c.key as string, c]));
     busy.current = true;
     setScanning(true);
     try {
-      // Every source at once. Each is cached by the data service, so this is cheap.
-      const [active, fresh, boosted, profiles, takeovers, metas] = await Promise.all([
+      // Every source on every chain at once. Each is cached by the data service, so this is cheap.
+      const perChain = await Promise.all(scope.map((chain) => Promise.all([
         sniperService.feed(chain.key, 'all', 'active').then((r) => r.tokens).catch(() => [] as FeedToken[]),
         sniperService.feed(chain.key, 'all', 'new').then((r) => r.tokens).catch(() => [] as FeedToken[]),
         discoverService.list('boosted', chain.key).then((r) => r.tokens).catch(() => []),
         discoverService.list('profiles', chain.key).then((r) => r.tokens).catch(() => []),
         discoverService.list('takeovers', chain.key).then((r) => r.tokens).catch(() => []),
-        discoverService.metas().then((r) => r.metas).catch(() => []),
-      ]);
+      ])));
+      const metas = await discoverService.metas().then((r) => r.metas).catch(() => []);
+      const active = perChain.flatMap((c) => c[0]);
+      const fresh = perChain.flatMap((c) => c[1]);
+      const boosted = perChain.flatMap((c) => c[2]);
+      const profiles = perChain.flatMap((c) => c[3]);
+      const takeovers = perChain.flatMap((c) => c[4]);
       // The two narratives gaining most in the last hour add their tokens.
       const rising = metas.filter((m) => (m.change1h ?? 0) > 0).sort((a, b) => (b.change1h ?? 0) - (a.change1h ?? 0)).slice(0, 2);
       const metaTokens = (await Promise.all(rising.map((m) => discoverService.meta(m.slug).then((r) => r.tokens).catch(() => [])))).flat();
@@ -117,7 +129,7 @@ export function useAutoSniper(o: Options) {
       const pool = new Map<string, { token: SniperToken; trending: boolean }>();
       for (const t of [...active, ...fresh]) pool.set(t.id, { token: t, trending: false });
       for (const t of [...boosted, ...profiles, ...takeovers, ...metaTokens]) {
-        if (t.chain !== chain.key) continue;
+        if (!byKey.has(t.chain)) continue;
         const seen = pool.get(t.id);
         pool.set(t.id, { token: seen?.token ?? t, trending: true });
       }
@@ -146,7 +158,7 @@ export function useAutoSniper(o: Options) {
       } else {
         for (const { token } of candidates) {
           if ('score' in token) {
-            const v = judge(token as FeedToken, filters, chain.riskChecks);
+            const v = judge(token as FeedToken, filters, byKey.get(token.chain)?.riskChecks ?? true);
             if (v.ok) winners.push({ token, points: (token as FeedToken).score.total, why: `score ${(token as FeedToken).score.total}` });
             else skip(v.reasons[0]);
           } else if (winners.length < CHECKS_PER_SCAN) {
@@ -168,7 +180,7 @@ export function useAutoSniper(o: Options) {
       });
       if (!best) return;
       const ok = await buy(best.token, best.why);
-      if (ok) log('buy', `Bought ${best.token.symbol}: ${best.why}`);
+      if (ok) log('buy', `Bought ${best.token.symbol} on ${byKey.get(best.token.chain)?.name ?? best.token.chain}: ${best.why}`);
     } catch (e) {
       log('error', e instanceof Error ? e.message : 'The scan failed.');
     } finally {
@@ -186,14 +198,14 @@ export function useAutoSniper(o: Options) {
       if (!document.hidden) await scan();
       if (live) timer = setTimeout(loop, SCAN_MS);
     };
-    log('info', `Auto sniping started with ${o.strategy === 'smart' ? 'the automatic filter' : 'your filters'} on ${o.chain.name}.`);
+    log('info', `Auto sniping started with ${o.strategy === 'smart' ? 'the automatic filter' : 'your filters'} on ${o.scope}.`);
     void loop();
     return () => {
       live = false;
       clearTimeout(timer);
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [o.enabled, o.strategy, o.chain.key]);
+  }, [o.enabled, o.strategy, o.scope]);
 
   return { events, summary, scanning, log };
 }

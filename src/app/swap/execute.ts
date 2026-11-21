@@ -61,7 +61,7 @@ export function walletMessage(error: unknown): string {
 
 // ------------------------------------------------------------------ EVM
 
-async function ensureChain(provider: Eip1193Provider, chain: SwapChain): Promise<void> {
+export async function ensureChain(provider: Eip1193Provider, chain: SwapChain): Promise<void> {
   const current = parseInt(String(await provider.request({ method: 'eth_chainId' })), 16);
   if (current === chain.id) return;
   const chainId = numberToHex(chain.id);

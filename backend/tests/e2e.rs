@@ -243,7 +243,12 @@ fn fake_upstream() -> Router {
             if headers.get("x-api-key").and_then(|v| v.to_str().ok()) != Some("tw-test-key") {
                 return (axum::http::StatusCode::FORBIDDEN, Json(json!({"error": "Forbidden"})));
             }
-            assert!(q.unwrap_or_default().contains("since_time"));
+            let q = q.unwrap_or_default();
+            assert!(q.contains("since_time"));
+            // The second page is refused, as TwitterAPI.io's free tier does to calls too close together.
+            if q.contains("cursor=p2") {
+                return (axum::http::StatusCode::TOO_MANY_REQUESTS, Json(json!({"error": "Too Many Requests"})));
+            }
             let at = |mins: i64| (chrono::Utc::now() - chrono::Duration::minutes(mins)).format("%a %b %d %H:%M:%S +0000 %Y").to_string();
             let tweet = |id: &str, who: &str, followers: u64, text: String, mins: i64| json!({"type": "tweet", "id": id, "text": text, "createdAt": at(mins),
                 "likeCount": 10, "retweetCount": 2, "replyCount": 1, "viewCount": 1000,
@@ -254,7 +259,7 @@ fn fake_upstream() -> Router {
                 tweet("1002", "cz", 9_000_000, "$HOT looks great".to_string(), 40),
                 tweet("1003", "murad", 500_000, format!("$hot and {}", trend_mint("one")), 30),
                 tweet("1004", "elon", 200_000_000, "My dog BROCCOLI says hi".to_string(), 45),
-            ], "has_next_page": false, "next_cursor": ""})))
+            ], "has_next_page": true, "next_cursor": "p2"})))
         }))
         .route("/dex/token-boosts/top/v1", get(|| async {
             Json(json!([
@@ -435,6 +440,7 @@ fn test_config(base: &str) -> Config {
     cfg.enable_pollers = true;
     cfg.on_demand = false;
     cfg.provider_call_spacing_ms = 0;
+    cfg.alpha_call_spacing_ms = 0;
     cfg.price_cache_ms = 0;
     cfg.coingecko_api_key = None;
     cfg.database_url = None;
@@ -2411,7 +2417,15 @@ async fn alpha_ranks_coins_called_on_x() {
     assert_eq!(s, 200, "{v}");
     assert_eq!(v["configured"], true);
     assert_eq!(v["source"], "twitterapi.io");
+    // The posts read before the refusal are kept, and the refusal is reported.
     assert_eq!(v["posts"].as_array().unwrap().len(), 4, "{v}");
+    assert!(
+        v["error"]
+            .as_str()
+            .unwrap_or_default()
+            .contains("rate limiting"),
+        "{v}"
+    );
     let coins = v["coins"].as_array().unwrap();
     // Each coin was called by two accounts; the ticker resolves to the liquid original, not the copycat.
     assert_eq!(coins.len(), 2, "{v}");

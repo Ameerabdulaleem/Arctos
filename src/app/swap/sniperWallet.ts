@@ -60,6 +60,39 @@ async function aesKey(password: string, salt: Uint8Array): Promise<CryptoKey> {
   return crypto.subtle.deriveKey({ name: 'PBKDF2', salt: salt as BufferSource, iterations: ROUNDS, hash: 'SHA-256' }, base, { name: 'AES-GCM', length: 256 }, false, ['encrypt', 'decrypt']);
 }
 
+/** Encrypts secret bytes with a password, the same way the Solana key is kept. */
+export async function sealSecret(password: string, bytes: Uint8Array): Promise<{ salt: string; iv: string; data: string }> {
+  const salt = crypto.getRandomValues(new Uint8Array(16));
+  const iv = crypto.getRandomValues(new Uint8Array(12));
+  const data = new Uint8Array(await crypto.subtle.encrypt({ name: 'AES-GCM', iv: iv as BufferSource }, await aesKey(password, salt), bytes as BufferSource));
+  return { salt: b64(salt), iv: b64(iv), data: b64(data) };
+}
+
+/** Decrypts what `sealSecret` made. Throws "Wrong password." when the password does not open it. */
+export async function openSecret(password: string, sealed: { salt: string; iv: string; data: string }): Promise<Uint8Array> {
+  try {
+    return new Uint8Array(await crypto.subtle.decrypt({ name: 'AES-GCM', iv: unb64(sealed.iv) as BufferSource }, await aesKey(password, unb64(sealed.salt)), unb64(sealed.data) as BufferSource));
+  } catch {
+    throw new Error('Wrong password.');
+  }
+}
+
+/** Tells every listener that a sniper wallet changed (created, unlocked, locked or removed). */
+export function emitSniperChange() {
+  emit();
+}
+
+/** True when the password opens the stored Solana sniper wallet, or when there is none. */
+export async function solanaPasswordOk(password: string): Promise<boolean> {
+  if (!read()) return true;
+  try {
+    await decrypt(password);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
 export interface SniperWalletInfo {
   address: string;
   createdAt: number;

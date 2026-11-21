@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { ArrowClockwise, CircleNotch, ClockCounterClockwise, Wallet } from '@phosphor-icons/react';
-import { useConnectedWallets } from '../../hooks/useConnectedWallets';
+import { useConnectedWallets, type ConnectedWallet } from '../../hooks/useConnectedWallets';
+import { EvmWalletHoldings } from './EvmWalletHoldings';
 import { formatNumber, formatPct, formatPrice, formatUsd, pnlClass, shortAddress, timeAgo } from '../../lib/format';
 import { STABLE_MINTS } from '../../lib/walletPnl';
 import { loadPnlReport, type PnlReport } from '../../lib/walletPnlReport';
@@ -17,16 +18,55 @@ function Stat({ label, value, tone, sub }: { label: string; value: string; tone?
   );
 }
 
-/** Profit and loss of the connected Solana wallet, worked out from its own trades on chain. */
+const key = (w: ConnectedWallet) => `${w.kind}:${w.kind === 'evm' ? w.address.toLowerCase() : w.address}`;
+
+/**
+ * Every connected wallet, picked with one tap: a Solana wallet's real profit and loss from its own
+ * trades, or an EVM wallet's holdings across networks. A wallet connected anywhere in the app
+ * shows here at once.
+ */
 export function WalletPnlCard() {
   const { wallets } = useConnectedWallets();
-  const solana = wallets.find((w) => w.kind === 'solana') ?? null;
-  const evm = wallets.find((w) => w.kind === 'evm') ?? null;
+  const [picked, setPicked] = useState<string | null>(null);
+  // A newly connected wallet is shown straight away.
+  const seen = useRef<Set<string>>(new Set());
+  useEffect(() => {
+    const fresh = wallets.map(key).filter((k) => !seen.current.has(k));
+    wallets.forEach((w) => seen.current.add(key(w)));
+    if (fresh.length && seen.current.size > fresh.length) setPicked(fresh[fresh.length - 1]);
+  }, [wallets]);
+  const active = wallets.find((w) => key(w) === picked) ?? wallets.find((w) => w.kind === 'solana') ?? wallets[0] ?? null;
+
+  if (!active) {
+    return (
+      <Card className="mb-6 p-5">
+        <h2 className="flex items-center gap-2.5 font-semibold text-white"><IconTile tone="mint" size="sm"><Wallet /></IconTile>Connected wallet profit and loss</h2>
+        <p className="mt-2 text-sm text-zinc-400">Connect a wallet (Phantom for Solana, or MetaMask, Rabby or OKX for EVM chains) and this shows what it holds and its real profit and loss.</p>
+      </Card>
+    );
+  }
+
+  return (
+    <div className="mb-6 space-y-3">
+      {wallets.length > 1 && (
+        <div className="seg flex w-fit flex-wrap" role="tablist" aria-label="Wallet">
+          {wallets.map((w) => (
+            <button key={key(w)} type="button" role="tab" aria-selected={key(w) === key(active)} onClick={() => setPicked(key(w))} className="seg-item px-3 py-1.5 text-xs">
+              {w.kind === 'solana' ? 'Solana' : 'EVM'} <span className="num">{shortAddress(w.address, 4, 4)}</span>
+            </button>
+          ))}
+        </div>
+      )}
+      {active.kind === 'solana' ? <SolanaPnl key={active.address} address={active.address} /> : <EvmWalletHoldings key={active.address} address={active.address} />}
+    </div>
+  );
+}
+
+function SolanaPnl({ address }: { address: string }) {
   const [state, setState] = useState<PnlReport | null>(null);
   const [progress, setProgress] = useState<{ done: number; total: number } | null>(null);
   const [error, setError] = useState<string | null>(null);
   const ctrl = useRef<AbortController | null>(null);
-  const address = solana?.address ?? null;
 
   const run = useCallback(async (older = false) => {
     if (!address) return;
@@ -53,26 +93,15 @@ export function WalletPnlCard() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [address]);
 
-  if (!solana) {
-    return (
-      <Card className="mb-6 p-5">
-        <h2 className="flex items-center gap-2.5 font-semibold text-white"><IconTile tone="mint" size="sm"><Wallet /></IconTile>Connected wallet profit and loss</h2>
-        <p className="mt-2 text-sm text-zinc-400">
-          {evm ? 'Wallet trade history is read for Solana wallets for now. Connect Phantom to see your Solana profit and loss here.' : 'Connect Phantom and this shows your wallet’s real profit and loss, worked out from every trade it made.'}
-        </p>
-      </Card>
-    );
-  }
-
   const t = state?.pnl.totals;
   const name = (mint: string) => state?.names[mint]?.symbol ?? STABLE_MINTS[mint] ?? shortAddress(mint, 4, 4);
 
   return (
-    <Card className="mb-6 space-y-4 p-5">
+    <Card className="space-y-4 p-5">
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div>
           <h2 className="flex items-center gap-2.5 font-semibold text-white"><IconTile tone="mint" size="sm"><Wallet /></IconTile>Connected wallet profit and loss</h2>
-          <p className="mt-1 flex items-center gap-1 text-xs text-zinc-500">Solana <span className="num">{shortAddress(solana.address, 5, 5)}</span><CopyAddress value={solana.address} label="Copy the wallet address" />{state && <span>, updated {timeAgo(state.at)}</span>}</p>
+          <p className="mt-1 flex items-center gap-1 text-xs text-zinc-500">Solana <span className="num">{shortAddress(address, 5, 5)}</span><CopyAddress value={address} label="Copy the wallet address" />{state && <span>{`, updated ${timeAgo(state.at)}`}</span>}</p>
         </div>
         <div className="flex gap-2">
           {state && !state.complete && <button type="button" disabled={progress != null} onClick={() => void run(true)} className="btn btn-secondary btn-sm"><ClockCounterClockwise className="h-4 w-4" aria-hidden />Read older trades</button>}
@@ -88,10 +117,16 @@ export function WalletPnlCard() {
         </div>
       )}
       {error && <p role="alert" className="text-sm text-rose-300">{error}</p>}
+      {state && state.unread > 0 && !progress && (
+        <p role="status" className="rounded-lg border border-amber-400/25 bg-amber-400/[0.07] px-3 py-2 text-xs text-amber-100">
+          {state.unread} {state.unread === 1 ? 'transaction' : 'transactions'} could not be read from the public Solana network just now, so a buy or sell may be missing. Press Refresh to read {state.unread === 1 ? 'it' : 'them'}; the ones already read stay on this device.
+        </p>
+      )}
 
       {t && state && (
         <>
-          <div className="grid grid-cols-2 gap-2 sm:grid-cols-3 lg:grid-cols-6">
+          <div className="grid grid-cols-2 gap-2 sm:grid-cols-4 lg:grid-cols-7">
+            <Stat label="Wallet value" value={state.valueUsd == null ? 'Unknown' : formatUsd(state.valueUsd)} sub={`${state.tokensHeld} tokens plus SOL`} />
             <Stat label="Net P/L" value={formatUsd(t.netUsd)} tone={pnlClass(t.netUsd)} sub={`${formatUsd(t.realizedUsd)} realized`} />
             <Stat label="Total profit" value={formatUsd(t.profitUsd)} tone="text-emerald-300" />
             <Stat label="Total loss" value={formatUsd(t.lossUsd)} tone="text-rose-300" />
@@ -130,7 +165,7 @@ export function WalletPnlCard() {
                       <td className="num py-2 pr-3 text-right text-zinc-300">{k.avgCostUsd == null ? '—' : formatPrice(k.avgCostUsd)}</td>
                       <td className={`num py-2 pr-3 text-right ${pnlClass(k.realizedUsd)}`}>{formatUsd(k.realizedUsd)}</td>
                       <td className="num py-2 pr-3 text-right text-zinc-300">{(k.nowQty ?? k.heldQty) > 0 ? <>{(k.nowUsd ?? k.valueUsd) == null ? 'No price' : formatUsd(k.nowUsd ?? k.valueUsd)}<span className="block text-[11px] text-zinc-500">{formatNumber(k.nowQty ?? k.heldQty, 4)}</span></> : 'Sold'}</td>
-                      <td className={`num py-2 pr-3 text-right ${pnlClass(k.unrealizedUsd)}`}>{k.unrealizedUsd == null ? '—' : formatUsd(k.unrealizedUsd)}</td>
+                      <td className={`num py-2 pr-3 text-right ${pnlClass(k.unrealizedUsd)}`}>{k.unrealizedUsd == null ? '—' : formatUsd(k.unrealizedUsd)}{!k.noTrade && k.nowQty != null && k.nowQty > k.heldQty * 1.02 && <span className="block text-[11px] text-zinc-500">{k.heldQty > 0 ? `cost known for ${Math.max(1, Math.round((k.heldQty / k.nowQty) * 100))}% held` : 'cost of the rest unknown'}</span>}</td>
                       <td className={`num py-2 text-right font-semibold ${k.noTrade ? 'text-zinc-500' : pnlClass(k.totalUsd)}`}>{k.noTrade ? 'Cost unknown' : <>{formatUsd(k.totalUsd)}{k.investedUsd > 0 && <span className="block text-[11px] font-normal">{formatPct((k.totalUsd / k.investedUsd) * 100, 1)}</span>}</>}</td>
                     </tr>
                   ))}

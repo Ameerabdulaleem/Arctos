@@ -103,6 +103,8 @@ export interface HistoryResult {
   oldest: string | null;
   /** True when there is no older history. */
   complete: boolean;
+  /** Transactions the public network refused to send even after retries. Refresh reads them. */
+  unread: number;
 }
 
 /**
@@ -124,20 +126,30 @@ export async function loadWalletHistory(
   let done = ok.length - missing.length;
   onProgress?.(done, ok.length);
 
-  // A few at a time, so public RPCs do not refuse the burst.
+  // A few at a time, so public RPCs do not refuse the burst. A refused read is asked again with
+  // growing pauses, because a skipped buy would make a token's cost look unknown.
   let next = 0;
   let sinceSave = 0;
+  let unread = 0;
   const worker = async () => {
     while (next < missing.length) {
       if (signal?.aborted) return;
       const sig = missing[next++];
-      try {
-        const raw = await solanaCall<unknown>('getTransaction', [sig, { encoding: 'jsonParsed', maxSupportedTransactionVersion: 1, commitment: 'confirmed' }], signal);
-        cache[sig] = parseWalletTx(raw, wallet, sig) ?? 0;
-      } catch {
-        // Left out of the cache, so it is tried again next time.
-        await new Promise((r) => setTimeout(r, 400));
+      let read = false;
+      for (let attempt = 0; attempt < 4 && !read; attempt++) {
+        try {
+          const raw = await solanaCall<unknown>('getTransaction', [sig, { encoding: 'jsonParsed', maxSupportedTransactionVersion: 1, commitment: 'confirmed' }], signal);
+          // A transaction the node has not indexed yet answers null; it is read next time.
+          if (raw == null) break;
+          cache[sig] = parseWalletTx(raw, wallet, sig) ?? 0;
+          read = true;
+        } catch {
+          if (signal?.aborted) return;
+          await new Promise((r) => setTimeout(r, 700 * 2 ** attempt));
+        }
       }
+      // Left out of the cache, so it is tried again next time.
+      if (!read) unread += 1;
       done += 1;
       onProgress?.(done, ok.length);
       if (++sinceSave >= 25) {
@@ -146,9 +158,9 @@ export async function loadWalletHistory(
       }
     }
   };
-  await Promise.all(Array.from({ length: 4 }, worker));
+  await Promise.all(Array.from({ length: 3 }, worker));
   writeCache(wallet, cache);
 
   const txs = ok.map((s) => cache[s]).filter((t): t is WalletTx => Boolean(t)).sort((a, b) => a.time - b.time);
-  return { txs, scanned: ok.length, oldest: sigs.length ? sigs[sigs.length - 1].signature : null, complete: sigs.length < Math.min(1000, limit) };
+  return { txs, scanned: ok.length, oldest: sigs.length ? sigs[sigs.length - 1].signature : null, complete: sigs.length < Math.min(1000, limit), unread };
 }
