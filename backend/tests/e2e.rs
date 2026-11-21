@@ -109,7 +109,11 @@ fn launchpad_provider() -> Router {
             Json(json!({"data": [pool("USDC", "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v", "1", "0"), pool("MOON", &trend_mint("moon"), "0.01", "400")],
                 "included": [{"id": format!("solana_{}", trend_mint("moon")), "type": "token", "attributes": {"symbol": "MOON", "name": "Moon Coin"}}]})).into_response()
         }))
-        .route("/networks/:net/pools/:pool/trades", get(|Path((_net, pool)): Path<(String, String)>, axum::extract::RawQuery(q): axum::extract::RawQuery| async move {
+        .route("/networks/:net/pools/:pool/trades", get(|Path((net, pool)): Path<(String, String)>, axum::extract::RawQuery(q): axum::extract::RawQuery| async move {
+            // BNB Chain lists its pools, then refuses every trades read as busy.
+            if net == "bsc" {
+                return (axum::http::StatusCode::TOO_MANY_REQUESTS, Json(json!({"status": {"error_code": 429}}))).into_response();
+            }
             assert_eq!(pool, "poolMOON");
             assert!(q.unwrap_or_default().contains("trade_volume_in_usd_greater_than=300"));
             let moon = trend_mint("moon");
@@ -127,7 +131,7 @@ fn launchpad_provider() -> Router {
                 // Bought and sold in the same second.
                 t("tx3", "SandwichBot11111111111111111111111111111111", true, "900", "90000", "2026-11-20T05:00:00Z"),
                 t("tx4", "SandwichBot11111111111111111111111111111111", false, "905", "90000", "2026-11-20T05:00:00Z"),
-            ]}))
+            ]})).into_response()
         }))
         .route("/networks/:net/tokens/:address/info", get(|Path((_net, address)): Path<(String, String)>| async move {
             let dev_pct = quote(&address).map_or(2.5, |q| q.dev_pct);
@@ -2463,6 +2467,9 @@ async fn smart_money_grades_wallets_that_bought_pumps_early() {
     assert_eq!(s, 400);
     // A provider that stays busy after one retry gets a clear answer, not a generic failure.
     let (s, v) = get_json(&client, format!("{base}/api/whales/smart?chain=base")).await;
+    assert_eq!(s, 503, "{v}");
+    assert!(v.to_string().contains("GeckoTerminal is busy"), "{v}");
+    let (s, v) = get_json(&client, format!("{base}/api/whales/smart?chain=bsc")).await;
     assert_eq!(s, 503, "{v}");
     assert!(v.to_string().contains("GeckoTerminal is busy"), "{v}");
 }
