@@ -124,7 +124,41 @@ http.createServer((req, res) => {
   if (/^\/gt\/networks\/[^/]+\/(trending_pools|dexes\/[^/]+\/pools)$/.test(gt)) { const net = gt.split('/')[3]; return json(res, { data: ['PEPEX', 'MOONI', 'WAGMI', 'SNIPE'].map((s, i) => pool(net, i, s)), included: ['PEPEX', 'MOONI', 'WAGMI', 'SNIPE'].map((s, i) => ({ id: `${net}_${tokAddr(net, i)}`, type: 'token', attributes: { address: tokAddr(net, i), name: `${s} Coin`, symbol: s, image_url: null } })) }); }
   if (/^\/gt\/networks\/[^/]+\/tokens\/multi\//.test(gt)) return json(res, { data: decodeURIComponent(gt.split('/').pop()).split(',').map((a, i) => ({ attributes: { address: a, launchpad_details: { graduation_percentage: 88 - i * 25, completed: false } } })) });
   if (/^\/gt\/networks\/[^/]+\/tokens\/[^/]+\/info$/.test(gt)) { const a = gt.split('/')[5]; return json(res, { data: { attributes: { address: a, developer_address: a.startsWith('0x') ? '0x' + 'd'.repeat(40) : 'D'.repeat(44), developer_holding_percentage: market.dev, holders: { count: 4200, distribution_percentage: { top_10: '22.5' } }, mint_authority: 'no', freeze_authority: 'no', is_honeypot: 'no', twitter_handle: 'fixture', websites: [] } } }); }
+  // Whale trades of a pool, for the smart money grades: early buyers, late buyers, a few sellers.
+  if (/^\/gt\/networks\/[^/]+\/pools\/[^/]+\/trades$/.test(gt)) {
+    const net = gt.split('/')[3];
+    const i = Number(gt.split('/')[5].replace(/\D/g, '')) || 0;
+    const token = tokAddr(net, i);
+    const price = 0.0004 * (i + 1);
+    const quote = net === 'solana' ? 'So11111111111111111111111111111111111111112' : '0x' + 'e'.repeat(40);
+    const b58 = '123456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz';
+    const wallet = (n) => (net === 'solana' ? `${b58[(n * 5) % 58]}${b58[(n * 11 + 3) % 58]}9xQeWvG816bUx9EPjHmaT23yvVM2ZWbrrpZb9PusV${b58[n % 58]}` : `0x${(n + 10).toString(16).padStart(2, '0').repeat(20)}`);
+    const data = [];
+    for (let n = 0; n < 14; n++) {
+      const early = n % 3 !== 2;
+      const entry = early ? price / (2 + (n % 4)) : price * 1.25;
+      const usd = 400 + n * 180;
+      const at = new Date(now() - (20 - n) * 3600_000).toISOString();
+      data.push({ attributes: { tx_hash: `t${i}-${n}`, tx_from_address: wallet(n + i * 3), kind: 'buy', block_timestamp: at, from_token_address: quote, to_token_address: token, from_token_amount: '1', to_token_amount: String(usd / entry), volume_in_usd: String(usd) } });
+      if (n % 4 === 0) data.push({ attributes: { tx_hash: `s${i}-${n}`, tx_from_address: wallet(n + i * 3), kind: 'sell', block_timestamp: new Date(now() - (10 - n / 2) * 3600_000).toISOString(), from_token_address: token, to_token_address: quote, from_token_amount: String(usd / entry / 2), to_token_amount: '1', volume_in_usd: String((usd / entry / 2) * price * 0.9) } });
+    }
+    return json(res, { data });
+  }
   if (/^\/gt\/networks\/[^/]+\/new_pools$/.test(gt)) { const net = gt.split('/')[3]; return json(res, { data: ['PEPEX', 'MOONI', 'WAGMI', 'SNIPE'].map((s, i) => pool(net, i, s)), included: ['PEPEX', 'MOONI', 'WAGMI', 'SNIPE'].map((s, i) => ({ id: `${net}_${tokAddr(net, i)}`, type: 'token', attributes: { address: tokAddr(net, i), name: `${s} Coin`, symbol: s, image_url: null } })) }); }
+  // X posts for the Alpha page, in TwitterAPI.io's shape.
+  if (p === '/tw/twitter/tweet/advanced_search') {
+    const two = (n) => String(n).padStart(2, '0');
+    const xDate = (ms) => { const d = new Date(ms); return `${['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'][d.getUTCDay()]} ${['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'][d.getUTCMonth()]} ${two(d.getUTCDate())} ${two(d.getUTCHours())}:${two(d.getUTCMinutes())}:${two(d.getUTCSeconds())} +0000 ${d.getUTCFullYear()}`; };
+    const post = (id, user, name, text, ago, likes) => ({ id: String(id), url: `https://x.com/${user}/status/${id}`, text, createdAt: xDate(now() - ago * 60000), likeCount: likes, retweetCount: Math.round(likes / 8), replyCount: Math.round(likes / 20), viewCount: likes * 40, isReply: false,
+      author: { userName: user, name, profilePicture: null, followers: likes * 300, isBlueVerified: true }, entities: { urls: [], hashtags: [], user_mentions: [] } });
+    return json(res, { tweets: [
+      post(9001, 'blknoiz06', 'Ansem', 'Still think $BONK runs this cycle. CA DezXAZ8z7PnrnRJjz3wXBoRgixCa6xjnB7YaB1pPB263', 12, 5400),
+      post(9002, 'MustStopMurad', 'Murad', 'The $BONK community is unmatched. Conviction > everything.', 35, 8800),
+      post(9003, 'cz_binance', 'CZ', 'Frogs are back? $PEPE', 50, 21000),
+      post(9004, 'elonmusk', 'Elon Musk', 'My dog BROCCOLI says hi', 80, 99000),
+      post(9005, 'frankdegods', 'frank', 'Rotating into $PEPE and $BONK for the weekend', 120, 2600),
+    ], has_next_page: false, next_cursor: '' });
+  }
   if (p === '/dex/latest/dex/search') return json(res, { pairs: [dexPair('ethereum', '0x6982508145454Ce325dDbE47a25d4ec3d2311933', 'PEPE', 91000000), dexPair('solana', 'DezXAZ8z7PnrnRJjz3wXBoRgixCa6xjnB7YaB1pPB263', 'BONK', 12000000)] });
   if (p === '/dex/token-boosts/top/v1') {
     return json(res, [

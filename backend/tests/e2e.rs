@@ -94,6 +94,36 @@ fn launchpad_provider() -> Router {
                 "launchpad_details": {"graduation_percentage": if a == MINT_A { 82.5 } else { 20.0 }, "completed": false}}})).collect();
             Json(json!({"data": data}))
         }))
+        // Smart money: MOON rose 400%, the stablecoin pool is not graded.
+        .route("/networks/:net/trending_pools", get(|| async {
+            let pool = |sym: &str, mint: &str, price: &str, change: &str| json!({"id": format!("solana_pool{sym}"), "type": "pool",
+                "attributes": {"name": format!("{sym} / SOL"), "address": format!("pool{sym}"), "base_token_price_usd": price,
+                "reserve_in_usd": "90000", "fdv_usd": "2000000", "price_change_percentage": {"h24": change}, "volume_usd": {"h24": "800000"},
+                "transactions": {"h24": {"buys": 900, "sells": 500}}},
+                "relationships": {"base_token": {"data": {"id": format!("solana_{mint}")}}, "dex": {"data": {"id": "raydium"}}}});
+            Json(json!({"data": [pool("USDC", "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v", "1", "0"), pool("MOON", &trend_mint("moon"), "0.01", "400")],
+                "included": [{"id": format!("solana_{}", trend_mint("moon")), "type": "token", "attributes": {"symbol": "MOON", "name": "Moon Coin"}}]}))
+        }))
+        .route("/networks/:net/pools/:pool/trades", get(|Path((_net, pool)): Path<(String, String)>, axum::extract::RawQuery(q): axum::extract::RawQuery| async move {
+            assert_eq!(pool, "poolMOON");
+            assert!(q.unwrap_or_default().contains("trade_volume_in_usd_greater_than=300"));
+            let moon = trend_mint("moon");
+            let sol = "So11111111111111111111111111111111111111112";
+            let t = |tx: &str, wallet: &str, buy: bool, usd: &str, qty: &str, at: &str| {
+                let (from, to) = if buy { (sol.to_string(), moon.clone()) } else { (moon.clone(), sol.to_string()) };
+                json!({"attributes": {"tx_hash": tx, "tx_from_address": wallet, "kind": if buy { "buy" } else { "sell" }, "block_timestamp": at,
+                    "from_token_address": from, "to_token_address": to, "from_token_amount": if buy { "5" } else { qty }, "to_token_amount": if buy { qty } else { "5" }, "volume_in_usd": usd}})
+            };
+            Json(json!({"data": [
+                // In at 0.002 and still holding: a 5x.
+                t("tx1", "EarlyWhaleWallet1111111111111111111111111111", true, "1000", "500000", "2026-11-20T01:00:00Z"),
+                // In at 0.02: under water.
+                t("tx2", "LateWallet111111111111111111111111111111111", true, "1000", "50000", "2026-11-20T09:00:00Z"),
+                // Bought and sold in the same second.
+                t("tx3", "SandwichBot11111111111111111111111111111111", true, "900", "90000", "2026-11-20T05:00:00Z"),
+                t("tx4", "SandwichBot11111111111111111111111111111111", false, "905", "90000", "2026-11-20T05:00:00Z"),
+            ]}))
+        }))
         .route("/networks/:net/tokens/:address/info", get(|Path((_net, address)): Path<(String, String)>| async move {
             let dev_pct = quote(&address).map_or(2.5, |q| q.dev_pct);
             Json(json!({"data": {"attributes": {"address": address, "developer_address": DEV_WALLET, "developer_holding_percentage": dev_pct,
@@ -182,6 +212,40 @@ fn fake_upstream() -> Router {
                     "priceUsd": q.price.to_string(), "liquidity": {"usd": q.liquidity}}))
             }).collect();
             Json(json!({"pairs": pairs}))
+        }))
+        // DexScreener search: $HOT has a copycat with less liquidity; BROCCOLI launched after a post.
+        .route("/dex/latest/dex/search", get(|axum::extract::RawQuery(q): axum::extract::RawQuery| async move {
+            let q = q.unwrap_or_default().to_ascii_uppercase();
+            let now = chrono::Utc::now().timestamp_millis();
+            let pair = |addr: &str, sym: &str, liq: f64, created: i64| json!({"chainId": "solana", "dexId": "raydium", "pairAddress": format!("pool{addr}"),
+                "baseToken": {"address": addr, "symbol": sym, "name": sym}, "priceUsd": "0.01", "liquidity": {"usd": liq}, "volume": {"h24": liq * 2.0},
+                "pairCreatedAt": created, "url": format!("https://dexscreener.com/solana/pool{addr}")});
+            let pairs = if q.contains("Q=HOT") {
+                vec![pair(&trend_mint("hot"), "HOT", 250_000.0, now - 86_400_000), pair(&trend_mint("copy"), "HOT", 900.0, now - 3_600_000)]
+            } else if q.contains("BROCCOLI") {
+                vec![pair(&trend_mint("brocco"), "BROCCOLI", 40_000.0, now - 20 * 60_000)]
+            } else {
+                vec![]
+            };
+            Json(json!({"pairs": pairs}))
+        }))
+        // TwitterAPI.io advanced search, checking the key it is sent.
+        .route("/tw/twitter/tweet/advanced_search", get(|headers: axum::http::HeaderMap, axum::extract::RawQuery(q): axum::extract::RawQuery| async move {
+            if headers.get("x-api-key").and_then(|v| v.to_str().ok()) != Some("tw-test-key") {
+                return (axum::http::StatusCode::FORBIDDEN, Json(json!({"error": "Forbidden"})));
+            }
+            assert!(q.unwrap_or_default().contains("since_time"));
+            let at = |mins: i64| (chrono::Utc::now() - chrono::Duration::minutes(mins)).format("%a %b %d %H:%M:%S +0000 %Y").to_string();
+            let tweet = |id: &str, who: &str, followers: u64, text: String, mins: i64| json!({"type": "tweet", "id": id, "text": text, "createdAt": at(mins),
+                "likeCount": 10, "retweetCount": 2, "replyCount": 1, "viewCount": 1000,
+                "author": {"userName": who, "name": who, "followers": followers, "profilePicture": "https://pbs.twimg.com/profile_images/1/a.jpg"},
+                "entities": {"urls": []}});
+            (axum::http::StatusCode::OK, Json(json!({"tweets": [
+                tweet("1001", "ansem", 900_000, format!("CA {}", trend_mint("one")), 50),
+                tweet("1002", "cz", 9_000_000, "$HOT looks great".to_string(), 40),
+                tweet("1003", "murad", 500_000, format!("$hot and {}", trend_mint("one")), 30),
+                tweet("1004", "elon", 200_000_000, "My dog BROCCOLI says hi".to_string(), 45),
+            ], "has_next_page": false, "next_cursor": ""})))
         }))
         .route("/dex/token-boosts/top/v1", get(|| async {
             Json(json!([
@@ -392,6 +456,9 @@ fn test_config(base: &str) -> Config {
     cfg.magiceden_base = format!("{base}/me");
     cfg.alchemy_api_key = None;
     cfg.fx_sources = vec![format!("{base}/fx/down"), format!("{base}/fx/usd.min.json")];
+    cfg.twitterapi_key = None;
+    cfg.twitterapi_base = format!("{base}/tw");
+    cfg.x_bearer_token = None;
     cfg
 }
 
@@ -2315,4 +2382,78 @@ async fn klines_can_be_read_for_a_past_time() {
         .await;
         assert_eq!(s, 400, "endTime {bad}");
     }
+}
+
+#[tokio::test]
+async fn alpha_ranks_coins_called_on_x() {
+    // Without a key the page says how to set one up, and nothing is fetched.
+    let (base, _) = boot_on_demand().await;
+    let (s, v) = get_json(&reqwest::Client::new(), format!("{base}/api/alpha")).await;
+    assert_eq!(s, 200);
+    assert_eq!(v["configured"], false, "{v}");
+
+    let up = serve(fake_upstream()).await;
+    let mut cfg = test_config(&format!("http://{up}")).into_on_demand();
+    cfg.twitterapi_key = Some("tw-test-key".into());
+    cfg.alpha_accounts = vec!["ansem".into(), "cz".into(), "murad".into(), "elon".into()];
+    let state = build_state(cfg).await;
+    let addr = serve(build_router(state.clone())).await;
+    let (s, v) = get_json(&reqwest::Client::new(), format!("http://{addr}/api/alpha")).await;
+    assert_eq!(s, 200, "{v}");
+    assert_eq!(v["configured"], true);
+    assert_eq!(v["source"], "twitterapi.io");
+    assert_eq!(v["posts"].as_array().unwrap().len(), 4, "{v}");
+    let coins = v["coins"].as_array().unwrap();
+    // Each coin was called by two accounts; the ticker resolves to the liquid original, not the copycat.
+    assert_eq!(coins.len(), 2, "{v}");
+    let hot = coins.iter().find(|c| c["symbol"] == "HOT").unwrap();
+    assert_eq!(hot["address"], trend_mint("hot"));
+    assert_eq!(hot["kols"].as_array().unwrap().len(), 2);
+    assert_eq!(hot["evidence"], "ticker");
+    let one = coins
+        .iter()
+        .find(|c| c["address"] == trend_mint("one"))
+        .unwrap();
+    assert_eq!(one["evidence"], "contract");
+    assert_eq!(one["kols"], json!(["ansem", "murad"]));
+    // The word coin launched after Elon's post.
+    let launched = v["launched"].as_array().unwrap();
+    assert_eq!(launched[0]["symbol"], "BROCCOLI", "{v}");
+    assert_eq!(launched[0]["kol"], "elon");
+    // Posts link back to the coins found in them.
+    let post = v["posts"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|p| p["id"] == "1003")
+        .unwrap();
+    assert_eq!(post["coins"].as_array().unwrap().len(), 2);
+    assert_eq!(post["url"], "https://x.com/murad/status/1003");
+}
+
+#[tokio::test]
+async fn smart_money_grades_wallets_that_bought_pumps_early() {
+    let (base, _) = boot_on_demand().await;
+    let client = reqwest::Client::new();
+    let (s, v) = get_json(&client, format!("{base}/api/whales/smart?chain=solana")).await;
+    assert_eq!(s, 200, "{v}");
+    assert_eq!(v["chain"], "solana");
+    let tokens = v["tokens"].as_array().unwrap();
+    assert_eq!(tokens.len(), 1, "the stablecoin pool is not graded: {v}");
+    assert_eq!(tokens[0]["symbol"], "MOON");
+    let wallets = v["wallets"].as_array().unwrap();
+    // The late buyer is under water and the bot is dropped, so only the early whale is listed.
+    assert_eq!(wallets.len(), 1, "{v}");
+    let w = &wallets[0];
+    assert_eq!(w["address"], "EarlyWhaleWallet1111111111111111111111111111");
+    assert_eq!(w["earlyHits"], 1);
+    assert_eq!(w["grade"], "B");
+    let p = &w["positions"][0];
+    assert_eq!(p["symbol"], "MOON");
+    assert_eq!(p["address"], trend_mint("moon"));
+    assert!((p["multiple"].as_f64().unwrap() - 5.0).abs() < 1e-9, "{p}");
+    assert!((p["pnlUsd"].as_f64().unwrap() - 4000.0).abs() < 1e-6, "{p}");
+    // A chain the scan does not cover is refused, not fetched.
+    let (s, _) = get_json(&client, format!("{base}/api/whales/smart?chain=near")).await;
+    assert_eq!(s, 400);
 }

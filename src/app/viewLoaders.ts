@@ -7,6 +7,7 @@ export const VIEW_LOADERS = {
   trading: () => import('./components/TradingTerminal').then((m) => ({ default: m.TradingTerminal })),
   sniper: () => import('./components/SniperPanel').then((m) => ({ default: m.SniperPanel })),
   tradebook: () => import('./components/TradeBook').then((m) => ({ default: m.TradeBook })),
+  alpha: () => import('./components/AlphaPage').then((m) => ({ default: m.AlphaPage })),
   whale: () => import('./components/WhaleAlert').then((m) => ({ default: m.WhaleAlert })),
   news: () => import('./components/FundamentalNews').then((m) => ({ default: m.FundamentalNews })),
   stocks: () => import('./components/StocksPreIPO').then((m) => ({ default: m.StocksPreIPO })),

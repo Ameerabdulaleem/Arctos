@@ -14,6 +14,7 @@
 
 pub mod ai;
 pub mod ai_tools;
+pub mod alpha;
 pub mod binance;
 pub mod config;
 pub mod db;
@@ -29,6 +30,7 @@ pub mod portfolio;
 pub mod ratelimit;
 pub mod records;
 pub mod serverless;
+pub mod smartmoney;
 pub mod sniper;
 pub mod stocks;
 pub mod swap_proxy;
@@ -83,6 +85,8 @@ pub struct AppState {
     pub nft_cache: KeyedCache<portfolio::NftsResponse>,
     pub fx_cache: KeyedCache<fx::FxResponse>,
     pub discover_cache: KeyedCache<serde_json::Value>,
+    pub alpha: alpha::AlphaStore,
+    pub smart: smartmoney::SmartStore,
     pub waitlist_count: KeyedCache<i64>,
     pub waitlist_mem: Mutex<HashSet<String>>,
     pub ws_slots: Arc<Semaphore>,
@@ -115,6 +119,8 @@ pub async fn build_state(config: Config) -> Arc<AppState> {
         fx_cache: KeyedCache::new(Duration::from_secs(3600), Duration::from_secs(48 * 3600)),
         // DexScreener's trending lists move by the minute.
         discover_cache: KeyedCache::new(Duration::from_secs(45), Duration::from_secs(600)),
+        alpha: alpha::AlphaStore::new(),
+        smart: smartmoney::SmartStore::new(),
         waitlist_count: KeyedCache::new(Duration::from_secs(30), Duration::from_secs(600)),
         waitlist_mem: Mutex::new(HashSet::new()),
         ws_slots: Arc::new(Semaphore::new(1500)),
@@ -135,6 +141,7 @@ pub fn spawn_background(state: Arc<AppState>) {
     whales::spawn_pollers(state.clone());
     sniper::spawn_pollers(state.clone());
     news::spawn_pollers(state.clone());
+    alpha::spawn_pollers(state.clone());
     keeper::spawn_loop(state.clone());
     let limiter = state.clone();
     tokio::spawn(async move {
@@ -327,6 +334,7 @@ pub fn cdn_cache_policy(path: &str) -> Option<(u32, u32)> {
         "/api/market/klines" => (3, 0),
         "/api/market/overview" | "/api/market/coins" => (30, 120),
         "/api/whales" => (10, 60),
+        "/api/whales/smart" => (300, 1800),
         "/api/sniper/new" | "/api/sniper/feed" => (10, 60),
         "/api/sniper/chains" => (3600, 86400),
         "/api/relay/chains" => (300, 3600),
@@ -338,6 +346,7 @@ pub fn cdn_cache_policy(path: &str) -> Option<(u32, u32)> {
         "/api/stocks" => (30, 120),
         "/api/fx" => (1800, 86400),
         "/api/discover" | "/api/discover/metas" => (30, 120),
+        "/api/alpha" => (30, 90),
         p if p.starts_with("/api/discover/meta/") => (30, 120),
         "/api/waitlist/count" => (30, 120),
         p if p.starts_with("/api/portfolio/") && p.ends_with("/nfts") => (120, 600),
@@ -400,6 +409,7 @@ pub fn build_router(state: Arc<AppState>) -> Router {
         .route("/api/market/trades", get(binance::get_trades))
         // On chain
         .route("/api/whales", get(whales::get_whales))
+        .route("/api/whales/smart", get(smartmoney::get_smart))
         .route("/api/portfolio/:address", get(portfolio::get_portfolio))
         .route("/api/portfolio/:address/nfts", get(portfolio::get_nfts))
         // Sniper discovery
@@ -442,6 +452,7 @@ pub fn build_router(state: Arc<AppState>) -> Router {
         .route("/api/news", get(news::get_news))
         .route("/api/stocks", get(stocks::get_quotes))
         .route("/api/fx", get(fx::get_rates))
+        .route("/api/alpha", get(alpha::get_alpha))
         .route("/api/discover", get(discover::get_list))
         .route("/api/discover/metas", get(discover::get_metas))
         .route("/api/discover/meta/:slug", get(discover::get_meta))

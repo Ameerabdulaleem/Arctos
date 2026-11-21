@@ -1,8 +1,9 @@
 import { useCallback, useEffect, useRef, useState, type KeyboardEvent } from 'react';
-import { ArrowClockwise, Check, Copy, Newspaper, PaperPlaneRight, Sparkle, Trash, TrendUp, User, Wallet, WarningCircle } from '@phosphor-icons/react';
+import { ArrowClockwise, CaretDown, Check, Copy, Lightbulb, Newspaper, PaperPlaneRight, Sparkle, Trash, TrendUp, User, Wallet, WarningCircle } from '@phosphor-icons/react';
 import { IconTile, Pill } from './ui/common';
 import { useAIContext } from '../hooks/useAIContext';
 import { useConnectedWallets } from '../hooks/useConnectedWallets';
+import { useWalletPnlReport } from '../lib/walletPnlReport';
 import { usePolling } from '../hooks/usePolling';
 import { useTickers } from '../hooks/useTickers';
 import { usePaper } from '../contexts/paper-context';
@@ -77,12 +78,30 @@ export function AIChat() {
     connected.length ? 60_000 : null,
     [walletKey],
   );
-  const ai = useAIContext(connected, portfolios.data);
+  // The Trade Book's profit and loss for the Solana wallet, so questions about past buys can be answered.
+  const pnlReport = useWalletPnlReport(connected.find((w) => w.kind === 'solana')?.address ?? null);
+  const ai = useAIContext(connected, portfolios.data, pnlReport);
 
   const [messages, setMessages] = useState<Message[]>([WELCOME]);
   const [input, setInput] = useState('');
   const [busy, setBusy] = useState(false);
   const [copied, setCopied] = useState<string | null>(null);
+  // The suggested questions can be folded away; the choice is remembered on this device.
+  const [showPrompts, setShowPrompts] = useState(() => {
+    try {
+      return localStorage.getItem('arctos_ai_prompts') !== '0';
+    } catch {
+      return true;
+    }
+  });
+  const togglePrompts = () => setShowPrompts((v) => {
+    try {
+      localStorage.setItem('arctos_ai_prompts', v ? '0' : '1');
+    } catch {
+      /* storage blocked */
+    }
+    return !v;
+  });
   const endRef = useRef<HTMLDivElement>(null);
   const abortRef = useRef<AbortController | null>(null);
 
@@ -132,7 +151,7 @@ export function AIChat() {
     void ask(m.retry);
   };
 
-  const prompts = connected.length ? ['Analyse my connected wallet', ...QUICK_PROMPTS] : QUICK_PROMPTS;
+  const prompts = connected.length ? ['Analyse my connected wallet', 'Which of my tokens are up and which are down since I bought them?', ...QUICK_PROMPTS] : QUICK_PROMPTS;
 
   const onKey = (e: KeyboardEvent<HTMLTextAreaElement>) => {
     if (e.key === 'Enter' && !e.shiftKey) {
@@ -203,6 +222,9 @@ export function AIChat() {
                 );
               })}
               {connected.length === 0 && <li className="text-zinc-600">None. Connect one at the top right and the assistant can analyse it.</li>}
+              {connected.some((w) => w.kind === 'solana') && (
+                <li className="flex justify-between gap-2"><span className="text-zinc-500">Trade history</span><span className="text-zinc-200">{pnlReport ? `${pnlReport.pnl.totals.trades} trades read` : 'Reading'}</span></li>
+              )}
             </ul>
           </section>
         </aside>
@@ -244,11 +266,17 @@ export function AIChat() {
             <div ref={endRef} />
           </div>
 
-          <div className="px-4 md:px-6 pt-3 pb-2 border-t border-white/[0.07] flex gap-2 flex-wrap">
+          <div className="border-t border-white/[0.07] px-4 pt-2 md:px-6">
+            <button type="button" onClick={togglePrompts} aria-expanded={showPrompts} aria-controls="ai-prompts" className="flex items-center gap-1.5 py-1 text-xs text-zinc-400 hover:text-white">
+              <Lightbulb className="h-3.5 w-3.5" aria-hidden />{showPrompts ? 'Hide suggested questions' : 'Show suggested questions'}
+              <CaretDown className={`h-3 w-3 transition-transform ${showPrompts ? 'rotate-180' : ''}`} aria-hidden />
+            </button>
+          </div>
+          {showPrompts && <div id="ai-prompts" className="px-4 md:px-6 pt-1 pb-2 flex gap-2 flex-wrap">
             {prompts.map((p) => (
               <button key={p} onClick={() => void send(p)} disabled={busy || configured === false} className="text-xs px-3 py-1.5 rounded-full border border-white/10 text-zinc-400 hover:border-blue-500/50 hover:text-blue-200 disabled:opacity-40 disabled:cursor-not-allowed">{p}</button>
             ))}
-          </div>
+          </div>}
 
           <div className="px-4 md:px-6 py-4 border-t border-white/[0.07]">
             <div className="flex gap-3 items-end">

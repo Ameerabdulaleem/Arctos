@@ -39,7 +39,8 @@ The web app asks `/api/status` which mode it is talking to and adapts, so nothin
 | Dashboard | Market widgets, altseason index, top movers, headlines, whale feed, your wallet's tokens and NFTs | All of the above plus chain RPC, Jupiter, Magic Eden, and Alchemy when keyed |
 | Trading Terminal | Real spot swaps and bridges signed in your own wallet, with a live DexScreener chart. A Practice tab keeps paper trading on live candles and order books | Relay, Jupiter, KyberSwap, 0x, Sushi, Squid, DexScreener, Binance |
 | Sniper Engine | New liquidity pools on 5 chains, token search, contract risk checks | GeckoTerminal, DexScreener, GoPlus |
-| Whale Alerts | Large transfers on Ethereum, BNB Chain, Base, Arbitrum and Bitcoin | Chain RPC, Blockchair |
+| Alpha | Posts on X from top traders and founders, and the coins they call, ranked by how many of them called each | TwitterAPI.io or the X API (needs a key), DexScreener |
+| Whale Alerts | Smart money wallets graded by how often they bought pumping tokens early, with their holdings; large transfers on Ethereum, BNB Chain, Base, Arbitrum and Bitcoin | GeckoTerminal, chain RPC, Blockchair |
 | Fundamental News | Headlines scored by impact | 8 crypto RSS feeds |
 | Stocks & PRE-IPO | Public stock quotes | Yahoo Finance |
 | AI Chat | Answers grounded in the live data above and your own portfolio | Anthropic API, called by the server |
@@ -164,6 +165,25 @@ The panel says which keyed providers are switched on. Nothing else changes.
 
 **Limits:** Squid deposit address routes are not run (the panel says so and you can pick another quote). Squid is used between EVM chains only; Relay covers Solana bridges. Recent swaps are remembered on your device only.
 
+## Alpha: what top traders post on X
+
+The Alpha page follows a list of traders and founders on X (Ansem, CZ, Elon Musk, Murad and others) and pulls the coins out of their posts: contract addresses, DexScreener and launchpad links, and $tickers. Each coin is resolved on DexScreener; a $ticker goes to its most liquid, longest running token so copycats are skipped, while a posted contract is used exactly. Coins are ranked by how many different accounts called them, then by mentions and how recent. Posts sit on the left, coins on the right with copy, explorer and DexScreener buttons. A second tab lists tokens named after a word in a post that launched after it (a coin made on something Elon said, for example).
+
+X does not let apps read posts for free, so Alpha needs one of these keys on the server:
+
+| Key | Where | Cost |
+| --- | --- | --- |
+| `TWITTERAPI_IO_KEY` (recommended) | twitterapi.io, which gives new accounts up to $1 of free credit | About $0.15 per 1,000 posts. Following 24 accounts once a minute costs roughly $0.10 to $0.20 a day |
+| `X_BEARER_TOKEN` | The official X API (pay per use) | About $5 per 1,000 posts |
+
+Set `ALPHA_ACCOUNTS` to a comma separated list of handles to change who is followed. The service reads the last 12 hours of posts once a minute, caches the result, and lets the CDN serve it, so visitors never spend the key. Without a key the page explains how to add one.
+
+## Smart money in Whale Alerts
+
+The Smart money tab finds wallets that bought legit tokens before they pumped. For Solana, BNB Chain and Base it reads the trending pools on GeckoTerminal, keeps the legit ones (real liquidity and volume, not a stablecoin or wrapped coin), picks those that rose most plus a couple that did not (so losses count too), and reads every trade of $300 or more in them. Each wallet's entry price is set against today's price, with what it sold and what it still holds. Bots that trade dozens of times in a pool, or buy and sell in the same second, are left out. Trades from earlier scans are kept for three hours, so a wallet that hits several tokens rises.
+
+Grades: **A** won on two or more tokens, three in four or better, with at least $1,000 profit and an early entry (in at under half of today's price). **B** won on two with a win rate of 60% or more, or got in early on one for double or more. **C** is in profit on at least one. Pick a wallet to see its trades in the scanned tokens, what it holds now (each token with copy, explorer, DexScreener and Swap buttons), and, for Solana, a full grade from its last 300 transactions using the Trade Book's engine. Wallets can be tracked, which highlights their large transfers in the feed. A scan costs about seven provider calls and is cached for ten minutes.
+
 ## The AI assistant
 
 The assistant answers from live data the service puts in its instructions (prices, the Fear and Greed index, headlines, whale transfers, and the user's paper account and trade book), and it can look up anything else in Arctos through tools:
@@ -184,6 +204,8 @@ The assistant answers from live data the service puts in its instructions (price
 | `dexscreener_trends` | DexScreener's trending metas and their biggest tokens, the most boosted tokens, new token profiles and community takeovers, priced with live pool data |
 
 **Your connected wallets.** The app tells the assistant which wallets are connected in the browser (Phantom and any EVM wallet, from the swap panel or the sign in) and what they hold, so "analyse my wallet" works without pasting an address. Only public addresses and balances are shared. Token names from wallets are cleaned and marked as data, so a scam token's name cannot pass for an instruction.
+
+**Your trade history.** With Phantom connected, the assistant also gets the Trade Book's numbers for the wallet: totals, and per token the date of the first buy, what was put in, the average cost, what came back from sells, what is held now and its value, and the profit or loss from the first buy to now. So "what have I lost on WEN since I bought it" gets a real answer. Tokens held with no buy found in the transactions read are marked as such, so their cost is never guessed. The suggested questions under the chat can be folded away, and the choice is remembered.
 
 **Trends.** Asked what is trending or what could make money, the assistant reads DexScreener's metas first, then the strongest narratives' tokens and the boosted list, checks contracts on anything small it picks, and ranks by evidence (rising market cap with real volume, enough liquidity to exit, more buyers than sellers). It never promises profit.
 
@@ -230,7 +252,7 @@ Every query is sent as an unnamed statement, which the pooler's transaction mode
 
 With Phantom connected, the Trade Book reads the wallet's own trades from Solana and shows total profit, total loss, net P/L (realized and unrealized), total trades, win rate, money invested, volume and network fees, plus a table per token. Each buy is valued at what was paid at the time: SOL at Binance's price for that moment (5 minute candles for recent history, hourly for older), stablecoins at a dollar. Each sell is valued at what came back. Cost is averaged per token, and what you still hold is valued at today's price. Tokens that arrived without a trade (transfers, airdrops) have no known cost, so they are left out and counted separately.
 
-It reads the last 500 transactions first, and "Read older trades" goes further back. Transactions are read from public Solana RPCs, four at a time, and kept on your device, so later visits only read what is new. The first read takes about 15 seconds for 500 transactions. EVM wallets are not read yet. The manual journal is still there below it.
+It reads the last 500 transactions first, and keeps going further back (up to 2,000) while a token the wallet holds has no buy found yet. Every token the wallet holds is listed, even one with no buy in the transactions read, with its value and "Cost unknown". Buys paid in wrapped SOL count as SOL. "Read older trades" goes further back still. Transactions are read from public Solana RPCs, four at a time, and kept on your device, so later visits only read what is new. The first read takes about 15 seconds for 500 transactions. EVM wallets are not read yet. The manual journal is still there below it.
 
 ## Wallet balances and NFTs
 
@@ -319,6 +341,7 @@ Data service (`backend/.env.example`):
 | `RELAY_API_KEY`, `ZEROX_API_KEY`, `SQUID_INTEGRATOR_ID` | Swap and bridge providers that need a key. See [Swaps and bridges](#swaps-and-bridges). They stay on the server. |
 | `ALCHEMY_API_KEY`, `SOLANA_RPC_URL` | Every token and NFT in EVM wallets, and your own Solana RPC. See [Wallet balances and NFTs](#wallet-balances-and-nfts). Both stay on the server. |
 | `FX_SOURCES` | Optional. Comma separated exchange rate sources, tried in order. See [Display currency](#display-currency). |
+| `TWITTERAPI_IO_KEY`, `X_BEARER_TOKEN`, `ALPHA_ACCOUNTS` | The Alpha page's X data source and who it follows. See [Alpha](#alpha-what-top-traders-post-on-x). Keys stay on the server. |
 | `*_RPC_URL`, `TRACKED_SYMBOLS`, `WHALE_MIN_USD`, `STOCK_WATCHLIST`, `NEWS_FEEDS` | Optional tuning. |
 
 Every provider base URL can also be overridden, which is how the fixtures work.
@@ -360,7 +383,7 @@ The function runs in Frankfurt (`fra1` in `vercel.json`). Binance refuses reques
 ```bash
 npm test                          # unit tests for the paper trading engine, exit plan, sniper filters, formatting, trade book, password hashing
 npm run lint && npm run build
-cd backend && cargo test          # 93 unit tests and 16 end to end tests against a fake upstream, in both modes
+cd backend && cargo test          # 126 unit tests and 27 end to end tests against a fake upstream, in both modes
                                   # set TEST_DATABASE_URL to also run the database tests against a real PostgreSQL
 cargo build                       # the Vercel function crate (repository root)
 cd backend && cargo clippy --all-targets -- -D warnings
