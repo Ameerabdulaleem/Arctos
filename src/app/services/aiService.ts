@@ -16,6 +16,16 @@ export interface UserContext {
   wallet?: { address?: string; totalUsd?: number };
   /** The wallets connected in this browser, with what they hold. Public data only. */
   wallets?: WalletContext[];
+  /** The Trade Book's profit and loss for the connected Solana wallet, from its own trades. */
+  walletPnl?: WalletPnlContext;
+}
+
+export interface WalletPnlContext {
+  address: string;
+  since: number | null;
+  scanned: number;
+  totals: { netUsd: number; realizedUsd: number; unrealizedUsd: number; profitUsd: number; lossUsd: number; trades: number; buys: number; sells: number; winRatePct: number | null; investedUsd: number; feesUsd: number };
+  tokens: Array<{ symbol: string; mint: string; buys: number; sells: number; investedUsd: number; proceedsUsd: number; avgCostUsd: number | null; realizedUsd: number; heldQty: number; priceUsd: number | null; valueUsd: number | null; unrealizedUsd: number | null; totalUsd: number; firstAt: number; lastAt: number }>;
 }
 
 export interface WalletContext {

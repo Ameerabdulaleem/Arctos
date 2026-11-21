@@ -2,32 +2,10 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import { ArrowClockwise, CircleNotch, ClockCounterClockwise, Wallet } from '@phosphor-icons/react';
 import { useConnectedWallets } from '../../hooks/useConnectedWallets';
 import { formatNumber, formatPct, formatPrice, formatUsd, pnlClass, shortAddress, timeAgo } from '../../lib/format';
-import { solPriceLookup } from '../../lib/solPriceHistory';
-import { computePnl, STABLE_MINTS, type WalletPnl } from '../../lib/walletPnl';
-import { portfolioService } from '../../services/portfolioService';
-import { tokenPairs, usdPriceOf } from '../../swap/dexscreener';
-import { loadWalletHistory, type WalletTx } from '../../swap/solanaHistory';
+import { STABLE_MINTS } from '../../lib/walletPnl';
+import { loadPnlReport, type PnlReport } from '../../lib/walletPnlReport';
 import { Card, IconTile } from '../ui/common';
 import { CopyAddress } from '../ui/CopyAddress';
-
-interface Names {
-  [mint: string]: { symbol: string; name: string };
-}
-
-/** Names for mints the portfolio did not list, from Jupiter's token list. */
-async function namesFor(mints: string[]): Promise<Names> {
-  const out: Names = {};
-  for (let i = 0; i < mints.length; i += 100) {
-    try {
-      const res = await fetch(`https://lite-api.jup.ag/tokens/v2/search?query=${mints.slice(i, i + 100).join(',')}`, { credentials: 'omit', referrerPolicy: 'no-referrer' });
-      const list = res.ok ? ((await res.json()) as Array<{ id?: string; symbol?: string; name?: string }>) : [];
-      for (const t of Array.isArray(list) ? list : []) if (t.id && t.symbol) out[t.id] = { symbol: String(t.symbol).slice(0, 16), name: String(t.name ?? '').slice(0, 40) };
-    } catch {
-      /* names are a nicety */
-    }
-  }
-  return out;
-}
 
 function Stat({ label, value, tone, sub }: { label: string; value: string; tone?: string; sub?: string }) {
   return (
@@ -44,8 +22,7 @@ export function WalletPnlCard() {
   const { wallets } = useConnectedWallets();
   const solana = wallets.find((w) => w.kind === 'solana') ?? null;
   const evm = wallets.find((w) => w.kind === 'evm') ?? null;
-  const [txs, setTxs] = useState<WalletTx[] | null>(null);
-  const [state, setState] = useState<{ pnl: WalletPnl; names: Names; scanned: number; oldest: string | null; complete: boolean; at: number } | null>(null);
+  const [state, setState] = useState<PnlReport | null>(null);
   const [progress, setProgress] = useState<{ done: number; total: number } | null>(null);
   const [error, setError] = useState<string | null>(null);
   const ctrl = useRef<AbortController | null>(null);
@@ -59,43 +36,14 @@ export function WalletPnlCard() {
     setError(null);
     setProgress({ done: 0, total: 0 });
     try {
-      const history = await loadWalletHistory(address, { limit: 500, before: older ? state?.oldest ?? undefined : undefined, signal: c.signal, onProgress: (done, total) => setProgress({ done, total }) });
-      const all = new Map<string, WalletTx>();
-      for (const t of [...(older ? txs ?? [] : []), ...history.txs]) all.set(t.sig, t);
-      const merged = [...all.values()].sort((a, b) => a.time - b.time);
-      const [solAt, portfolio] = await Promise.all([
-        solPriceLookup(merged.filter((t) => t.sol !== '0').map((t) => t.time)),
-        portfolioService.get(address, c.signal).catch(() => null),
-      ]);
-      const prices = new Map<string, number>();
-      const holdings = new Map<string, number>();
-      const names: Names = {};
-      for (const h of portfolio?.holdings ?? []) {
-        if (!h.address) continue;
-        if (h.priceUsd != null) prices.set(h.address, h.priceUsd);
-        holdings.set(h.address, h.amount);
-        names[h.address] = { symbol: h.symbol, name: h.name };
-      }
-      let pnl = computePnl(merged, solAt, prices, portfolio ? holdings : undefined);
-      // Prices for tokens still held that the portfolio did not price.
-      const missing = pnl.tokens.filter((t) => t.heldQty > 0 && t.priceUsd == null).slice(0, 12);
-      if (missing.length) {
-        await Promise.all(missing.map(async (t) => {
-          const p = await tokenPairs('solana', t.mint).then((pairs) => usdPriceOf(pairs, t.mint)).catch(() => null);
-          if (p) prices.set(t.mint, p);
-        }));
-        pnl = computePnl(merged, solAt, prices, portfolio ? holdings : undefined);
-      }
-      Object.assign(names, await namesFor(pnl.tokens.map((t) => t.mint).filter((m) => !names[m])));
-      if (c.signal.aborted) return;
-      setTxs(merged);
-      setState({ pnl, names, scanned: (older ? state?.scanned ?? 0 : 0) + history.scanned, oldest: history.oldest, complete: history.complete, at: Date.now() });
+      const report = await loadPnlReport(address, { older: older ? state : null, signal: c.signal, onProgress: (done, total) => setProgress({ done, total }) });
+      if (!c.signal.aborted) setState(report);
     } catch (e) {
       if (!c.signal.aborted) setError(e instanceof Error ? e.message : 'The wallet history could not be read.');
     } finally {
       if (!c.signal.aborted) setProgress(null);
     }
-  }, [address, state?.oldest, state?.scanned, txs]);
+  }, [address, state]);
 
   // Read the wallet when it is connected. Transactions already read come from this device.
   useEffect(() => {
@@ -134,7 +82,7 @@ export function WalletPnlCard() {
 
       {progress && (
         <div>
-          <p className="flex items-center gap-2 text-sm text-zinc-300"><CircleNotch className="h-4 w-4 animate-spin" aria-hidden />Reading the wallet's transactions{progress.total ? `: ${progress.done} of ${progress.total}` : '…'}</p>
+          <p className="flex items-center gap-2 text-sm text-zinc-300"><CircleNotch className="h-4 w-4 animate-spin" aria-hidden />Reading the wallet's transactions{progress.total ? `: ${progress.done} of ${progress.total}` : '…'}{progress.total > 500 ? ', going further back to find the buys of tokens you hold' : ''}</p>
           {progress.total > 0 && <div className="mt-2 h-1.5 overflow-hidden rounded-full bg-white/[0.07]"><div className="h-full bg-blue-400 transition-[width]" style={{ width: `${(progress.done / progress.total) * 100}%` }} /></div>}
           <p className="mt-1 text-[11px] text-zinc-500">The first read can take a minute. Every transaction is kept on this device, so the next visit is quick.</p>
         </div>
@@ -176,14 +124,14 @@ export function WalletPnlCard() {
                 <tbody className="divide-y divide-white/[0.05]">
                   {state.pnl.tokens.map((k) => (
                     <tr key={k.mint}>
-                      <td className="py-2 pr-3"><span className="flex items-center gap-1 font-medium text-white">{name(k.mint)}<CopyAddress value={k.mint} label={`Copy ${name(k.mint)} contract address`} /></span><span className="text-[11px] text-zinc-500">since {new Date(k.firstAt).toLocaleDateString()}</span></td>
+                      <td className="py-2 pr-3"><span className="flex items-center gap-1 font-medium text-white">{name(k.mint)}<CopyAddress value={k.mint} label={`Copy ${name(k.mint)} contract address`} /></span><span className="text-[11px] text-zinc-500">{k.noTrade ? 'held, no buy found in the transactions read' : `since ${new Date(k.firstAt).toLocaleDateString()}`}</span></td>
                       <td className="num py-2 pr-3 text-right text-zinc-300">{k.buys} / {k.sells}</td>
                       <td className="num py-2 pr-3 text-right text-zinc-300">{formatUsd(k.investedUsd)}</td>
                       <td className="num py-2 pr-3 text-right text-zinc-300">{k.avgCostUsd == null ? '—' : formatPrice(k.avgCostUsd)}</td>
                       <td className={`num py-2 pr-3 text-right ${pnlClass(k.realizedUsd)}`}>{formatUsd(k.realizedUsd)}</td>
-                      <td className="num py-2 pr-3 text-right text-zinc-300">{k.heldQty > 0 ? <>{k.valueUsd == null ? 'No price' : formatUsd(k.valueUsd)}<span className="block text-[11px] text-zinc-500">{formatNumber(k.heldQty, 4)}</span></> : 'Sold'}</td>
+                      <td className="num py-2 pr-3 text-right text-zinc-300">{(k.nowQty ?? k.heldQty) > 0 ? <>{(k.nowUsd ?? k.valueUsd) == null ? 'No price' : formatUsd(k.nowUsd ?? k.valueUsd)}<span className="block text-[11px] text-zinc-500">{formatNumber(k.nowQty ?? k.heldQty, 4)}</span></> : 'Sold'}</td>
                       <td className={`num py-2 pr-3 text-right ${pnlClass(k.unrealizedUsd)}`}>{k.unrealizedUsd == null ? '—' : formatUsd(k.unrealizedUsd)}</td>
-                      <td className={`num py-2 text-right font-semibold ${pnlClass(k.totalUsd)}`}>{formatUsd(k.totalUsd)}{k.investedUsd > 0 && <span className="block text-[11px] font-normal">{formatPct((k.totalUsd / k.investedUsd) * 100, 1)}</span>}</td>
+                      <td className={`num py-2 text-right font-semibold ${k.noTrade ? 'text-zinc-500' : pnlClass(k.totalUsd)}`}>{k.noTrade ? 'Cost unknown' : <>{formatUsd(k.totalUsd)}{k.investedUsd > 0 && <span className="block text-[11px] font-normal">{formatPct((k.totalUsd / k.investedUsd) * 100, 1)}</span>}</>}</td>
                     </tr>
                   ))}
                 </tbody>

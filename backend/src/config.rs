@@ -71,6 +71,14 @@ pub struct Config {
     pub magiceden_base: String,
     /// Exchange rate sources for showing amounts in other currencies, tried in order.
     pub fx_sources: Vec<String>,
+    /// TwitterAPI.io key for the Alpha page's X posts. Server side only.
+    pub twitterapi_key: Option<String>,
+    pub twitterapi_base: String,
+    /// Official X API bearer token, used when no TwitterAPI.io key is set. Server side only.
+    pub x_bearer_token: Option<String>,
+    pub x_api_base: String,
+    /// X accounts the Alpha page follows.
+    pub alpha_accounts: Vec<String>,
 
     // Tuning
     pub tracked_symbols: Vec<String>,
@@ -213,6 +221,23 @@ impl Config {
             alchemy_api_key: var("ALCHEMY_API_KEY"),
             alchemy_base: var_or("ALCHEMY_BASE", "https://api.g.alchemy.com/data/v1"),
             magiceden_base: var_or("MAGICEDEN_BASE", "https://api-mainnet.magiceden.dev/v2"),
+            twitterapi_key: var("TWITTERAPI_IO_KEY"),
+            twitterapi_base: var_or("TWITTERAPI_BASE", "https://api.twitterapi.io"),
+            x_bearer_token: var("X_BEARER_TOKEN"),
+            x_api_base: var_or("X_API_BASE", "https://api.x.com"),
+            alpha_accounts: {
+                let accounts: Vec<String> = list("ALPHA_ACCOUNTS", crate::alpha::DEFAULT_ACCOUNTS)
+                    .into_iter()
+                    .map(|a| a.trim_start_matches('@').to_string())
+                    .filter(|a| crate::alpha::valid_handle(a))
+                    .take(60)
+                    .collect();
+                if accounts.is_empty() {
+                    crate::alpha::DEFAULT_ACCOUNTS.iter().map(|s| s.to_string()).collect()
+                } else {
+                    accounts
+                }
+            },
             fx_sources: list(
                 "FX_SOURCES",
                 &[

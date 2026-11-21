@@ -1,5 +1,5 @@
 import type { Icon } from '@phosphor-icons/react';
-import { Buildings, ChartLineUp, Crosshair, GearSix, Newspaper, Notebook, Sparkle, SquaresFour, Waves } from '@phosphor-icons/react';
+import { Buildings, ChartLineUp, Crosshair, GearSix, Megaphone, Newspaper, Notebook, Sparkle, SquaresFour, Waves } from '@phosphor-icons/react';
 import type { ViewId } from '../hooks/useHashView';
 import type { Tone } from './ui/common';
 
@@ -34,7 +34,8 @@ export const NAV_GROUPS: NavGroup[] = [
   {
     label: 'Intelligence',
     items: [
-      { id: 'whale', label: 'Whale Alerts', blurb: 'Large on chain transfers as they land.', icon: Waves, tone: 'ice' },
+      { id: 'alpha', label: 'Alpha', blurb: 'What top traders post on X, and the coins they call.', icon: Megaphone, tone: 'amber' },
+      { id: 'whale', label: 'Whale Alerts', blurb: 'Smart money wallets graded by results, and large transfers.', icon: Waves, tone: 'ice' },
       { id: 'news', label: 'Fundamental News', blurb: 'Headlines scored by likely market impact.', icon: Newspaper, tone: 'rose' },
       { id: 'stocks', label: 'Stocks & PRE-IPO', blurb: 'Crypto linked equities and private listings.', icon: Buildings, tone: 'mint' },
       { id: 'chat', label: 'AI Chat', blurb: 'Answers grounded in the live data above.', icon: Sparkle, tone: 'violet' },

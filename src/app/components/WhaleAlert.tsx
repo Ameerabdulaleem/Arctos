@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { ArrowRight, ArrowSquareOut, Bell, BellSlash, FunnelSimple, Plus, Star, Trash, Waves, X } from '@phosphor-icons/react';
+import { ArrowRight, ArrowSquareOut, Bell, BellSlash, Brain, FunnelSimple, Plus, Star, Trash, Waves, X } from '@phosphor-icons/react';
 import { toast } from 'sonner';
 import { Card, Empty, ErrorNotice, Loading, PageHeader, Pill } from './ui/common';
 import { usePolling } from '../hooks/usePolling';
@@ -7,9 +7,21 @@ import { openSocket } from '../services/api';
 import { whaleService, type WhaleEvent, type WhaleKind } from '../services/whaleService';
 import { isValidAddress } from '../services/walletService';
 import { formatCompactUsd, formatNumber, safeHref, shortAddress, timeAgo } from '../lib/format';
+import { SmartMoney } from './whales/SmartMoney';
 
 const TRACKED_KEY = 'arctos_whales';
 const NOTIFY_KEY = 'arctos_whale_notify';
+const TAB_KEY = 'arctos_whale_tab';
+
+type Tab = 'smart' | 'transfers';
+
+function readTab(): Tab {
+  try {
+    return localStorage.getItem(TAB_KEY) === 'transfers' ? 'transfers' : 'smart';
+  } catch {
+    return 'smart';
+  }
+}
 
 interface TrackedWhale {
   id: string;
@@ -42,6 +54,7 @@ function sameAddress(a: string | null, b: string) {
 }
 
 export function WhaleAlert() {
+  const [tab, setTab] = useState<Tab>(readTab);
   const [kind, setKind] = useState<KindFilter>('all');
   const [chain, setChain] = useState('all');
   const [minUsd, setMinUsd] = useState(100_000);
@@ -57,13 +70,17 @@ export function WhaleAlert() {
   const notifyRef = useRef(notify);
   const minRef = useRef(minUsd);
 
-  const data = usePolling((s) => whaleService.list({ minUsd: 100_000, limit: 300 }, s), 15_000);
+  // The transfer feed only polls while its tab is open.
+  const data = usePolling((s) => whaleService.list({ minUsd: 100_000, limit: 300 }, s), tab === 'transfers' ? 15_000 : null, [tab]);
 
   useEffect(() => { notifyRef.current = notify; }, [notify]);
   useEffect(() => { minRef.current = minUsd; }, [minUsd]);
   useEffect(() => {
     try { localStorage.setItem(TRACKED_KEY, JSON.stringify(tracked)); } catch { /* storage unavailable */ }
   }, [tracked]);
+  useEffect(() => {
+    try { localStorage.setItem(TAB_KEY, tab); } catch { /* storage unavailable */ }
+  }, [tab]);
   useEffect(() => {
     const t = setInterval(() => setClock((n) => n + 1), 30_000); // keep "5m ago" labels fresh
     return () => clearInterval(t);
@@ -121,6 +138,12 @@ export function WhaleAlert() {
     toast.success('You will get a browser alert for new transfers above your minimum.');
   };
 
+  const trackWallet = (addr: string, name: string) => {
+    if (tracked.some((w) => sameAddress(addr, w.address))) return;
+    setTracked((prev) => [...prev, { id: crypto.randomUUID(), address: addr, name: name.slice(0, 40), dateAdded: new Date().toISOString() }]);
+    toast.success('Wallet tracked. Its large transfers are highlighted in the feed.');
+  };
+
   const addWhale = () => {
     const addr = address.trim();
     const name = label.trim();
@@ -138,7 +161,7 @@ export function WhaleAlert() {
     <div className="p-4 md:p-6 space-y-5 max-w-[1500px] mx-auto">
       <PageHeader
         icon={<Waves />} tone="ice" title="Whale Alerts"
-        subtitle="Large on chain transfers, read straight from the blockchains"
+        subtitle="Smart money wallets graded by their results, and large on chain transfers"
         actions={
           <>
             <button onClick={toggleNotify} aria-pressed={notify} className={`btn h-10 ${notify ? 'border border-blue-300/40 bg-blue-400/15 text-blue-100' : 'btn-secondary'}`}>
@@ -151,7 +174,12 @@ export function WhaleAlert() {
         }
       />
 
-      <div className="flex flex-wrap gap-2">
+      <div className="seg flex w-fit" role="tablist" aria-label="Whale views">
+        <button type="button" role="tab" aria-selected={tab === 'smart'} onClick={() => setTab('smart')} className="seg-item inline-flex items-center gap-1.5 px-3 py-1.5 text-sm"><Brain className="h-4 w-4" aria-hidden />Smart money</button>
+        <button type="button" role="tab" aria-selected={tab === 'transfers'} onClick={() => setTab('transfers')} className="seg-item inline-flex items-center gap-1.5 px-3 py-1.5 text-sm"><Waves className="h-4 w-4" aria-hidden />Large transfers</button>
+      </div>
+
+      {tab === 'transfers' && <div className="flex flex-wrap gap-2">
         {chains.map((c) => (
           <span key={c.chain} title={c.note}>
             <Pill tone={!c.supported ? 'zinc' : c.ok ? 'green' : 'amber'}>
@@ -160,7 +188,7 @@ export function WhaleAlert() {
             </Pill>
           </span>
         ))}
-      </div>
+      </div>}
 
       {showAdd && (
         <Card className="p-5">
@@ -195,6 +223,10 @@ export function WhaleAlert() {
         </Card>
       )}
 
+      {tab === 'smart' ? (
+        <SmartMoney isTracked={(a) => isTracked(a)} onTrack={trackWallet} />
+      ) : (
+        <>
       <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
         {[['Transfers shown', String(stats.count)], ['Largest', formatCompactUsd(stats.largest)], ['Average', formatCompactUsd(stats.average)], ['Tracked wallets', String(tracked.length)]].map(([k, v]) => (
           <Card key={k} className="p-4"><p className="text-zinc-500 text-[10px] font-medium uppercase tracking-wider mb-1">{k}</p><p className="text-xl font-semibold text-white num">{v}</p></Card>
@@ -270,6 +302,8 @@ export function WhaleAlert() {
         )}
       </Card>
       <p className="text-xs text-zinc-500">Direction labels only appear when a wallet matches a short built in list of well known exchange wallets. Bitcoin transfers show total outputs and do not include wallet addresses.</p>
+        </>
+      )}
     </div>
   );
 }

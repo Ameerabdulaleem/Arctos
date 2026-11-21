@@ -20,6 +20,7 @@ const DashboardView = lazy(VIEW_LOADERS.dashboard);
 const TradingTerminal = lazy(VIEW_LOADERS.trading);
 const SniperPanel = lazy(VIEW_LOADERS.sniper);
 const TradeBook = lazy(VIEW_LOADERS.tradebook);
+const AlphaPage = lazy(VIEW_LOADERS.alpha);
 const WhaleAlert = lazy(VIEW_LOADERS.whale);
 const FundamentalNews = lazy(VIEW_LOADERS.news);
 const StocksPreIPO = lazy(VIEW_LOADERS.stocks);
@@ -84,6 +85,7 @@ function Shell() {
       case 'trading': return <TradingTerminal />;
       case 'sniper': return <SniperPanel />;
       case 'tradebook': return <TradeBook />;
+      case 'alpha': return <AlphaPage />;
       case 'whale': return <WhaleAlert />;
       case 'news': return <FundamentalNews />;
       case 'stocks': return <StocksPreIPO />;

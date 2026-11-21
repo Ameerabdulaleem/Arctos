@@ -1015,7 +1015,7 @@ fn verdict(stats: &DevStats) -> &'static str {
 /// One call to the pool data provider. With a CoinGecko API key the request
 /// goes to CoinGecko's on chain API, which serves the same data from a
 /// dedicated allowance. Without one it goes to GeckoTerminal's public API.
-async fn gecko(
+pub(crate) async fn gecko(
     state: &AppState,
     path: &str,
     query: &[(&str, String)],

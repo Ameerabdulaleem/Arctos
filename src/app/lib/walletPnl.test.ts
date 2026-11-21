@@ -72,6 +72,21 @@ describe('wallet profit and loss', () => {
     expect(r.totals.swaps).toBe(1);
   });
 
+  it('counts wrapped SOL paid or received as SOL', () => {
+    const WSOL = 'So11111111111111111111111111111111111111112';
+    const txs = [
+      tx(1000, 0, [[WSOL, -2, 9], [WIF, 100, 6]]), // 2 wrapped SOL at $100 for 100 WIF
+      tx(2000, 0, [[WIF, -50, 6], [WSOL, 3, 9]]), // half sold for 3 wrapped SOL
+    ];
+    const r = computePnl(txs, () => 100, new Map([[WIF, 4]]));
+    expect(r.tokens.map((t) => t.mint)).toEqual([WIF]);
+    const wif = r.tokens[0];
+    expect(wif.investedUsd).toBeCloseTo(200);
+    expect(wif.realizedUsd).toBeCloseTo(200); // $300 back for $100 of cost
+    expect(wif.unrealizedUsd).toBeCloseTo(100); // 50 left worth $200, cost $100
+    expect(r.totals.swaps).toBe(0);
+  });
+
   it('caps the book at what the wallet still holds', () => {
     const r = computePnl([tx(1000, -1, [[BONK, 1_000_000, 5]])], () => 100, new Map([[BONK, 0.0001]]), new Map([[BONK, 250_000]]));
     expect(r.tokens[0].heldQty).toBe(250_000);

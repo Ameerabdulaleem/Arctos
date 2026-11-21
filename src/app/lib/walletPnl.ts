@@ -10,6 +10,9 @@ export const STABLE_MINTS: Record<string, string> = {
   Es9vMFrzaCERmJfrF4H2FYD4KCoNkY11McCe8BenwNYB: 'USDT',
 };
 
+/** Wrapped SOL. Routers often pay with it, so it counts as SOL, not as a token traded. */
+export const WSOL_MINT = 'So11111111111111111111111111111111111111112';
+
 /** Below this, a dollar leg is rounding noise rather than a trade. */
 const DUST_USD = 0.01;
 
@@ -34,6 +37,11 @@ export interface TokenPnl {
   totalUsd: number;
   firstAt: number;
   lastAt: number;
+  /** What the wallet holds now and its value, when known. Can exceed heldQty (tokens with no known cost). */
+  nowQty: number | null;
+  nowUsd: number | null;
+  /** Held, but no buy of it was found in the transactions read, so its cost is unknown. */
+  noTrade?: boolean;
 }
 
 export interface WalletPnl {
@@ -78,7 +86,7 @@ export function computePnl(
   const book = (mint: string, at: number): TokenPnl => {
     let b = books.get(mint);
     if (!b) {
-      b = { t: { mint, buys: 0, sells: 0, investedUsd: 0, proceedsUsd: 0, realizedUsd: 0, heldQty: 0, costUsd: 0, untrackedQty: 0, avgCostUsd: null, priceUsd: null, valueUsd: null, unrealizedUsd: null, totalUsd: 0, firstAt: at, lastAt: at } };
+      b = { t: { mint, buys: 0, sells: 0, investedUsd: 0, proceedsUsd: 0, realizedUsd: 0, heldQty: 0, costUsd: 0, untrackedQty: 0, avgCostUsd: null, priceUsd: null, valueUsd: null, unrealizedUsd: null, totalUsd: 0, firstAt: at, lastAt: at, nowQty: null, nowUsd: null } };
       books.set(mint, b);
     }
     b.t.lastAt = at;
@@ -106,7 +114,7 @@ export function computePnl(
 
   for (const tx of txs) {
     const solPrice = solUsdAt(tx.time);
-    const solMoved = BigInt(tx.sol) !== 0n;
+    const solMoved = BigInt(tx.sol) !== 0n || tx.tokens.some((t) => t.mint === WSOL_MINT);
     if (solMoved && solPrice == null) {
       skipped.unpriced += 1;
       continue;
@@ -117,6 +125,7 @@ export function computePnl(
     const others: WalletTx['tokens'] = [];
     for (const t of tx.tokens) {
       if (STABLE_MINTS[t.mint]) quoteUsd -= num(t.delta, t.decimals);
+      else if (t.mint === WSOL_MINT) quoteUsd -= num(t.delta, t.decimals) * (solPrice ?? 0);
       else others.push(t);
     }
     const hasQuote = Math.abs(quoteUsd) >= DUST_USD;
@@ -193,6 +202,8 @@ export function computePnl(
     }
     t.avgCostUsd = t.heldQty > 0 ? t.costUsd / t.heldQty : null;
     t.priceUsd = price;
+    t.nowQty = now ?? null;
+    t.nowUsd = now != null && price != null ? now * price : null;
     t.valueUsd = price != null ? t.heldQty * price : null;
     t.unrealizedUsd = t.valueUsd != null ? t.valueUsd - t.costUsd : t.heldQty > 0 ? null : 0;
     t.totalUsd = t.realizedUsd + (t.unrealizedUsd ?? 0);

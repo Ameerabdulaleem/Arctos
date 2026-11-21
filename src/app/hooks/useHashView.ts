@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useState } from 'react';
 
-export const VIEWS = ['dashboard', 'trading', 'sniper', 'tradebook', 'whale', 'news', 'stocks', 'chat', 'settings'] as const;
+export const VIEWS = ['dashboard', 'trading', 'sniper', 'tradebook', 'alpha', 'whale', 'news', 'stocks', 'chat', 'settings'] as const;
 export type ViewId = (typeof VIEWS)[number];
 
 function read(): ViewId | null {
