@@ -527,6 +527,7 @@ async fn scan(state: &AppState, chain: &ChainInfo) -> std::result::Result<Value,
         .read_recently(chain.key, Duration::from_secs(1800));
     let picked = pick_pools(tokens.clone(), POOLS_PER_SCAN, &lately);
     let mut read = Vec::new();
+    let mut busy = false;
     for token in picked {
         let path = format!("/networks/{net}/pools/{}/trades", token.pair_address);
         let query = [(
@@ -550,6 +551,7 @@ async fn scan(state: &AppState, chain: &ChainInfo) -> std::result::Result<Value,
                     "smart money scan paused by the provider after {} pools",
                     read.len()
                 );
+                busy = true;
                 break;
             }
             // One pool failing does not spoil the rest.
@@ -558,9 +560,15 @@ async fn scan(state: &AppState, chain: &ChainInfo) -> std::result::Result<Value,
     }
     let merged = state.smart.merge(chain.key, read, &tokens);
     if merged.is_empty() {
-        return Err(UpstreamError::Parse(
-            "no trending pools could be read".into(),
-        ));
+        // Nothing read because the provider was busy: say so, rather than a generic failure.
+        return Err(if busy {
+            UpstreamError::Http {
+                status: 429,
+                snippet: "busy".into(),
+            }
+        } else {
+            UpstreamError::Parse("no trending pools could be read".into())
+        });
     }
     let pools: Vec<(SniperToken, HashMap<String, Position>)> = merged
         .into_iter()
