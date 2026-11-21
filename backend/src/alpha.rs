@@ -63,7 +63,11 @@ const MAX_POSTS: usize = 400;
 const PAGES_PER_QUERY: usize = 4;
 /// Calls to the X data source in one refresh. With the free tier's five second gap this keeps a
 /// refresh under half a minute; later refreshes only ask for posts newer than the last one.
-const MAX_CALLS_PER_REFRESH: usize = 5;
+const MAX_CALLS_PER_REFRESH: usize = 4;
+/// A search over two dozen accounts can take a while to answer.
+const CALL_TIMEOUT: Duration = Duration::from_secs(25);
+/// No new call starts after this, so a refresh fits in the hosted function's 60 seconds.
+const REFRESH_BUDGET: Duration = Duration::from_secs(20);
 const MAX_QUERY: usize = 480;
 
 /// Majors are mentioned all day; they would drown out new coins.
@@ -585,8 +589,12 @@ async fn turn(state: &AppState) {
 async fn fetch_posts(state: &AppState, since: i64) -> (Vec<AlphaPost>, Option<UpstreamError>) {
     let mut posts = Vec::new();
     let mut calls = 0usize;
+    let started = Instant::now();
+    let out_of_time = |calls: usize| {
+        calls >= MAX_CALLS_PER_REFRESH || (calls > 0 && started.elapsed() > REFRESH_BUDGET)
+    };
     for query in queries(&state.config.alpha_accounts, since) {
-        if calls >= MAX_CALLS_PER_REFRESH {
+        if out_of_time(calls) {
             break;
         }
         if let Some(key) = state.config.twitterapi_key.as_deref() {
@@ -596,7 +604,7 @@ async fn fetch_posts(state: &AppState, since: i64) -> (Vec<AlphaPost>, Option<Up
             );
             let mut cursor = String::new();
             for _ in 0..PAGES_PER_QUERY {
-                if calls >= MAX_CALLS_PER_REFRESH {
+                if out_of_time(calls) {
                     break;
                 }
                 let q = [
@@ -608,7 +616,7 @@ async fn fetch_posts(state: &AppState, since: i64) -> (Vec<AlphaPost>, Option<Up
                 calls += 1;
                 let v: Value = match state
                     .up
-                    .get_json_with("twitterapi", &url, &q, &[("x-api-key", key)])
+                    .get_json_slow("twitterapi", &url, &q, &[("x-api-key", key)], CALL_TIMEOUT)
                     .await
                 {
                     Ok(v) => v,
@@ -653,7 +661,13 @@ async fn fetch_posts(state: &AppState, since: i64) -> (Vec<AlphaPost>, Option<Up
             calls += 1;
             match state
                 .up
-                .get_json_with::<Value>("x-api", &url, &q, &[("authorization", auth.as_str())])
+                .get_json_slow::<Value>(
+                    "x-api",
+                    &url,
+                    &q,
+                    &[("authorization", auth.as_str())],
+                    CALL_TIMEOUT,
+                )
                 .await
             {
                 Ok(v) => posts.extend(parse_x_api(&v)),
@@ -713,6 +727,10 @@ async fn refresh(state: &Arc<AppState>) {
             }
             UpstreamError::Http { status: 429, .. } => {
                 "The X data source is rate limiting. New posts will follow shortly.".to_string()
+            }
+            UpstreamError::Network(_) => {
+                "The X data source is slow to answer right now. New posts will follow shortly."
+                    .to_string()
             }
             _ => "New posts could not be read right now.".to_string(),
         }

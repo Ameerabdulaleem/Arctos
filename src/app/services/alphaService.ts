@@ -55,5 +55,5 @@ export interface AlphaResponse {
 
 export const alphaService = {
   get: (signal?: AbortSignal) =>
-    apiGet<AlphaResponse>('/api/alpha', { signal, timeoutMs: 40_000, check: (v) => isRecord(v) && typeof v.configured === 'boolean' && Array.isArray(v.posts) && Array.isArray(v.coins) }),
+    apiGet<AlphaResponse>('/api/alpha', { signal, timeoutMs: 90_000, check: (v) => isRecord(v) && typeof v.configured === 'boolean' && Array.isArray(v.posts) && Array.isArray(v.coins) }),
 };

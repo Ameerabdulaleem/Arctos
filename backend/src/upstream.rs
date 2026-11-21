@@ -217,6 +217,26 @@ impl Upstream {
         serde_json::from_slice(&body.0).map_err(|e| UpstreamError::Parse(e.to_string()))
     }
 
+    /// Like `get_json_with`, for a source that can take longer than the usual twelve seconds.
+    pub async fn get_json_slow<T: DeserializeOwned>(
+        &self,
+        source: &str,
+        url: &str,
+        query: &[(&str, String)],
+        headers: &[(&str, &str)],
+        timeout: Duration,
+    ) -> Result<T, UpstreamError> {
+        let mut req = self.client.get(url).timeout(timeout);
+        if !query.is_empty() {
+            req = req.query(query);
+        }
+        for (k, v) in headers {
+            req = req.header(*k, *v);
+        }
+        let body = self.send(source, req).await?;
+        serde_json::from_slice(&body.0).map_err(|e| UpstreamError::Parse(e.to_string()))
+    }
+
     pub async fn get_text(&self, source: &str, url: &str) -> Result<String, UpstreamError> {
         let body = self.send(source, self.client.get(url)).await?;
         Ok(String::from_utf8_lossy(&body.0).into_owned())
