@@ -37,3 +37,21 @@ describe('sniper wallet settings', () => {
     expect(readWalletSettings().autoChains).toEqual(['solana', 'bsc']);
   });
 });
+
+describe('open snipe limit', () => {
+  beforeEach(() => {
+    vi.resetModules();
+    vi.stubGlobal('localStorage', new MemoryStorage());
+  });
+
+  it('defaults to 5 and keeps a saved choice between 1 and 50', async () => {
+    const { readWalletSettings } = await import('./walletSnipes');
+    expect(readWalletSettings().maxOpen).toBe(5);
+    localStorage.setItem('arctos_sniper_wallet_settings', JSON.stringify({ maxOpen: 20 }));
+    expect(readWalletSettings().maxOpen).toBe(20);
+    for (const bad of [0, 51, 2.5, 'ten']) {
+      localStorage.setItem('arctos_sniper_wallet_settings', JSON.stringify({ maxOpen: bad }));
+      expect(readWalletSettings().maxOpen).toBe(5);
+    }
+  });
+});

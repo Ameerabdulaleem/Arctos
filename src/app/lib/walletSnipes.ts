@@ -45,7 +45,12 @@ export interface WalletSettings {
   sniperSpendEvm: Record<string, string>;
   /** Chains the auto sniper scans and buys on. */
   autoChains: string[];
+  /** The most snipes auto sniping keeps open at once. */
+  maxOpen: number;
 }
+
+/** The highest limit on open snipes; the keeper manages this many per browser. */
+export const MAX_OPEN_LIMIT = 50;
 
 /** Chains the auto sniper can cover, Solana and BNB Chain first. */
 export const AUTO_CHAINS = ['solana', 'bsc', 'base', 'ethereum'];
@@ -58,6 +63,7 @@ export const DEFAULT_WALLET_SETTINGS: WalletSettings = {
   sniperSpend: '0.05',
   sniperSpendEvm: { bsc: '0.01', base: '0.002', ethereum: '0.005', arbitrum: '0.002', polygon: '5', avalanche: '0.2', optimism: '0.002', linea: '0.002', sonic: '5' },
   autoChains: ['solana', 'bsc'],
+  maxOpen: 5,
 };
 
 function read(key: string): unknown {
@@ -113,6 +119,7 @@ export function readWalletSettings(): WalletSettings {
     for (const [k, v] of Object.entries(raw.sniperSpendEvm)) if (typeof v === 'string' && AMOUNT.test(v)) sniperSpendEvm[k] = v;
   }
   const autoChains = Array.isArray(raw?.autoChains) ? raw.autoChains.filter((c): c is string => typeof c === 'string' && AUTO_CHAINS.includes(c)) : [];
+  const maxOpen = Number(raw?.maxOpen);
   const slip = Number(raw?.slippagePct);
   const budget = Number(raw?.paperBudgetUsd);
   return {
@@ -123,6 +130,7 @@ export function readWalletSettings(): WalletSettings {
     sniperSpend: typeof raw?.sniperSpend === 'string' && AMOUNT.test(raw.sniperSpend) ? raw.sniperSpend : DEFAULT_WALLET_SETTINGS.sniperSpend,
     sniperSpendEvm,
     autoChains: autoChains.length ? autoChains : DEFAULT_WALLET_SETTINGS.autoChains,
+    maxOpen: Number.isInteger(maxOpen) && maxOpen >= 1 && maxOpen <= MAX_OPEN_LIMIT ? maxOpen : DEFAULT_WALLET_SETTINGS.maxOpen,
   };
 }
 

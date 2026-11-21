@@ -1321,17 +1321,13 @@ async fn keeper_rejects_what_it_should_not_trust() {
         ),
         (1, Some("It was sent twice."))
     );
-    let many: Vec<Value> = (0..14)
+    // Fifty is the most one browser may hand over; two more are turned away.
+    const B58: &str = "ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz";
+    let many: Vec<Value> = (0..52)
         .map(|i| {
-            held(
-                &format!(
-                    "ManyKeeperToken{}",
-                    ["A", "B", "C", "D", "E", "F", "G", "H", "J", "K", "L", "M", "N", "P"][i]
-                        .repeat(29)
-                ),
-                1.0,
-                None,
-            )
+            let c = &B58[i % 48..i % 48 + 1];
+            let d = &B58[i / 48..i / 48 + 1];
+            held(&format!("ManyKeeperToken{}{d}", c.repeat(28)), 1.0, None)
         })
         .collect();
     let (_, v) = keeper_sync(&c, &base, None, Value::Array(many), json!([])).await;
@@ -1340,7 +1336,7 @@ async fn keeper_rejects_what_it_should_not_trust() {
             v["positions"].as_array().unwrap().len(),
             v["rejected"].as_array().unwrap().len()
         ),
-        (12, 2),
+        (50, 2),
         "{v}"
     );
     // A request that is not shaped like a sync at all is refused outright.
@@ -1371,7 +1367,7 @@ async fn keeper_rejects_what_it_should_not_trust() {
         (Some(5.0), &json!([]))
     );
     // An oversized body is cut off.
-    let huge = json!({"positions": [], "ack": ["a".repeat(80_000)]});
+    let huge = json!({"positions": [], "ack": ["a".repeat(200_000)]});
     let r = c
         .post(format!("{base}/api/sniper/keeper/sync"))
         .header("origin", &base)

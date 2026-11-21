@@ -59,7 +59,7 @@ export interface KeeperSyncResponse {
 }
 
 /** Open snipes the keeper manages for one browser. */
-export const MAX_MANAGED_SNIPES = 12;
+export const MAX_MANAGED_SNIPES = 50;
 
 /** The keeper's state for a position, read back from where the paper account keeps it. */
 export function keeperStateOf(position: { key: string; keeper?: Record<string, unknown> }): KeeperPosition | null {

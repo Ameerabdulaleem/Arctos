@@ -20,7 +20,7 @@ import {
   type ChainOption, type DiscoverList, type DiscoverToken, type FeedToken, type FeedView, type Meta, type Security, type SniperFilters, type SniperToken,
 } from '../services/sniperService';
 import {
-  AUTO_CHAINS, dueAlerts, readMode, readWalletSettings, readWalletSnipes, saveMode, saveWalletSettings, saveWalletSnipes, validSpend,
+  AUTO_CHAINS, MAX_OPEN_LIMIT, dueAlerts, readMode, readWalletSettings, readWalletSnipes, saveMode, saveWalletSettings, saveWalletSnipes, validSpend,
   type AutoStrategy, type SniperMode, type WalletSettings, type WalletSnipe,
 } from '../lib/walletSnipes';
 import { useSwapWallets } from '../swap/useSwapWallets';
@@ -49,7 +49,6 @@ const FILTERS_KEY = 'arctos_sniper_filters_v2';
 const TRACKED_KEY = 'arctos_sniper_tracked';
 const AUTO_KEY = 'arctos_sniper_auto_done';
 const CHAIN_KEY = 'arctos_sniper_chain';
-const MAX_AUTO_POSITIONS = 5;
 const NO_RISK_DATA: Security = { available: false, riskScore: 0, riskLevel: 'unknown', flags: [], buyTaxPct: null, sellTaxPct: null, holders: null, isHoneypot: null, source: 'GoPlus' };
 
 function readJson<T>(key: string, fallback: T): T {
@@ -815,17 +814,28 @@ export function SniperPanel() {
     const next = on ? s.autoChains.filter((k) => k !== key) : [...s.autoChains, key];
     return { ...s, autoChains: next.length ? next : s.autoChains };
   });
-  const autoBlocked = (): string | null => {
+  const openSnipes = mode === 'paper' ? sniperPositions.length : sniperOpen.length;
+  const atLimit = openSnipes >= walletSettings.maxOpen;
+  /** Why auto sniping cannot run at all. A full set of open snipes only pauses it. */
+  const autoStartBlocked = (): string | null => {
     if (mode === 'wallet') return 'each buy from your own wallet needs your approval. Use the paper account or the sniper wallet for auto sniping.';
     if (mode === 'paper') {
-      if (sniperPositions.length >= MAX_AUTO_POSITIONS) return `${MAX_AUTO_POSITIONS} snipes are open, the most at once.`;
+      if (paper.availableCash < 10) return 'the paper cash is used up.';
+      return null;
+    }
+    const reasons = autoScope.map((c) => sniperNotReady(c.key));
+    if (reasons.every(Boolean)) return `${reasons[0]}.`;
+    return null;
+  };
+  const autoBlocked = (): string | null => {
+    const start = autoStartBlocked();
+    if (start) return start;
+    if (atLimit) return `${openSnipes} snipes are open, your limit. It carries on when one is sold, or raise the limit.`;
+    if (mode === 'paper') {
       if (walletSettings.paperBudgetUsd - paperInSnipes < 10) return `the auto snipe budget of ${formatDollars(walletSettings.paperBudgetUsd, 0)} is all in open snipes.`;
       if (paper.availableCash < 10) return 'the paper cash is used up.';
       return null;
     }
-    if (sniperOpen.length >= MAX_AUTO_POSITIONS) return `${MAX_AUTO_POSITIONS} snipes are open, the most at once.`;
-    const reasons = autoScope.map((c) => sniperNotReady(c.key));
-    if (reasons.every(Boolean)) return `${reasons[0]}.`;
     return null;
   };
 
@@ -988,7 +998,7 @@ export function SniperPanel() {
           )}
           {mode !== 'wallet' && (
             <AutoSniperCard
-              on={auto} onToggle={() => setAuto((a) => !a)} canRun={autoBlocked() == null} whyNot={autoBlocked() ? `Not ready: ${autoBlocked()}` : undefined}
+              on={auto} onToggle={() => setAuto((a) => !a)} canRun={autoStartBlocked() == null} whyNot={autoStartBlocked() ? `Not ready: ${autoStartBlocked()}` : undefined}
               strategy={walletSettings.strategy} onStrategy={setStrategy}
               events={autoSniper.events} summary={autoSniper.summary} scanning={autoSniper.scanning}
               scope={(
@@ -1007,6 +1017,13 @@ export function SniperPanel() {
                       );
                     })}
                   </div>
+                  <label className="mt-3 flex flex-wrap items-center gap-2 text-xs text-zinc-400">
+                    Most snipes open at once
+                    <input type="number" min={1} max={MAX_OPEN_LIMIT} step={1} value={walletSettings.maxOpen}
+                      onChange={(e) => { const n = Math.round(Number(e.target.value)); if (Number.isFinite(n)) setWalletSettings((s) => ({ ...s, maxOpen: Math.min(MAX_OPEN_LIMIT, Math.max(1, n)) })); }}
+                      className="field num w-20 py-1.5" aria-label="Most snipes open at once" />
+                    <span className={atLimit ? 'text-amber-200' : 'text-zinc-500'}>{openSnipes} open now{atLimit ? ', so buying waits until one is sold' : ''}</span>
+                  </label>
                 </div>
               )}
               budget={mode === 'paper' ? (
