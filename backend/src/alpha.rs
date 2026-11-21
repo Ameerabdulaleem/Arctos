@@ -60,7 +60,11 @@ pub const DEFAULT_ACCOUNTS: &[&str] = &[
 const WINDOW_SECS: i64 = 12 * 3600;
 const REFRESH_EVERY: Duration = Duration::from_secs(60);
 const MAX_POSTS: usize = 400;
-const PAGES_PER_QUERY: usize = 4;
+/// Pages read per group of accounts in one refresh.
+const PAGES_PER_GROUP: usize = 2;
+/// Accounts per search. A small group answers quickly; one search over two dozen accounts can
+/// take longer than the provider's patience.
+const GROUP_SIZE: usize = 6;
 /// Calls to the X data source in one refresh. With the free tier's five second gap this keeps a
 /// refresh under half a minute; later refreshes only ask for posts newer than the last one.
 const MAX_CALLS_PER_REFRESH: usize = 4;
@@ -68,7 +72,6 @@ const MAX_CALLS_PER_REFRESH: usize = 4;
 const CALL_TIMEOUT: Duration = Duration::from_secs(25);
 /// No new call starts after this, so a refresh fits in the hosted function's 60 seconds.
 const REFRESH_BUDGET: Duration = Duration::from_secs(20);
-const MAX_QUERY: usize = 480;
 
 /// Majors are mentioned all day; they would drown out new coins.
 const MAJORS: &[&str] = &[
@@ -168,6 +171,9 @@ pub struct AlphaStore {
     posts: Mutex<BTreeMap<String, AlphaPost>>,
     /// When the next call to the X data source may go out.
     next_call: Mutex<Instant>,
+    /// The newest time each group of accounts was read up to, and the group to read next.
+    group_since: std::sync::Mutex<HashMap<String, i64>>,
+    rotation: std::sync::atomic::AtomicUsize,
     fetched: Mutex<Option<Instant>>,
     last_error: std::sync::Mutex<Option<String>>,
     resolved: KeyedCache<HashMap<String, SniperToken>>,
@@ -185,6 +191,8 @@ impl AlphaStore {
         Self {
             posts: Mutex::new(BTreeMap::new()),
             next_call: Mutex::new(Instant::now()),
+            group_since: std::sync::Mutex::new(HashMap::new()),
+            rotation: std::sync::atomic::AtomicUsize::new(0),
             fetched: Mutex::new(None),
             last_error: std::sync::Mutex::new(None),
             resolved: KeyedCache::new(Duration::from_secs(120), Duration::from_secs(900)),
@@ -544,24 +552,18 @@ fn sanitize_keep_lines(s: &str, max: usize) -> String {
         .collect()
 }
 
-/// `(from:a OR from:b ...)` queries short enough for the search API.
-pub fn queries(accounts: &[String], since: i64) -> Vec<String> {
-    let suffix = format!(" since_time:{since}");
-    let mut out = Vec::new();
-    let mut cur: Vec<String> = Vec::new();
-    for a in accounts {
-        let next = format!("from:{a}");
-        let len = cur.iter().map(|c| c.len() + 4).sum::<usize>() + next.len() + suffix.len() + 2;
-        if !cur.is_empty() && len > MAX_QUERY {
-            out.push(format!("({}){suffix}", cur.join(" OR ")));
-            cur.clear();
-        }
-        cur.push(next);
-    }
-    if !cur.is_empty() {
-        out.push(format!("({}){suffix}", cur.join(" OR ")));
-    }
-    out
+/// The followed accounts in small groups, each searched on its own.
+pub fn groups(accounts: &[String]) -> Vec<Vec<String>> {
+    accounts
+        .chunks(GROUP_SIZE)
+        .map(<[String]>::to_vec)
+        .collect()
+}
+
+/// `(from:a OR from:b ...) since_time:...` for one group.
+pub fn group_query(group: &[String], since: i64) -> String {
+    let names: Vec<String> = group.iter().map(|a| format!("from:{a}")).collect();
+    format!("({}) since_time:{since}", names.join(" OR "))
 }
 
 pub fn source(state: &AppState) -> Option<&'static str> {
@@ -586,24 +588,41 @@ async fn turn(state: &AppState) {
 
 /// Posts read, and the error that stopped the reading early, if any. Posts read before a
 /// refusal are kept.
-async fn fetch_posts(state: &AppState, since: i64) -> (Vec<AlphaPost>, Option<UpstreamError>) {
+/// Groups are read in turn, so a refresh that runs out of time carries on where it stopped next
+/// time, and each group only asks for posts newer than its last read.
+async fn fetch_posts(state: &AppState, now: i64) -> (Vec<AlphaPost>, Option<UpstreamError>) {
+    use std::sync::atomic::Ordering::Relaxed;
     let mut posts = Vec::new();
     let mut calls = 0usize;
     let started = Instant::now();
     let out_of_time = |calls: usize| {
         calls >= MAX_CALLS_PER_REFRESH || (calls > 0 && started.elapsed() > REFRESH_BUDGET)
     };
-    for query in queries(&state.config.alpha_accounts, since) {
+    let all = groups(&state.config.alpha_accounts);
+    let first = state.alpha.rotation.load(Relaxed);
+    for step in 0..all.len() {
         if out_of_time(calls) {
             break;
         }
+        let idx = (first + step) % all.len();
+        let group = &all[idx];
+        let key = group.join(",");
+        let since = state
+            .alpha
+            .group_since
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .get(&key)
+            .map_or(now - WINDOW_SECS, |t| t - 60)
+            .max(now - WINDOW_SECS);
+        let query = group_query(group, since);
         if let Some(key) = state.config.twitterapi_key.as_deref() {
             let url = format!(
                 "{}/twitter/tweet/advanced_search",
                 state.config.twitterapi_base
             );
             let mut cursor = String::new();
-            for _ in 0..PAGES_PER_QUERY {
+            for _ in 0..PAGES_PER_GROUP {
                 if out_of_time(calls) {
                     break;
                 }
@@ -674,6 +693,14 @@ async fn fetch_posts(state: &AppState, since: i64) -> (Vec<AlphaPost>, Option<Up
                 Err(e) => return (posts, Some(e)),
             }
         }
+        // This group is read up to now; the next refresh starts with the group after it.
+        state
+            .alpha
+            .group_since
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .insert(key, now);
+        state.alpha.rotation.store((idx + 1) % all.len(), Relaxed);
     }
     (posts, None)
 }
@@ -685,17 +712,7 @@ async fn refresh(state: &Arc<AppState>) {
         return;
     }
     let now = Utc::now().timestamp();
-    let since = {
-        let posts = state.alpha.posts.lock().await;
-        posts
-            .values()
-            .map(|p| p.created_at / 1000)
-            .max()
-            .map_or(now - WINDOW_SECS, |newest| {
-                (newest - 1).max(now - WINDOW_SECS)
-            })
-    };
-    let (new, error) = fetch_posts(state, since).await;
+    let (new, error) = fetch_posts(state, now).await;
     let read = new.len();
     if read > 0 || error.is_none() {
         let mut posts = state.alpha.posts.lock().await;
@@ -1178,19 +1195,18 @@ mod tests {
     }
 
     #[test]
-    fn queries_stay_short() {
-        let accounts: Vec<String> = (0..60).map(|i| format!("account_{i:02}")).collect();
-        let q = queries(&accounts, 1_800_000_000);
-        assert!(q.len() > 1);
+    fn accounts_are_searched_in_small_groups() {
+        let accounts: Vec<String> = (0..24).map(|i| format!("account_{i:02}")).collect();
+        let g = groups(&accounts);
+        assert_eq!(g.len(), 4);
+        assert!(g.iter().all(|x| x.len() == GROUP_SIZE));
+        let q = group_query(&g[0], 1_800_000_000);
+        assert_eq!(q.matches("from:").count(), GROUP_SIZE);
         assert!(
-            q.iter()
-                .all(|x| x.len() <= MAX_QUERY + 30 && x.ends_with(" since_time:1800000000")),
-            "{q:?}"
+            q.starts_with("(from:account_00 OR ") && q.ends_with(") since_time:1800000000"),
+            "{q}"
         );
-        assert_eq!(
-            q.iter().map(|x| x.matches("from:").count()).sum::<usize>(),
-            60
-        );
+        assert!(q.len() < 200);
     }
 
     fn token(id: &str, symbol: &str) -> SniperToken {

@@ -176,7 +176,7 @@ X does not let apps read posts for free, so Alpha needs one of these keys on the
 | `TWITTERAPI_IO_KEY` (recommended) | twitterapi.io, which gives new accounts up to $1 of free credit | About $0.15 per 1,000 posts. Following 24 accounts once a minute costs roughly $0.10 to $0.20 a day |
 | `X_BEARER_TOKEN` | The official X API (pay per use) | About $5 per 1,000 posts |
 
-Set `ALPHA_ACCOUNTS` to a comma separated list of handles to change who is followed. TwitterAPI.io's free tier allows one call every five seconds, so calls are spaced 5.2 seconds apart (set `ALPHA_CALL_SPACING_MS` lower once the account has credit), and posts read before a refusal are kept. The service reads the last 12 hours of posts once a minute, caches the result, and lets the CDN serve it, so visitors never spend the key. Without a key the page explains how to add one.
+Set `ALPHA_ACCOUNTS` to a comma separated list of handles to change who is followed. TwitterAPI.io's free tier allows one call every five seconds, so calls are spaced 5.2 seconds apart (set `ALPHA_CALL_SPACING_MS` lower once the account has credit), and posts read before a refusal are kept. Accounts are searched in groups of six, which answer quickly, taking turns across refreshes, and each group only asks for posts newer than its last read. The service reads the last 12 hours of posts once a minute, caches the result, and lets the CDN serve it, so visitors never spend the key. Without a key the page explains how to add one.
 
 ## Smart money in Whale Alerts
 
