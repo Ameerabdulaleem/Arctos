@@ -50,6 +50,8 @@ const RETAIN: Duration = Duration::from_secs(3 * 3600);
 /// Pools kept per chain, and trades kept per pool.
 const MAX_BOOKS: usize = 30;
 const MAX_TRADES: usize = 3000;
+/// How long to wait before asking again when the provider says it is busy.
+const BUSY_WAIT: Duration = Duration::from_secs(10);
 
 /// Wrapped coins and stablecoins are what tokens trade against, not tokens to grade on.
 const QUOTES: &[&str] = &[
@@ -482,17 +484,34 @@ pub fn rank_wallets(
     out
 }
 
+/// One provider call, asked again once after a pause when the provider says it is busy. The
+/// free GeckoTerminal allowance is shared with the sniper, so a scan often lands on a busy minute.
+async fn gecko_patient(
+    state: &AppState,
+    path: &str,
+    query: &[(&str, String)],
+) -> std::result::Result<String, UpstreamError> {
+    match gecko(state, path, query).await {
+        Err(UpstreamError::Http { status: 429, .. }) => {
+            tokio::time::sleep(BUSY_WAIT).await;
+            gecko(state, path, query).await
+        }
+        other => other,
+    }
+}
+
 async fn scan(state: &AppState, chain: &ChainInfo) -> std::result::Result<Value, UpstreamError> {
     let net = chain.gecko_network;
     let include = ("include", "base_token".to_string());
     let mut tokens = Vec::new();
     for page in 1..=2u32 {
-        let raw = gecko(
-            state,
-            &format!("/networks/{net}/trending_pools"),
-            &[include.clone(), ("page", page.to_string())],
-        )
-        .await;
+        let path = format!("/networks/{net}/trending_pools");
+        let query = [include.clone(), ("page", page.to_string())];
+        let raw = if page == 1 {
+            gecko_patient(state, &path, &query).await
+        } else {
+            gecko(state, &path, &query).await
+        };
         match raw {
             Ok(raw) => tokens.extend(parse_new_pools(&raw, chain)),
             Err(e) if page == 1 => return Err(e),
@@ -514,7 +533,13 @@ async fn scan(state: &AppState, chain: &ChainInfo) -> std::result::Result<Value,
             "trade_volume_in_usd_greater_than",
             MIN_TRADE_USD.to_string(),
         )];
-        match gecko(state, &path, &query).await {
+        // The first pool is worth waiting for; after that, a busy provider ends the scan.
+        let raw = if read.is_empty() {
+            gecko_patient(state, &path, &query).await
+        } else {
+            gecko(state, &path, &query).await
+        };
+        match raw {
             Ok(raw) => {
                 let trades = parse_trades(&raw, &token.address);
                 read.push((token, trades));
@@ -578,7 +603,14 @@ pub async fn smart_json(state: &Arc<AppState>, chain: &str) -> Result<Value> {
         .smart
         .scans
         .get_or_fetch(chain, || async move { scan(&st, &info).await })
-        .await?;
+        .await
+        .map_err(|e| match e {
+            UpstreamError::Http { status: 429, .. } => AppError::Unavailable(
+                "GeckoTerminal is busy right now, so this scan could not run. It tries again in a minute."
+                    .into(),
+            ),
+            e => e.into(),
+        })?;
     if let Some(o) = v.as_object_mut() {
         o.insert("chains".into(), json!(CHAINS));
     }
